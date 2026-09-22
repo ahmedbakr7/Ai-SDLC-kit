@@ -1,3 +1,8 @@
+---
+name: test
+description: Author or verify tests for one ticket. Mode A writes test/e2e/eval files; mode B runs app evals. Never edit production source or weaken AC.
+---
+
 # Skill: test
 
 Two modes. Same agent kind, different write set.

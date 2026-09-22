@@ -21,6 +21,14 @@ done < <(
     | grep -v '^\.git' | sort -u
 )
 
+echo "== check-kit: required command preambles =="
+for play in research intent design architect ticketize build test review observe; do
+  if [[ ! -f "$ROOT/commands/${play}.md" ]]; then
+    echo "FAIL: missing commands/${play}.md" >&2
+    fail=1
+  fi
+done
+
 echo "== check-kit: referenced commands/*.md =="
 while IFS= read -r ref; do
   [[ -z "$ref" ]] && continue
