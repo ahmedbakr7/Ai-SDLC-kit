@@ -36,7 +36,7 @@ Git pre-commit + CI. Do not rely on the vendor hook system alone.
 
 ```
 .git/hooks/pre-commit → ln -sf ../../.sdlc/scripts/pre-commit.sh .git/hooks/pre-commit
-.github/workflows → same scripts (see scripts/check-kit.sh in the kit repo)
+.github/workflows → copy adapters/github/check-kit.yml (runs scripts/check-kit.sh)
 ```
 See `.sdlc/hooks/README.md` for the full L0 table.
 

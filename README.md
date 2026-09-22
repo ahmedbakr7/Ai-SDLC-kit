@@ -6,6 +6,8 @@ Host this repo on git. Product repos pin it at `.sdlc/` (submodule by default). 
 
 Importable: pin at `.sdlc/`, run `bootstrap-product.sh`, install the pre-commit wrapper as documented in `hooks/README.md`. L0 scripts under `scripts/` exist and fail loud on `files:` / CONTRACTS / ADR / AC violations. Test and app-eval runners remain product-overridable (`scripts/run-tests.sh`, `scripts/run-app-eval.sh`). Walk `examples/slice-042-return-status/` before your first real ticket.
 
+CI workflow template: `adapters/github/check-kit.yml` (copy into `.github/workflows/` — see that folder’s README).
+
 ## Ideas
 
 | Concept | Meaning | Not |
