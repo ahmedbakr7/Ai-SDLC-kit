@@ -35,9 +35,10 @@ Write only files: on the ticket.
 Git pre-commit + CI. Do not rely on the vendor hook system alone.
 
 ```
-.git/hooks/pre-commit → scripts/* and hooks policy
-.github/workflows/sdlc.yml → same scripts
+.git/hooks/pre-commit → ln -sf ../../.sdlc/scripts/pre-commit.sh .git/hooks/pre-commit
+.github/workflows → copy adapters/github/check-kit.yml (runs scripts/check-kit.sh)
 ```
+See `.sdlc/hooks/README.md` for the full L0 table.
 
 Claude Code hooks / Cursor hooks are optional extras that fail faster.
 

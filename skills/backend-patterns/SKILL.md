@@ -1,3 +1,8 @@
+---
+name: backend-patterns
+description: Product-locked backend patterns (API style, authz, persistence). Fill via ADR in the first /architect. Build agents must apply, not invent.
+---
+
 # Skill: backend-patterns
 
 Same freeze rule as frontend-patterns. Fill via ADR.

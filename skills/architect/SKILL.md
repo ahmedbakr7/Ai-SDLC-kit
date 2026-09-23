@@ -1,3 +1,8 @@
+---
+name: architect
+description: Turn an accepted spec into plan.md, CONTRACTS.md patches, and ADRs. Use after /design. Do not write application source or tickets.
+---
+
 # Skill: architect
 
 Use after spec is accepted, before tickets.

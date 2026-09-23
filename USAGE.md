@@ -17,7 +17,7 @@ Subtree alternative is in `CONSUME.md`.
 
 ## 2. Bind the agent tool
 
-Always-on file = **product root** `AGENTS.md` (the shim). See `adapters/GENERIC.md`. Fill `adapters/MODELS.md`. Wire pre-commit to `.sdlc/scripts/`.
+Always-on file = **product root** `AGENTS.md` (the shim). See `adapters/GENERIC.md`. Fill `adapters/MODELS.md`. Install pre-commit: `ln -sf ../../.sdlc/scripts/pre-commit.sh .git/hooks/pre-commit` (or `bootstrap-product.sh --hooks`).
 
 ## 3. First product lock (once)
 
@@ -38,3 +38,14 @@ Pin under product `skills/vendor/` and `skills/VENDOR.lock.md`. See `.sdlc/skill
 ## 6. Bump the kit
 
 `.sdlc/scripts/update-kit.sh v0.2.0` then `/test` one ticket.
+
+
+## 7. Pre-commit + example walk
+
+After bootstrap:
+
+```bash
+ln -sf ../../.sdlc/scripts/pre-commit.sh .git/hooks/pre-commit
+```
+
+Walk `.sdlc/examples/slice-042-return-status/` (or `examples/…` in this kit repo) before your first real ticket — run `./scripts/verify-ticket.sh T-042-03` to confirm L0 tooling.

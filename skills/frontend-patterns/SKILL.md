@@ -1,3 +1,8 @@
+---
+name: frontend-patterns
+description: Product-locked frontend patterns (framework, data fetching, tokens). Fill via ADR in the first /architect. Build agents must apply, not invent.
+---
+
 # Skill: frontend-patterns
 
 Replace the examples with this repo’s real choices via an ADR. Until then, treat this file as the pattern lock.

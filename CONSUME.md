@@ -82,7 +82,14 @@ Skills live in two trees. Agents must load:
 
 Command preambles: copy or symlink `.sdlc/commands/*.md` into your tool’s command dir if it does not search `.sdlc/commands/`.
 
-Hooks: product pre-commit calls `.sdlc/scripts/verify-ticket.sh`.
+Hooks: install the wrapper after bootstrap (see `hooks/README.md`):
+
+```bash
+ln -sf ../../.sdlc/scripts/pre-commit.sh .git/hooks/pre-commit
+# or: .sdlc/scripts/bootstrap-product.sh --hooks
+```
+
+Before the first real ticket, walk `.sdlc/examples/slice-042-return-status/` (20-minute README).
 
 ---
 

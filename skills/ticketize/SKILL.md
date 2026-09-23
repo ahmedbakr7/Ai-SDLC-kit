@@ -1,3 +1,8 @@
+---
+name: ticketize
+description: Split an accepted plan into tickets/*.md with exhaustive files:, resolvable depends_on, and testable AC. Write tickets only.
+---
+
 # Skill: ticketize
 
 ## Band

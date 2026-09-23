@@ -1,3 +1,8 @@
+---
+name: build
+description: Implement exactly one ticket. Load ticket + CONTRACTS + ticket.skills. Write only files: plus unit tests beside them.
+---
+
 # Skill: build
 
 Use when implementing exactly one ticket.

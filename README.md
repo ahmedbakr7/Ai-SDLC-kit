@@ -2,6 +2,12 @@
 
 Host this repo on git. Product repos pin it at `.sdlc/` (submodule by default). See `CONSUME.md`. It does not depend on Claude Code, Cursor, Codex, or a particular model. Those are *adapters*.
 
+## v0.2
+
+Importable: pin at `.sdlc/`, run `bootstrap-product.sh`, install the pre-commit wrapper as documented in `hooks/README.md`. L0 scripts under `scripts/` exist and fail loud on `files:` / CONTRACTS / ADR / AC violations. Test and app-eval runners remain product-overridable (`scripts/run-tests.sh`, `scripts/run-app-eval.sh`). Walk `examples/slice-042-return-status/` before your first real ticket.
+
+CI workflow template: `adapters/github/check-kit.yml` (copy into `.github/workflows/` — see that folder’s README).
+
 ## Ideas
 
 | Concept | Meaning | Not |
@@ -31,7 +37,8 @@ Never put L3 on a greenfield “change the button color” ticket. Never put L1 
 - `skills/` — play skills + pattern skills + `vendor/` for pinned third-party skills
 - `skills/VENDOR.lock.md` — sha pins for craft skills
 - `hooks/` — L0 gates
-- `commands/` — named plays and copy-paste preambles (`build.md`, `test.md`)
+- `commands/` — named plays and copy-paste preambles for every play
+- `examples/slice-042-return-status/` — markdown-only golden walkthrough
 - `scripts/` — portable runners
 - `templates/` — intent, ADR, ticket
 - `adapters/` — bind to any tool; `MODELS.md` is the only place model names live
@@ -41,4 +48,5 @@ Never put L3 on a greenfield “change the button color” ticket. Never put L1 
 1. Push this repo. In a product: `git submodule add <this-remote> .sdlc && .sdlc/scripts/bootstrap-product.sh` (`CONSUME.md`)
 2. Human: `USAGE.md` then `adapters/GENERIC.md`
 3. Agent: product `AGENTS.md` shim → `.sdlc/AGENTS.md`
-4. Third-party skills: `skills/vendor/README.md` (in the product after bootstrap)
+4. Walk `.sdlc/examples/slice-042-return-status/` (or `examples/…` in this repo)
+5. Third-party skills: `skills/vendor/README.md` (in the product after bootstrap)

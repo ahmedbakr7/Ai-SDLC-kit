@@ -1,3 +1,8 @@
+---
+name: review
+description: Review a PR against ticket files:, CONTRACTS, DESIGN, and ADRs. Write reviews/*.md with file:line proofs. Do not merge or edit prod.
+---
+
 # Skill: review
 
 Launched by CI on every PR, not by the author session.

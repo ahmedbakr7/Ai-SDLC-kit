@@ -1,8 +1,19 @@
 #!/usr/bin/env bash
 # Run from the PRODUCT repo root after .sdlc/ exists.
+# Usage: .sdlc/scripts/bootstrap-product.sh [--hooks]
 set -euo pipefail
 root="$(pwd)"
 kit="${root}/.sdlc"
+INSTALL_HOOKS=0
+for arg in "$@"; do
+  case "$arg" in
+    --hooks) INSTALL_HOOKS=1 ;;
+    -h|--help)
+      echo "usage: bootstrap-product.sh [--hooks]"
+      exit 0
+      ;;
+  esac
+done
 
 if [[ ! -d "${kit}" || ! -f "${kit}/AGENTS.md" ]]; then
   echo "missing .sdlc/AGENTS.md — add the kit first (see .sdlc/CONSUME.md or the kit CONSUME.md)" >&2
@@ -41,6 +52,23 @@ if [[ ! -f "${root}/tickets/TEMPLATE.md" ]]; then
 fi
 
 echo
+if [[ -d "${root}/.git" ]]; then
+  hook_src="../../.sdlc/scripts/pre-commit.sh"
+  hook_dst="${root}/.git/hooks/pre-commit"
+  if [[ $INSTALL_HOOKS -eq 1 ]]; then
+    mkdir -p "${root}/.git/hooks"
+    ln -sf "$hook_src" "$hook_dst"
+    echo "installed pre-commit hook -> $hook_src"
+  else
+    echo "pre-commit hook not installed (pass --hooks to install)."
+    echo "one-liner:"
+    echo "  ln -sf ../../.sdlc/scripts/pre-commit.sh .git/hooks/pre-commit"
+  fi
+else
+  echo "no .git directory; skip hook install instructions."
+fi
+
+echo
 echo "bootstrap ok."
-echo "next: fill adapters/MODELS.md, bind the agent to ./AGENTS.md, first /intent."
+echo "next: fill adapters/MODELS.md, bind the agent to ./AGENTS.md, walk .sdlc/examples/slice-042-return-status/, first /intent."
 echo "do not commit product secrets. do not edit .sdlc/ in feature PRs."
