@@ -33,9 +33,9 @@ Never put L3 on a greenfield “change the button color” ticket. Never put L1 
 ## What this kit contains
 
 - `AGENTS.md` — always-on OS for **agents** (they need this; humans are not enough)
-- `USAGE.md` — how a human copies, binds, and launches plays
-- `skills/` — play skills + pattern skills + `vendor/` for pinned third-party skills
-- `skills/VENDOR.lock.md` — sha pins for craft skills
+- `USAGE.md` — how a human runs plays after the kit is attached
+- `CONSUME.md` — pin the kit at `.sdlc/`, bootstrap, bump the pin
+- `skills/` — play skills + pattern skills + `vendor/` for git-pinned third-party skills
 - `hooks/` — L0 gates
 - `commands/` — named plays and copy-paste preambles for every play
 - `examples/slice-042-return-status/` — markdown-only golden walkthrough

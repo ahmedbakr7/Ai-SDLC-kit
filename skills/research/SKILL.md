@@ -1,27 +1,16 @@
 ---
 name: research
-description: Isolated research subagent. Use when the lead needs sources, options, or risks before writing intent.md. Returns a brief. Writes nothing in the repo.
+description: Isolated research subagent. Use when the lead needs sources, options, or risks before writing intent.md. Returns a brief.
 ---
 
 # Skill: research
 
-## Band
+Load set, band, write set, and hard rules: `AGENTS.md`.
 
-L1. Subagent. Dies after the brief.
+## Procedure
 
-## Writes
-
-Nothing. Return markdown to the parent lead.
-
-## Do
-
-- Answer the lead’s questions with dated sources when possible.
-- Separate facts, options, and recommendations.
-- List `[OPEN]` items the spec must not pretend are decided.
-- Do not invent vendors. If you name one, cite.
-
-## Do not
-
-- Commit files.
-- Start implementation.
-- Stay loaded into a later `/build` session. The lead copies conclusions into `intent.md` only.
+1. Answer the lead’s questions with dated sources when possible.
+2. Separate facts, options, and recommendations.
+3. List `[OPEN]` items the spec must not pretend are decided.
+4. If you name a vendor, cite it.
+5. Return the brief to the parent lead and stop.

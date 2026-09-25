@@ -56,4 +56,4 @@ Swap vendors by editing that map. Do not put model names in skills.
 
 ## Vendor / marketplace skills
 
-Install however you like (`npx skills add`, Claude `/plugin`, Cursor skills). Then **copy the SKILL.md folder into `skills/vendor/<name>/`**, pin it in `skills/VENDOR.lock.md`, and list it on tickets. Do not make marketplace skills always-on. See `skills/vendor/README.md`.
+Install however you like (`npx skills add`, Claude `/plugin`, Cursor skills). Then **copy the SKILL.md folder into `skills/vendor/<name>/`**, commit it, and list it on tickets. Do not make marketplace skills always-on. See `skills/vendor/README.md`.

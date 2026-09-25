@@ -1,25 +1,11 @@
 ---
 name: build
-description: Implement exactly one ticket. Load ticket + CONTRACTS + ticket.skills. Write only files: plus unit tests beside them.
+description: Implement exactly one ticket. Use on /build after the ticket is ready.
 ---
 
 # Skill: build
 
-Use when implementing exactly one ticket.
-
-## Load
-
-- `AGENTS.md`
-- the ticket file
-- `CONTRACTS.md` (full file, or the heading the ticket `contracts:` field names)
-- skills listed in ticket `skills:` — play + pattern + vendor/craft
-- files in ticket `files:`
-
-Vendor skills under `skills/vendor/` are optional craft. They do not override AGENTS.md hard rules or CONTRACTS.md.
-
-## Band
-
-L2. Escalate to L3 only if the ticket `risk: high` *and* the plan said first-of-kind.
+Load set, band, write set, and hard rules: `AGENTS.md`.
 
 ## Procedure
 
@@ -30,10 +16,3 @@ L2. Escalate to L3 only if the ticket `risk: high` *and* the plan said first-of-
 5. Run `scripts/verify-ticket.sh <ticket-id>` (L0).
 6. Set ticket `status: in_review`.
 7. Stop. Do not start the next ticket.
-
-## Forbidden
-
-- New public API / event / table
-- Design tokens not in `DESIGN.md`
-- Resolving `[OPEN]`
-- Editing `CONTRACTS.md`, ADRs, or spec

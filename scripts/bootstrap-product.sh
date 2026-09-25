@@ -43,10 +43,6 @@ for s in frontend-patterns backend-patterns; do
   fi
 done
 
-if [[ ! -f "${root}/skills/VENDOR.lock.md" ]]; then
-  cp "${kit}/skills/VENDOR.lock.md" "${root}/skills/VENDOR.lock.md"
-fi
-
 if [[ ! -f "${root}/tickets/TEMPLATE.md" ]]; then
   cp "${kit}/templates/ticket.md" "${root}/tickets/TEMPLATE.md"
 fi

@@ -1,26 +1,18 @@
 ---
 name: design
-description: Turn an accepted intent into spec.md, DESIGN.md, and page files. Use after /intent is accepted. Do not write application code.
+description: Turn an accepted intent into spec.md, DESIGN.md, and page files. Use after /intent is accepted.
 ---
 
 # Skill: design
 
-## Band
+Load set, band, write set, and hard rules: `AGENTS.md`.
 
-L2, or L3 if this is the first product spec / new IA.
+## Procedure
 
-## Writes
+Use L3 if this is the first product spec or new IA.
 
-`design/spec-<id>.md`, `design/DESIGN.md`, `design/pages/<route>.md`
-
-## Do
-
-- Mark `[DECISION: ADR-…]` or `[OPEN: …]` on every judgment.
-- Page files describe empty / error / loaded states.
-- Requirements must be testable statements.
-- Do not invent stack or API shapes. That is `/architect`.
-
-## Do not
-
-- Implement UI.
-- Resolve `[OPEN]` by guessing.
+1. Mark `[DECISION: ADR-…]` or `[OPEN: …]` on every judgment.
+2. Page files describe empty / error / loaded states.
+3. Requirements must be testable statements.
+4. Do not close `[OPEN]` by guessing.
+5. Stack and API shapes wait for `/architect`.

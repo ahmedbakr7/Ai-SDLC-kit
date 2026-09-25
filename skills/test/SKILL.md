@@ -1,21 +1,19 @@
 ---
 name: test
-description: Author or verify tests for one ticket. Mode A writes test/e2e/eval files; mode B runs app evals. Never edit production source or weaken AC.
+description: Author or verify tests for one ticket. Mode A writes test/e2e/eval files; Mode B runs app evals.
 ---
 
 # Skill: test
 
+Load set, band, write set, and hard rules: `AGENTS.md`.
+
+## Procedure
+
 Two modes. Same agent kind, different write set.
 
-## Mode A — author (default after a build)
+### Mode A — author
 
-Write tests that lock the ticket AC.
-
-- Band: L2
-- May write: `**/*.{test,spec}.*`, `e2e/**`, `evals/**`, fixtures
-- May not write: production source, `CONTRACTS.md`, tickets (except `status` / links to test files)
-
-Procedure:
+Write tests that lock the ticket AC. Globs: `**/*.{test,spec}.*`, `e2e/**`, `evals/**`, fixtures.
 
 1. Load ticket AC + `CONTRACTS.md` + built files.
 2. Map each AC to a test. Missing AC = fail the play, do not skip.
@@ -25,16 +23,11 @@ Procedure:
 6. If red because the test is wrong: fix the test.
 7. Never delete or weaken an AC to pass.
 
-## Mode B — verify (CI or `/test --app`)
+### Mode B — verify
 
-Run the app and report. Write only `reviews/test-<ticket-or-sha>.md`.
+Run the app and report. Proof artifact: `reviews/test-<ticket-or-sha>.md`.
 
-- Band: L1 to drive the runner + summarize; L0 runs the suite
 - Use `scripts/run-app-eval.sh` (browser, API, screenshot diff — whatever the repo wired)
 - Proof format: command, expected, actual, file:line
-
-## Load
-
-ticket.md, CONTRACTS.md, this skill, existing tests for `files:`, plus craft skills listed on the ticket (e.g. `skills/vendor/playwright`).
 
 Vendor skills teach the runner. This skill owns AC mapping and the write set.

@@ -1,15 +1,13 @@
 ---
 name: frontend-patterns
-description: Product-locked frontend patterns (framework, data fetching, tokens). Fill via ADR in the first /architect. Build agents must apply, not invent.
+description: Product-locked frontend patterns (framework, data fetching, tokens). Fill via ADR in the first /architect.
 ---
 
 # Skill: frontend-patterns
 
-Replace the examples with this repo’s real choices via an ADR. Until then, treat this file as the pattern lock.
+Hard rules: `AGENTS.md`.
 
-## Defined when
-
-After first accepted spec, inside the first architect play. Frozen by ADR-0001 (stack) + ADR-0002 (UI patterns). Change only by superseding ADR.
+Fill the Lock in the first `/architect`. Change only by a superseding ADR.
 
 ## Lock (fill in per product)
 
@@ -26,4 +24,3 @@ After first accepted spec, inside the first architect play. Frozen by ADR-0001 (
 
 - New page = add/update `design/pages/<route>.md` first (spec play), not here
 - No new component library
-- No fetching shape that contradicts `CONTRACTS.md`

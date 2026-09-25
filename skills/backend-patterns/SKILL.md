@@ -1,15 +1,13 @@
 ---
 name: backend-patterns
-description: Product-locked backend patterns (API style, authz, persistence). Fill via ADR in the first /architect. Build agents must apply, not invent.
+description: Product-locked backend patterns (API style, authz, persistence). Fill via ADR in the first /architect.
 ---
 
 # Skill: backend-patterns
 
-Same freeze rule as frontend-patterns. Fill via ADR.
+Hard rules: `AGENTS.md`.
 
-## Defined when
-
-First architect play after first spec. Frozen by stack ADR + backend-patterns ADR.
+Fill the Lock in the first `/architect`. Change only by a superseding ADR.
 
 ## Lock (fill in per product)
 
@@ -23,6 +21,4 @@ First architect play after first spec. Frozen by stack ADR + backend-patterns AD
 
 ## Build agent rules
 
-- New endpoint = already in `CONTRACTS.md`
-- New job name = already in `CONTRACTS.md`
 - Do not introduce a second ORM, logger, or auth helper

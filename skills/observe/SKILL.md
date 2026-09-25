@@ -1,24 +1,14 @@
 ---
 name: observe
-description: Turn production or eval failures into incident.md and a draft intent. Use on a schedule or after a breach. Do not ship a fix from this session.
+description: Turn production or eval failures into incident.md and a draft intent. Use on a schedule or after a breach.
 ---
 
 # Skill: observe
 
-## Band
+Load set, band, write set, and hard rules: `AGENTS.md`.
 
-L1.
+## Procedure
 
-## Writes
-
-`ops/incident-<id>.md` and optionally `intent/intent-<id>-draft.md` with `status: draft`.
-
-## Do
-
-- Evidence, suspected ticket/plan, what control band broke.
-- Draft intent for the human to accept. That starts the loop again.
-
-## Do not
-
-- Patch production in this session.
-- Close an incident without a follow-on intent or an explicit “no action” ADR.
+- Evidence, suspected ticket/plan, which control band broke.
+- Draft intent for the human to accept with `status: draft`.
+- Do not close an incident without a follow-on intent or an explicit “no action” ADR.

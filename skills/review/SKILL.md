@@ -1,25 +1,21 @@
 ---
 name: review
-description: Review a PR against ticket files:, CONTRACTS, DESIGN, and ADRs. Write reviews/*.md with file:line proofs. Do not merge or edit prod.
+description: Review a PR against ticket files:, CONTRACTS, DESIGN, and ADRs. Write file:line proofs. Do not merge.
 ---
 
 # Skill: review
 
-Launched by CI on every PR, not by the author session.
+Load set, band, write set, and hard rules: `AGENTS.md`.
 
-## Band
+## Procedure
 
-L2 default. L3 if `risk: high`, auth, payments, PII, or first-of-kind ADR.
+Launched by CI on every PR, not by the author session. Extra L3 triggers: auth, payments, PII, or first-of-kind ADR.
 
-## Writes
+Write `reviews/<pr-or-sha>.md` plus inline comments if the host supports them. Do not merge.
 
-`reviews/<pr-or-sha>.md` plus inline comments. May not merge. May not edit prod.
+Each finding needs a proof: `file:line` + rule violated (ticket `files:`, CONTRACTS.md, DESIGN.md, ADR-N, AC).
 
-## Each finding needs a proof
-
-`file:line` + rule violated (ticket `files:`, CONTRACTS.md, DESIGN.md, ADR-N, AC).
-
-## Checks
+Checks:
 
 1. Diff ⊆ ticket `files:`
 2. No new public seam vs CONTRACTS.md
