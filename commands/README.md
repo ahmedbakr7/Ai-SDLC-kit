@@ -15,4 +15,6 @@ A command is a saved prompt. Role, band, write set, and load set live in `AGENTS
 | `/review` | [review.md](review.md) |
 | `/observe` | [observe.md](observe.md) |
 
-Launch: human CLI for `/intent` `/design` `/architect` `/build` `/test`; lead spawns `/research` `/ticketize` (and `/test` after build); CI for `/review` + `scripts/run-tests.sh`; scheduler for `/observe`. When the product pins the kit at `.sdlc/`, load preambles from `.sdlc/commands/<play>.md`.
+Launch: human CLI for `/intent` `/design` `/architect` `/build` `/test`; lead spawns `/research` `/ticketize` (and invites `/test` onto the open build PR); CI for `/review` + `scripts/run-tests.sh`; scheduler for `/observe`. When the product pins the kit at `.sdlc/`, load preambles from `.sdlc/commands/<play>.md`.
+
+Test ownership: `/build` = lint + typecheck + unit (green before PR); `/test` = integration/e2e on that PR; `/review` = AC↔proof + required checks green. Merge when checks green + Approve. No post-merge proof-only `/test` PR as the default conveyor step.

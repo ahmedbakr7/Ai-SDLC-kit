@@ -6,7 +6,7 @@ Host this repo on git. Product repos pin it at `.sdlc/` (submodule by default). 
 
 Importable: pin at `.sdlc/`, run `bootstrap-product.sh`, install the pre-commit wrapper as documented in `hooks/README.md`. L0 scripts under `scripts/` exist and fail loud on `files:` / CONTRACTS / ADR / AC violations. Test and app-eval runners remain product-overridable (`scripts/run-tests.sh`, `scripts/run-app-eval.sh`). Walk `examples/slice-042-return-status/` before your first real ticket.
 
-CI workflow template: `adapters/github/check-kit.yml` (copy into `.github/workflows/` — see that folder’s README).
+CI workflow templates in `adapters/github/`: `check-kit.yml` (this kit) and `product-pr-checks.yml` (products — lint + typecheck + unit required; integration optional). Copy into `.github/workflows/` — see that folder’s README. Required checks + `/review` Approve are the merge gate.
 
 ## Ideas
 
@@ -32,7 +32,7 @@ Never put L3 on a greenfield “change the button color” ticket. Never put L1 
 
 ## What this kit contains
 
-- `AGENTS.md` — always-on OS for **agents** (they need this; humans are not enough)
+- `AGENTS.md` — always-on OS for **agents** (they need this; humans are not enough). **Test ownership:** `/build` = lint + typecheck + unit (green before PR); `/test` = integration/e2e on that PR; `/review` = AC↔proof + required checks green. Merge only when checks green + Approve. No post-merge proof-only `/test` PR as the default conveyor step.
 - `USAGE.md` — how a human runs plays after the kit is attached
 - `CONSUME.md` — pin the kit at `.sdlc/`, bootstrap, bump the pin
 - `skills/` — play skills + pattern skills + `vendor/` for git-pinned third-party skills

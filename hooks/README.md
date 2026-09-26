@@ -6,11 +6,11 @@ Run in the agent runtime (pre-write / pre-commit) and again in CI. Same scripts.
 
 | Hook | Script | When | Fail if |
 |---|---|---|---|
-| ticket files | `scripts/ticket-files.sh` | before every write in a `/build` session | path not in ticket `files:` and not a test path allowed by the ticket |
+| ticket files | `scripts/ticket-files.sh` | before every write in a `/build` or `/test` session | path not in ticket `files:` / allowed unit-beside (build) / integration-e2e-eval (test) |
 | no contract drift | `scripts/no-contract-drift.sh` | before commit | new route/event/table name not present in `arch/CONTRACTS.md` |
 | no ADR edit | `scripts/no-adr-edit.sh` | before commit | existing `decisions/ADR-*.md` modified (add ADR-N+1 instead) |
 | AC not deleted | `scripts/ac-not-deleted.sh` | before commit on ticket files | an `acceptance_criteria` item removed without a `spec:` citation |
-| test edit guard | `scripts/test-edit-guard.sh` | during a “fix tests” turn in **build** | test files changed with no production file in the same diff (build agent). Test agent (`PLAY=test`) is exempt. |
+| test edit guard | `scripts/test-edit-guard.sh` | during a “fix tests” turn in **build** | unit test files changed with no production file in the same diff (build). Test agent (`PLAY=test`) is exempt (integration/e2e only). |
 | ticket status | `scripts/ticket-status.sh` | CI | `--require-review-status` and ticket status not `in_review`/`done` |
 
 Also used by plays / CI:
@@ -38,3 +38,16 @@ ln -sf ../../.sdlc/scripts/pre-commit.sh .git/hooks/pre-commit
 - Always → `no-adr-edit.sh` when any `decisions/ADR-*.md` is staged
 
 Wire the same scripts in CI (GitHub Action, etc.). Vendor-neutral: bash + python3 only.
+
+## Required PR checks (product merge gate)
+
+L0 hooks above are local/pre-commit. Products also need **GitHub required checks** on every PR — part of the merge gate with `/review` Approve:
+
+| Check | Required | Notes |
+|---|---|---|
+| lint | yes | builder runs locally before PR; CI enforces |
+| typecheck | yes | same |
+| unit | yes | same (`scripts/run-tests.sh` / `npm test`) |
+| integration | optional when present | `/test` on the build PR; enable CI job when product has a target |
+
+Template: `.sdlc/adapters/github/product-pr-checks.yml` → product `.github/workflows/` (see `adapters/github/README.md`). Lead merges only when those required checks are green **and** review is Approve. Do not resurrect post-merge proof-only `/test` PRs.
