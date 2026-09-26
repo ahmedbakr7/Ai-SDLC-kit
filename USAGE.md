@@ -14,9 +14,9 @@ Before the first real ticket, walk `.sdlc/examples/slice-042-return-status/` (or
 
 ## 2. Every later slice
 
-`/intent` → `/design` → `/architect` → `/ticketize` → `/build <id>` (fresh session) → `/test <id>` → `/review` → ship → `/observe` if needed.
+`/intent` → `/design` → `/architect` → `/ticketize` → `/build <id>` (fresh session: code + **unit**, green, open PR) → `/test <id>` (**integration**/e2e on that PR) → `/review` (AC↔proof + green suite) → merge → `/observe` if needed.
 
-Never `/build` inside the architect chat. Never edit `.sdlc/` in a feature PR.
+Never `/build` inside the architect chat. Never edit `.sdlc/` in a feature PR. Never open a post-merge proof-only `/test` PR as the default next step — Review stamps AC↔proof on the build PR.
 
 ## 3. Vendor skills
 
@@ -24,4 +24,4 @@ Copy craft packs into product `skills/vendor/<name>/`, commit them, and list the
 
 ## 4. After a kit bump
 
-When the product’s `.sdlc` pin moves to a new kit tag (`CONSUME.md`), `/test` one known ticket.
+When the product’s `.sdlc` pin moves to a new kit tag (`CONSUME.md`), smoke `/test` one known ticket **on an open PR** (or run the product suite). Do not open a proof-only PR just to stamp a receipt.

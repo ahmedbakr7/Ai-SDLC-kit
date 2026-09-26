@@ -32,7 +32,7 @@ Never put L3 on a greenfield “change the button color” ticket. Never put L1 
 
 ## What this kit contains
 
-- `AGENTS.md` — always-on OS for **agents** (they need this; humans are not enough)
+- `AGENTS.md` — always-on OS for **agents** (they need this; humans are not enough). **Test ownership:** `/build` = unit (green before PR); `/test` = integration/e2e on that PR; `/review` = AC↔proof + green suite. No post-merge proof-only `/test` PR as the default conveyor step.
 - `USAGE.md` — how a human runs plays after the kit is attached
 - `CONSUME.md` — pin the kit at `.sdlc/`, bootstrap, bump the pin
 - `skills/` — play skills + pattern skills + `vendor/` for git-pinned third-party skills

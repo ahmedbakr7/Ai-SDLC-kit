@@ -46,4 +46,4 @@ Bind the tool to repo-root `AGENTS.md` (`adapters/GENERIC.md`). Pre-commit witho
 # subtree: git subtree pull --prefix .sdlc <remote> v0.2.0 --squash
 ```
 
-`/test` one known ticket. Commit the new `.sdlc` gitlink or subtree merge.
+Smoke `/test` one known ticket on an open PR (or run the product suite) — not a post-merge proof-only PR. Commit the new `.sdlc` gitlink or subtree merge.
