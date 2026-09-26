@@ -14,7 +14,9 @@ Before the first real ticket, walk `.sdlc/examples/slice-042-return-status/` (or
 
 ## 2. Every later slice
 
-`/intent` → `/design` → `/architect` → `/ticketize` → `/build <id>` (fresh session: code + **unit**, green, open PR) → `/test <id>` (**integration**/e2e on that PR) → `/review` (AC↔proof + green suite) → merge → `/observe` if needed.
+`/intent` → `/design` → `/architect` → `/ticketize` → `/build <id>` (fresh session: code + **unit**; lint + typecheck + unit **green locally**, open PR) → CI required checks (lint + typecheck + unit; integration optional when present) → `/test <id>` (**integration**/e2e on that PR) → `/review` (AC↔proof + required checks green) → lead merges → `/observe` if needed.
+
+Copy `.sdlc/adapters/github/product-pr-checks.yml` into the product `.github/workflows/` and mark lint/typecheck/unit required (see `adapters/github/README.md`). Builder runs those locally before the PR; CI enforces on the PR; merge only when checks green **and** `/review` Approve.
 
 Never `/build` inside the architect chat. Never edit `.sdlc/` in a feature PR. Never open a post-merge proof-only `/test` PR as the default next step — Review stamps AC↔proof on the build PR.
 

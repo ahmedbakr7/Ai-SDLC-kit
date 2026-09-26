@@ -36,9 +36,10 @@ Git pre-commit + CI. Do not rely on the vendor hook system alone.
 
 ```
 .git/hooks/pre-commit → ln -sf ../../.sdlc/scripts/pre-commit.sh .git/hooks/pre-commit
-.github/workflows → copy adapters/github/check-kit.yml (runs scripts/check-kit.sh)
+.github/workflows → product: copy adapters/github/product-pr-checks.yml (lint + typecheck + unit)
+                  → kit repo: copy adapters/github/check-kit.yml
 ```
-See `.sdlc/hooks/README.md` for the full L0 table.
+Required PR checks + `/review` Approve are the merge gate (`adapters/github/README.md`). See `.sdlc/hooks/README.md` for the full L0 table.
 
 Claude Code hooks / Cursor hooks are optional extras that fail faster.
 

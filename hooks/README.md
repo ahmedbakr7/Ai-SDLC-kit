@@ -38,3 +38,16 @@ ln -sf ../../.sdlc/scripts/pre-commit.sh .git/hooks/pre-commit
 - Always → `no-adr-edit.sh` when any `decisions/ADR-*.md` is staged
 
 Wire the same scripts in CI (GitHub Action, etc.). Vendor-neutral: bash + python3 only.
+
+## Required PR checks (product merge gate)
+
+L0 hooks above are local/pre-commit. Products also need **GitHub required checks** on every PR — part of the merge gate with `/review` Approve:
+
+| Check | Required | Notes |
+|---|---|---|
+| lint | yes | builder runs locally before PR; CI enforces |
+| typecheck | yes | same |
+| unit | yes | same (`scripts/run-tests.sh` / `npm test`) |
+| integration | optional when present | `/test` on the build PR; enable CI job when product has a target |
+
+Template: `.sdlc/adapters/github/product-pr-checks.yml` → product `.github/workflows/` (see `adapters/github/README.md`). Lead merges only when those required checks are green **and** review is Approve. Do not resurrect post-merge proof-only `/test` PRs.

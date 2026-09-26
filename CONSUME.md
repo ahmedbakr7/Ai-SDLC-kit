@@ -37,7 +37,15 @@ git subtree add --prefix .sdlc git@github.com:YOU/ai-sdlc-kit.git main --squash
 .sdlc/scripts/bootstrap-product.sh
 ```
 
-Bind the tool to repo-root `AGENTS.md` (`adapters/GENERIC.md`). Pre-commit without `--hooks`: `ln -sf ../../.sdlc/scripts/pre-commit.sh .git/hooks/pre-commit`. Walk `.sdlc/examples/slice-042-return-status/`, then plays in `USAGE.md`.
+Bind the tool to repo-root `AGENTS.md` (`adapters/GENERIC.md`). Pre-commit without `--hooks`: `ln -sf ../../.sdlc/scripts/pre-commit.sh .git/hooks/pre-commit`. Install product PR checks:
+
+```bash
+mkdir -p .github/workflows
+cp .sdlc/adapters/github/product-pr-checks.yml .github/workflows/product-pr-checks.yml
+# Mark lint, typecheck, unit required in branch protection (integration optional when present).
+```
+
+Required checks + `/review` Approve are the merge gate (`adapters/github/README.md`). Walk `.sdlc/examples/slice-042-return-status/`, then plays in `USAGE.md`.
 
 ## Bump the pin
 
@@ -46,4 +54,4 @@ Bind the tool to repo-root `AGENTS.md` (`adapters/GENERIC.md`). Pre-commit witho
 # subtree: git subtree pull --prefix .sdlc <remote> v0.2.0 --squash
 ```
 
-Smoke `/test` one known ticket on an open PR (or run the product suite) — not a post-merge proof-only PR. Commit the new `.sdlc` gitlink or subtree merge.
+Smoke `/test` one known ticket on an open PR (or run the product suite) — not a post-merge proof-only PR. Confirm required PR checks (lint + typecheck + unit) still go green. Commit the new `.sdlc` gitlink or subtree merge.
