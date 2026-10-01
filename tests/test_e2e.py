@@ -32,8 +32,12 @@ class Conveyor(unittest.TestCase):
         smoke = next(c for c in ev["checks"] if c["name"] == "smoke")
         self.assertIn("2 route/page probe(s)", smoke["summary"])
 
-        # Reviews start from wherever the operator is; the runner reads the ticket's branch.
+        # Plays start from wherever the operator is; the runner reads the ticket's branch.
         git(p.root, "checkout", "-q", "main")
+        code, out = p.sdlc("run", "test", "T-042-02", "--agent", "fake")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(json.loads(p.read("evidence/T-042-02.test.json"))["result"], "pass")
+
         code, out = p.sdlc("run", "review", "T-042-02", "--agent", "fake")
         self.assertNotEqual(code, 0)
         self.assertIn("review it with a different agent", out)
@@ -56,6 +60,7 @@ class Conveyor(unittest.TestCase):
     def test_approval_does_not_cover_code_changed_after_review(self) -> None:
         p = self.p
         self.assertEqual(p.sdlc("run", "build", "T-042-02", "--agent", "fake")[0], 0)
+        self.assertEqual(p.sdlc("run", "test", "T-042-02", "--agent", "fake")[0], 0)
         self.assertEqual(p.sdlc("run", "review", "T-042-02", "--agent", "fake-reviewer")[0], 0)
         p.write("app/pages.py", p.read("app/pages.py") + "\n# after the review\n")
         p.commit("late change")

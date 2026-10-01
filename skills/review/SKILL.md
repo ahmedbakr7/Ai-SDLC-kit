@@ -18,7 +18,9 @@ every check, AC -> test mapping) in your prompt. Read the diff yourself:
 ## Procedure
 
 1. **Gate.** If the build or test evidence is not `pass`, is from a dirty tree, or the
-   test evidence predates the latest build: `request_changes`. Stop reviewing.
+   test evidence predates the latest build: `request_changes`. Stop reviewing. When the
+   product configures `commands.integration` or `commands.e2e`, missing test evidence
+   counts too: the test play has not run, and the gate rejects an approval without it.
 2. **AC by AC.** For each AC, open the test the evidence names and answer: would this
    test fail if the behaviour broke? Reject proof that:
    - asserts on source text, class names or snapshots of markup instead of behaviour;

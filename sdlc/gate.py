@@ -722,15 +722,22 @@ def extract_key(ref: str) -> str:
 
 
 def _evidence_problems(cfg: Config, t: Ticket, commit: str) -> list[str]:
-    """Problems with approving `commit`: build (and test, once it ran) must have passed on a
-    clean tree, and the review must name the commit the latest of them proved."""
+    """Problems with approving `commit`: build (and test, when the product has integration or
+    e2e tests) must have passed on a clean tree, and the review must name the commit the
+    latest of them proved."""
     out: list[str] = []
     proven: dict[str, str] = {}
+    # Unit tests run on stubs; the test play is the only proof through the real stack, so a
+    # product that has one cannot skip it (gate test fails without a tagged integration test).
+    real_stack = [k for k in ("integration", "e2e") if cfg.commands.get(k)]
     for play in EVIDENCE_PLAYS:
         p = cfg.path("evidence") / f"{t.id}.{play}.json"
         if not p.is_file():
             if play == "build":
                 out.append(f"no build evidence {cfg.rel(p)}")
+            elif real_stack:
+                out.append(f"no test evidence {cfg.rel(p)}: commands.{'/'.join(real_stack)} is configured, so "
+                           f"the test play must pass before approval (sdlc run test {t.id})")
             continue
         ev = json.loads(p.read_text(encoding="utf-8"))
         if ev.get("result") != "pass" or ev.get("partial"):

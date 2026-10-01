@@ -272,8 +272,39 @@ class GateCatches(unittest.TestCase):
         self.assertIn("outside test write set: evidence/T-042-02.build.json", c["details"])
         self.assertIn("outside test write set: app/returns.py", c["details"])
 
+    def test_and_commit(self) -> str:
+        """The reference test play on top of build_and_commit(). Returns the commit it proved."""
+        self.apply_solution("test-T-042-02")
+        self.p.commit("test T-042-02")
+        code, out = self.p.sdlc("gate", "test", "T-042-02")
+        self.assertEqual(code, 0, out)
+        self.p.commit("evidence T-042-02: test gate pass")
+        return json.loads(self.p.read("evidence/T-042-02.test.json"))["commit"]
+
+    def test_approval_needs_the_test_play_when_the_product_has_integration_tests(self) -> None:
+        # build -> review -> done skipped the only proof through the real stack.
+        build = self.build_and_commit()
+        review = (FIXTURES_DIR / "solutions" / "review-T-042-02" / "reviews" / "T-042-02.md").read_text(encoding="utf-8")
+        self.p.write("reviews/T-042-02.md", review.replace("{commit}", build))
+        c = self.gate("review", "review-file")["review-file"]
+        self.assertEqual(c["status"], "fail")
+        self.assertIn("no test evidence evidence/T-042-02.test.json", "\n".join(c["details"]))
+        # The agent cannot opt out by dropping the integration command on its branch.
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace(
+            'integration = "python tools/junit.py --start tests --out {junit}"', 'integration = ""'))
+        self.assertEqual(self.gate("review", "review-file")["review-file"]["status"], "fail")
+
+    def test_approval_without_a_test_play_when_there_is_no_real_stack_suite(self) -> None:
+        self.lead_config('integration = "python tools/junit.py --start tests --out {junit}"', 'integration = ""')
+        build = self.build_and_commit()
+        review = (FIXTURES_DIR / "solutions" / "review-T-042-02" / "reviews" / "T-042-02.md").read_text(encoding="utf-8")
+        self.p.write("reviews/T-042-02.md", review.replace("{commit}", build))
+        c = self.gate("review", "review-file")["review-file"]
+        self.assertEqual(c["status"], "pass", c)
+
     def test_review_must_name_the_proven_commit_exactly(self) -> None:
-        proven = self.build_and_commit()
+        self.build_and_commit()
+        proven = self.test_and_commit()
         review = (FIXTURES_DIR / "solutions" / "review-T-042-02" / "reviews" / "T-042-02.md").read_text(encoding="utf-8")
         for commit, want in ((proven[:3], "fail"), ("0000000", "fail"), (proven[:7], "pass"), (proven, "pass")):
             with self.subTest(commit=commit):
