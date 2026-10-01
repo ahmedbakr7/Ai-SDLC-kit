@@ -416,13 +416,24 @@ class GateCatches(unittest.TestCase):
     def test_ci_reproves_every_shipped_ticket(self) -> None:
         # T-042-01 is done. A later change (e.g. another ticket's build editing a shared test
         # file) drops the tag from one of its AC tests. Before: gate ci stayed green.
-        c = self.gate("ci", "unit", "ac-coverage", ticket=None)["ac-coverage"]
+        c = self.gate("ci", "unit", "integration", "ac-coverage", ticket=None)["ac-coverage"]
         self.assertEqual(c["status"], "pass", c)
         self.assertIn("all 4 AC of 1 ticket(s)", c["summary"])
         self.p.write("app/test_returns.py", self.p.read("app/test_returns.py").replace('"""T-042-01/AC-4"""', '"""404"""'))
-        c = self.gate("ci", "unit", "ac-coverage", ticket=None)["ac-coverage"]
+        self.p.write("tests/test_http_returns.py", self.p.read("tests/test_http_returns.py").replace(
+            '"""T-042-01/AC-4"""', '"""404 over http"""'))
+        c = self.gate("ci", "unit", "integration", "ac-coverage", ticket=None)["ac-coverage"]
         self.assertEqual(c["status"], "fail")
         self.assertEqual(c["details"], ["T-042-01/AC-4: missing"])
+
+    def test_ci_reproves_the_real_stack_proof_test_evidence_claims(self) -> None:
+        # evidence/<id>.test.json is a file the ticket PR writes; a hand-written "pass" let a
+        # done ticket ship with unit tests only. CI re-runs integration and checks the tags.
+        self.p.write("tests/test_http_returns.py", self.p.read("tests/test_http_returns.py")
+                     .replace('"""T-042-01/AC-1"""', '"""mounted"""').replace('"""T-042-01/AC-4"""', '"""404"""'))
+        c = self.gate("ci", "unit", "integration", "ac-coverage", ticket=None)["ac-coverage"]
+        self.assertEqual(c["status"], "fail")
+        self.assertIn("T-042-01: done, but no passing integration/e2e test carries its tag", c["details"])
 
     def test_build_may_move_its_ticket_to_in_review(self) -> None:
         self.build_and_commit()  # ready -> in_progress -> in_review, both build moves

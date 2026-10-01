@@ -20,7 +20,7 @@ from pathlib import Path, PurePosixPath
 from typing import Callable
 
 from . import config, extract, fm, gitutil, lint, paths, tickets
-from .artifacts import AC_TAG_RE, Repo, Ticket, normalize_path
+from .artifacts import Repo, Ticket, normalize_path
 from .config import Config
 
 TICKET_PLAYS = ("build", "test", "review")
@@ -425,12 +425,23 @@ class Gate:
             c.summary = f"all {len(matrix)} AC of {len(targets)} ticket(s) proven by passing tests"
         if self.play == "test" and self.ticket:
             # The test play exists to prove AC through the real stack; unit proof alone is the build's.
-            real = [tc for tc in self.testcases if tc.source != "unit" and tc.status == "passed"
-                    and AC_TAG_RE.search(tc.name) and self.ticket.id in tc.name]
-            if not real:
+            if not self._real_stack_proof(self.ticket.id):
                 c.status = "fail"
                 c.summary = (f"no passing integration/e2e test carries a {self.ticket.id}/AC-n tag; "
                              "the test play must prove AC through the real stack")
+        elif not self.ticket and any(self.cfg.commands.get(k) for k in ("integration", "e2e")):
+            # Approval needs test evidence, but evidence is a file the ticket PR wrote. CI
+            # re-proves what it claims: every done ticket has a passing real-stack test.
+            unproven = [t.id for t in targets if t.status == "done" and not self._real_stack_proof(t.id)]
+            if unproven:
+                c.status = "fail"
+                c.details += [f"{tid}: done, but no passing integration/e2e test carries its tag" for tid in unproven]
+                c.summary = (f"{len(unproven)} done ticket(s) without real-stack proof: {', '.join(unproven)}; "
+                             "run their test play")
+
+    def _real_stack_proof(self, tid: str) -> bool:
+        tag = re.compile(re.escape(tid) + r"/AC-\d")
+        return any(tc.source != "unit" and tc.status == "passed" and tag.search(tc.name) for tc in self.testcases)
 
     def check_ac_red(self, c: Check) -> None:
         """Each AC needs a tagged test that fails without the ticket's code. The unit command
