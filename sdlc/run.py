@@ -84,6 +84,8 @@ def run(cfg: Config, play: str, tid: str, agent: str, attempts: int | None, base
             raise SystemExit(f"{tid} is {t.status}; build starts from ready or in_progress")
     elif t.status != "in_review":
         raise SystemExit(f"{play} runs on tickets in_review; {tid} is {t.status}")
+    elif play == "test" and not t.test_play:
+        raise SystemExit(f"{tid} is marked test: none; review it after the build")
 
     if play == "review" and cfg.section("review").get("require_distinct_agent", True):
         authors = _authors(root, base)

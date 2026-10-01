@@ -61,6 +61,11 @@ class Ticket:
         return str(self.data.get("risk", "low"))
 
     @property
+    def test_play(self) -> bool:
+        """False when the lead marked the ticket `test: none` (no real-stack test play)."""
+        return str(self.data.get("test", "required")) != "none"
+
+    @property
     def depends_on(self) -> list[str]:
         return [str(x) for x in self.get_list("depends_on")]
 

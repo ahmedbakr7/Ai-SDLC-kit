@@ -372,6 +372,34 @@ class GateCatches(unittest.TestCase):
         c = self.gate("review", "review-file")["review-file"]
         self.assertEqual(c["status"], "pass", c)
 
+    def test_lead_may_mark_a_ticket_test_none(self) -> None:
+        ticket = "tickets/T-042-02-order-page.md"
+        text = self.p.read(ticket)
+        # Not on a ticket that serves a page: that is where unit tests on stubs lie.
+        self.p.write(ticket, text.replace("risk: low", "risk: low\ntest: none"))
+        c = self.gate("ci", "artifacts", ticket=None)["artifacts"]
+        self.assertEqual(c["status"], "fail")
+        self.assertIn("test: none, but the ticket implements /orders/{id}", "\n".join(c["details"]))
+        self.p.write(ticket, text.replace("risk: low", "risk: low\ntest: sometimes"))
+        self.assertIn("test must be required or none", "\n".join(self.gate("ci", "artifacts", ticket=None)["artifacts"]["details"]))
+        # On a ticket that serves nothing over HTTP, the lead's `test: none` lets review approve the build.
+        self.p.write(ticket, text.replace("risk: low", "risk: low\ntest: none")
+                     .replace("contracts:\n  - /orders/{id}", "contracts: []"))
+        self.p.commit("lead: T-042-02 needs no test play")
+        build = self.build_and_commit()
+        review = (FIXTURES_DIR / "solutions" / "review-T-042-02" / "reviews" / "T-042-02.md").read_text(encoding="utf-8")
+        self.p.write("reviews/T-042-02.md", review.replace("{commit}", build))
+        c = self.gate("review", "review-file")["review-file"]
+        self.assertEqual(c["status"], "pass", c)
+
+    def test_build_agent_cannot_opt_its_ticket_out_of_the_test_play(self) -> None:
+        self.apply_solution()
+        ticket = "tickets/T-042-02-order-page.md"
+        self.p.write(ticket, self.p.read(ticket).replace("risk: low", "risk: low\ntest: none"))
+        c = self.gate("build", "scope")["scope"]
+        self.assertEqual(c["status"], "fail")
+        self.assertIn(f"outside build write set: {ticket}", c["details"])
+
     def test_review_must_name_the_proven_commit_exactly(self) -> None:
         self.build_and_commit()
         proven = self.run_test_play()

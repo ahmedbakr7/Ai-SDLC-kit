@@ -4,6 +4,7 @@ title: <imperative, specific>
 type: backend             # backend | frontend | fullstack | contract | test | ops | chore
 status: draft             # draft -> ready (lead) -> in_progress -> in_review -> done; or blocked
 risk: low                 # low | medium | high (high needs accepted_by)
+test: required            # required | none (lead only: no route/page in contracts; skips the test play)
 depends_on: []
 files:                    # exact paths this ticket creates or edits (<= 8). Tests beside them are implied.
   - src/server/things.ts

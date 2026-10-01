@@ -28,9 +28,14 @@ lists the wrong files, the build will be wrong no matter how good the agent is.
    covered by at least one ticket (`sdlc trace` checks).
 6. **contracts:** the route/page/table/event keys from CONTRACTS it implements.
 7. **skills:** `build`, the pattern skill(s), and any vendor skill the work needs.
-8. `status: draft`. The lead moves tickets to `ready` after reading the graph;
+8. **test:** `required` (default) or `none`. With integration/e2e tests configured, a
+   ticket cannot be approved until its test play proves an AC through the real stack.
+   Use `none` only for tickets nothing reaches over HTTP or a browser (shared
+   libraries, config, tooling); `sdlc lint` refuses it on tickets that implement a
+   contract route or page.
+9. `status: draft`. The lead moves tickets to `ready` after reading the graph;
    `risk: high` tickets also need `accepted_by:`.
-9. Run `sdlc lint` and `sdlc trace` until both are clean. Stop.
+10. Run `sdlc lint` and `sdlc trace` until both are clean. Stop.
 
 ## Sizing
 
