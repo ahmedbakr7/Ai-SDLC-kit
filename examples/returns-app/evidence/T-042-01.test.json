@@ -2,10 +2,10 @@
   "kit_evidence": 1,
   "play": "test",
   "ticket": "T-042-01",
-  "commit": "b0b62a29389a69ca014fe11538658349142df2b3",
+  "commit": "ec0e66b76b792adad1280ed38f1a9a941dce4ac9",
   "dirty": false,
   "base": "main",
-  "started": "2026-10-01T14:50:57+00:00",
+  "started": "2026-10-01T17:46:06+00:00",
   "result": "pass",
   "checks": [
     {
@@ -13,7 +13,7 @@
       "status": "pass",
       "summary": "artifacts valid (0 warning(s))",
       "details": [],
-      "ms": 16,
+      "ms": 0,
       "log": ""
     },
     {
@@ -21,7 +21,7 @@
       "status": "pass",
       "summary": "1 changed file(s), all in scope",
       "details": [],
-      "ms": 61,
+      "ms": 3,
       "log": ""
     },
     {
@@ -37,7 +37,7 @@
       "status": "pass",
       "summary": "1 code route(s) match CONTRACTS; 0 declared route(s) not built yet",
       "details": [],
-      "ms": 156,
+      "ms": 52,
       "log": ""
     },
     {
@@ -45,7 +45,7 @@
       "status": "pass",
       "summary": "`python tools/lint.py` ok",
       "details": [],
-      "ms": 77,
+      "ms": 32,
       "log": ".sdlc-run/logs/lint.log"
     },
     {
@@ -53,7 +53,7 @@
       "status": "pass",
       "summary": "`python tools/lint.py --types` ok",
       "details": [],
-      "ms": 94,
+      "ms": 32,
       "log": ".sdlc-run/logs/typecheck.log"
     },
     {
@@ -61,7 +61,7 @@
       "status": "pass",
       "summary": "`python tools/junit.py --start app --out .sdlc-run/junit-unit.xml` ok (4 tests)",
       "details": [],
-      "ms": 187,
+      "ms": 114,
       "log": ".sdlc-run/logs/unit.log"
     },
     {
@@ -69,7 +69,7 @@
       "status": "pass",
       "summary": "`python tools/junit.py --start tests --out .sdlc-run/junit-integration.xml` ok (2 tests)",
       "details": [],
-      "ms": 781,
+      "ms": 616,
       "log": ".sdlc-run/logs/integration.log"
     },
     {
@@ -106,7 +106,7 @@
       "status": "pass",
       "summary": "`python -m compileall -q app tools` ok",
       "details": [],
-      "ms": 108,
+      "ms": 64,
       "log": ".sdlc-run/logs/build.log"
     },
     {
@@ -114,7 +114,7 @@
       "status": "pass",
       "summary": "app booted; 1 route/page probe(s) answered",
       "details": [],
-      "ms": 1327,
+      "ms": 1056,
       "log": ".sdlc-run/logs/smoke-server.log"
     },
     {

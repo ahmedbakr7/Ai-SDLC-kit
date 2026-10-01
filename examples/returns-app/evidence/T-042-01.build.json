@@ -2,10 +2,10 @@
   "kit_evidence": 1,
   "play": "build",
   "ticket": "T-042-01",
-  "commit": "a0f7fd6975df7599208843112f10097f2c724925",
+  "commit": "7cedb2303a983435a560403c4bfa8fd9f6a2f2ec",
   "dirty": false,
   "base": "main",
-  "started": "2026-10-01T14:50:53+00:00",
+  "started": "2026-10-01T17:46:04+00:00",
   "result": "pass",
   "checks": [
     {
@@ -13,7 +13,7 @@
       "status": "pass",
       "summary": "artifacts valid (0 warning(s))",
       "details": [],
-      "ms": 15,
+      "ms": 1,
       "log": ""
     },
     {
@@ -21,7 +21,7 @@
       "status": "pass",
       "summary": "4 changed file(s), all in scope",
       "details": [],
-      "ms": 343,
+      "ms": 21,
       "log": ""
     },
     {
@@ -29,7 +29,7 @@
       "status": "pass",
       "summary": "no accepted ADR edited, no AC weakened",
       "details": [],
-      "ms": 63,
+      "ms": 6,
       "log": ""
     },
     {
@@ -37,7 +37,7 @@
       "status": "pass",
       "summary": "1 code route(s) match CONTRACTS; 0 declared route(s) not built yet",
       "details": [],
-      "ms": 170,
+      "ms": 67,
       "log": ""
     },
     {
@@ -45,7 +45,7 @@
       "status": "pass",
       "summary": "`python tools/lint.py` ok",
       "details": [],
-      "ms": 94,
+      "ms": 32,
       "log": ".sdlc-run/logs/lint.log"
     },
     {
@@ -53,7 +53,7 @@
       "status": "pass",
       "summary": "`python tools/lint.py --types` ok",
       "details": [],
-      "ms": 93,
+      "ms": 32,
       "log": ".sdlc-run/logs/typecheck.log"
     },
     {
@@ -61,7 +61,7 @@
       "status": "pass",
       "summary": "`python tools/junit.py --start app --out .sdlc-run/junit-unit.xml` ok (4 tests)",
       "details": [],
-      "ms": 202,
+      "ms": 115,
       "log": ".sdlc-run/logs/unit.log"
     },
     {
@@ -82,7 +82,7 @@
       "status": "pass",
       "summary": "every AC has a test that fails without the ticket's code (2 file(s) reverted)",
       "details": [],
-      "ms": 328,
+      "ms": 78,
       "log": ".sdlc-run/logs/ac-red.log"
     },
     {
@@ -106,7 +106,7 @@
       "status": "pass",
       "summary": "`python -m compileall -q app tools` ok",
       "details": [],
-      "ms": 125,
+      "ms": 64,
       "log": ".sdlc-run/logs/build.log"
     },
     {
@@ -114,7 +114,7 @@
       "status": "pass",
       "summary": "app booted; 1 route/page probe(s) answered",
       "details": [],
-      "ms": 1343,
+      "ms": 1066,
       "log": ".sdlc-run/logs/smoke-server.log"
     },
     {
