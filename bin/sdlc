@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+# Run the kit CLI from anywhere: .sdlc/bin/sdlc <command>   (needs Python >= 3.11)
+KIT="$(cd "$(dirname "$0")/.." && pwd)"
+PY="$SDLC_PYTHON"
+if [ -z "$PY" ]; then
+  for c in python3 python py; do
+    # skip stubs (e.g. the Windows Store alias) and interpreters older than 3.11
+    if command -v "$c" >/dev/null 2>&1 && "$c" -c 'import sys; sys.exit(sys.version_info < (3, 11))' >/dev/null 2>&1; then
+      PY="$c"; break
+    fi
+  done
+fi
+[ -n "$PY" ] || { echo "sdlc: need Python >= 3.11 on PATH (or set SDLC_PYTHON)" >&2; exit 127; }
+PYTHONPATH="$KIT${PYTHONPATH:+:$PYTHONPATH}" exec "$PY" -m sdlc "$@"

@@ -1,0 +1,38 @@
+# Next.js (App Router) + TypeScript + Vitest (+ optional Playwright).
+# Product sdlc.toml overrides any key. {junit} is filled in by the gate.
+
+[commands]
+lint = "npx --no-install eslint . --max-warnings 0"
+typecheck = "npx --no-install tsc --noEmit -p tsconfig.json"
+unit = "npx --no-install vitest run --reporter=default --reporter=junit --outputFile.junit={junit}"
+build = "npx --no-install next build"
+start = "npx --no-install next start -p {port}"
+duplication = "npx --no-install jscpd --min-lines 12 --threshold 2 --gitignore --exitCode 1 src"
+
+[routes]
+extractor = "nextjs-app"
+roots = ["src/app", "app"]
+
+[client]
+# fetch("/x"), fetch(`/x/${id}`), and common wrappers: api.get("/x")
+patterns = [
+  '''fetch\(\s*[`"'](?P<path>/[^`"'\s?#]*)''',
+  '''\b(?:api|http|client)\.(?:get|post|put|patch|delete)\(\s*[`"'](?P<path>/[^`"'\s?#]*)''',
+]
+globs = ["src/**/*.ts", "src/**/*.tsx", "app/**/*.ts", "app/**/*.tsx"]
+exclude = ["**/*.test.*", "**/*.spec.*", "**/route.ts", "src/server/**"]
+prefix = "/"
+
+[tests]
+globs = ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx", "e2e/**"]
+integration_globs = ["e2e/**", "tests/**", "**/*.int.test.ts", "**/*.int.test.tsx"]
+forbid = [
+  { regex = '''readFileSync\([^)]*["'`][^"'`]*\b(?:src|app)/''', message = "test reads source text instead of exercising behaviour" },
+  { regex = '\.toMatch\(\s*/[^/]*(?:className|class=)', message = "test asserts on markup strings; assert on rendered behaviour" },
+]
+
+[scope]
+always_allowed = ["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "**/__snapshots__/**"]
+
+[app]
+ready_path = "/"

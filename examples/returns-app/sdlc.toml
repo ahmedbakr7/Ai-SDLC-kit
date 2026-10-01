@@ -1,0 +1,23 @@
+# Example product wired for the kit. Every required check has a real command.
+version = 1
+profile = "python"
+
+[commands]
+lint = "python tools/lint.py"
+typecheck = "python tools/lint.py --types"
+unit = "python tools/junit.py --start app --out {junit}"
+integration = "python tools/junit.py --start tests --out {junit}"
+build = "python -m compileall -q app tools"
+start = "python -m app.server --port {port}"
+
+[routes]
+extractor = "command"
+command = "python tools/routes.py"
+
+[tests]
+globs = ["app/test_*.py", "tests/**"]
+integration_globs = ["tests/**"]
+forbid = []
+
+[app]
+ready_path = "/"

@@ -1,0 +1,20 @@
+# Python service with pytest + ruff + mypy. Set routes.command to print
+# "METHOD /path" lines (e.g. iterate app.routes for FastAPI/Flask).
+
+[commands]
+lint = "ruff check ."
+typecheck = "mypy ."
+unit = "pytest -q tests/unit --junitxml={junit}"
+integration = "pytest -q tests/integration --junitxml={junit}"
+build = "python -m compileall -q ."
+
+[routes]
+extractor = "command"
+command = ""
+
+[tests]
+globs = ["tests/**", "**/test_*.py", "**/*_test.py"]
+integration_globs = ["tests/integration/**", "tests/e2e/**"]
+forbid = [
+  { regex = '''open\([^)]*["']\S*\.py["']''', message = "test reads source text instead of exercising behaviour" },
+]

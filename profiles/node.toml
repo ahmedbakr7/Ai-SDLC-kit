@@ -1,0 +1,20 @@
+# Generic Node/TypeScript service (Express, Fastify, Hono...). Set routes.command
+# to a script that prints "METHOD /path" for every mounted route.
+
+[commands]
+lint = "npx --no-install eslint . --max-warnings 0"
+typecheck = "npx --no-install tsc --noEmit"
+unit = "npx --no-install vitest run --reporter=default --reporter=junit --outputFile.junit={junit}"
+build = "npm run build"
+start = "npm start"
+
+[routes]
+extractor = "command"
+command = ""
+
+[tests]
+globs = ["**/*.test.ts", "**/*.spec.ts", "**/*.test.js", "**/*.spec.js", "test/**", "tests/**"]
+integration_globs = ["test/integration/**", "tests/integration/**", "e2e/**"]
+
+[scope]
+always_allowed = ["package-lock.json", "pnpm-lock.yaml", "yarn.lock"]
