@@ -93,25 +93,30 @@ class GateCatches(unittest.TestCase):
         self.assertEqual(checks["unit"]["status"], "fail")
         self.assertIn("T-042-02/AC-3: failed", checks["ac-coverage"]["details"])
 
+    def lead_config(self, old: str, new: str) -> None:
+        """A config change the lead committed to the base branch (ticket gates ignore uncommitted ones)."""
+        text = self.p.read("sdlc.toml")
+        self.assertIn(old, text)
+        self.p.write("sdlc.toml", text.replace(old, new))
+        self.p.commit("lead: config")
+
     def test_suite_that_runs_nothing_is_not_green(self) -> None:
-        self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace("--start app", "--start nowhere"))
+        self.lead_config("--start app", "--start nowhere")
         c = self.gate("build", "unit")["unit"]
         self.assertEqual(c["status"], "fail")
         self.assertIn("ran 0 tests", c["summary"])
 
     def test_required_command_missing_is_a_failure_not_a_skip(self) -> None:
         # An empty command overrides the profile default: typecheck is now "not configured".
-        self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace(
-            'typecheck = "python tools/lint.py --types"', 'typecheck = ""'))
+        self.lead_config('typecheck = "python tools/lint.py --types"', 'typecheck = ""')
         c = self.gate("build", "typecheck")["typecheck"]
         self.assertEqual(c["status"], "fail")
         self.assertIn("not configured", c["summary"])
 
     def test_unit_command_without_junit_cannot_prove_ac(self) -> None:
         self.apply_solution()
-        self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace(
-            'unit = "python tools/junit.py --start app --out {junit}"',
-            'unit = "python -m unittest discover -s app -t ."'))
+        self.lead_config('unit = "python tools/junit.py --start app --out {junit}"',
+                         'unit = "python -m unittest discover -s app -t ."')
         c = self.gate("build", "unit", "ac-coverage")["ac-coverage"]
         self.assertEqual(c["status"], "fail")
         self.assertIn("cannot be proven", c["summary"])
@@ -131,6 +136,18 @@ class GateCatches(unittest.TestCase):
         c = self.gate("build", "scope")["scope"]
         self.assertEqual(c["status"], "fail")
         self.assertIn("outside build write set: app/returns.py", c["details"])
+
+    def test_agent_cannot_reconfigure_its_own_gate(self) -> None:
+        # The agent drops `scope` from the build gate so its stray file goes unnoticed.
+        self.apply_solution()
+        self.p.write("app/stray.py", "x = 1\n")
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml") + '\n[gate]\nbuild = ["artifacts", "unit"]\n')
+        checks = self.gate("build", "scope", "unit")  # KeyError if the branch's plan was obeyed
+        self.assertEqual(checks["scope"]["status"], "fail")
+        details = "\n".join(checks["scope"]["details"])
+        self.assertIn("outside build write set: app/stray.py", details)
+        self.assertIn("outside build write set: sdlc.toml", details)
+        self.assertIn("differs from main", details)
 
     def test_tests_beside_listed_files_are_in_scope(self) -> None:
         self.apply_solution()

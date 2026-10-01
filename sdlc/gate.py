@@ -19,10 +19,11 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Callable
 
-from . import extract, fm, gitutil, lint, paths
+from . import config, extract, fm, gitutil, lint, paths
 from .artifacts import Repo, Ticket
 from .config import Config
 
+TICKET_PLAYS = ("build", "test", "review")
 COMMAND_CHECKS = ("lint", "typecheck", "unit", "integration", "e2e", "build", "duplication")
 JUNIT_CHECKS = ("unit", "integration", "e2e")
 RUN_DIR = ".sdlc-run"
@@ -53,11 +54,14 @@ class TestCase:
 class Gate:
     def __init__(self, cfg: Config, play: str, ticket_id: str | None, base: str | None,
                  only: list[str] | None = None, verbose: bool = False, since: str | None = None):
+        self.base = base or cfg.section("vcs").get("base", "main")
+        self.config_note = ""
+        if ticket_id and play in TICKET_PLAYS:
+            cfg = self._trusted_config(cfg)
         self.cfg = cfg
         self.repo = Repo(cfg)
         self.play = play
         self.ticket: Ticket | None = self.repo.ticket(ticket_id) if ticket_id else None
-        self.base = base or cfg.section("vcs").get("base", "main")
         self.only = only
         self.verbose = verbose
         self.run_dir = cfg.root / RUN_DIR
@@ -73,6 +77,22 @@ class Gate:
         self.since = since
 
     # -- plumbing ---------------------------------------------------------
+    def _trusted_config(self, cfg: Config) -> Config:
+        """A ticket play is judged by the base branch's sdlc.toml, never by the branch under
+        test: otherwise the agent being gated could drop a check or swap a command."""
+        try:
+            mb = gitutil.merge_base(cfg.root, self.base)
+        except gitutil.GitError:
+            return cfg
+        committed = gitutil.show(cfg.root, mb, "./" + config.CONFIG_NAME)
+        if committed is None:
+            return cfg
+        trusted = config.load(cfg.root, text=committed)
+        if trusted.data != cfg.data:
+            self.config_note = (f"{config.CONFIG_NAME} differs from {self.base}; this gate used the "
+                                f"{self.base} version. Config changes go to {self.base} first, not in a ticket.")
+        return trusted
+
     def plan(self) -> list[str]:
         g = self.cfg.section("gate")
         if self.play not in g:
@@ -121,6 +141,7 @@ class Gate:
             "result": "pass" if ok else "fail",
             "checks": [asdict(c) for c in self.checks],
             "ac": self.ac_matrix() if self.ticket else {},
+            "config_note": self.config_note,
         }
         self.write_evidence(ev)
         return ev
@@ -187,6 +208,8 @@ class Gate:
                 continue
             bad.append(f)
         c.details = [f"outside {self.play} write set: {f}" for f in bad]
+        if self.config_note:
+            c.details.append(self.config_note)
         if bad:
             c.status = "fail"
             c.summary = (f"{len(bad)} file(s) outside the ticket's write set. Revert them, or stop and "

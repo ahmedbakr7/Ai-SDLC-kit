@@ -151,13 +151,14 @@ def load_profile(name: str) -> dict[str, Any]:
         raise SystemExit(f"{f}: {e}") from None
 
 
-def load(root: Path | None = None) -> Config:
+def load(root: Path | None = None, text: str | None = None) -> Config:
+    """Load sdlc.toml from `root`, or from `text` (e.g. the base branch's committed version)."""
     root = find_root(root)
     src = root / CONFIG_NAME
     user: dict[str, Any] = {}
-    if src.is_file():
+    if text is not None or src.is_file():
         try:
-            user = tomllib.loads(src.read_text(encoding="utf-8"))
+            user = tomllib.loads(text if text is not None else src.read_text(encoding="utf-8"))
         except tomllib.TOMLDecodeError as e:
             raise SystemExit(f"{src}: {e}") from None
     data = copy.deepcopy(DEFAULTS)
