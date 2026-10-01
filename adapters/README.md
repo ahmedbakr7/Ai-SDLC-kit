@@ -33,7 +33,8 @@ prompt file. See [AGENTS-RUNNER.md](AGENTS-RUNNER.md).
 Local hooks are a convenience; CI is the guarantee. `github/sdlc.yml` (installed by
 `sdlc init`) runs `sdlc doctor`, `sdlc gate ci`, `sdlc trace`, and `sdlc gate pr`,
 which finds the ticket a PR moves (in_progress, in_review or done) or, when it moves
-none, allows only lead artifacts. Other CI systems run the same commands. Every gate
+none, reports every file beyond the lead artifacts (a failure with
+`scope.lead_code = "fail"`). Other CI systems run the same commands. Every gate
 uses the base branch's `sdlc.toml`, so a PR cannot weaken the gate that judges it; a
 lead PR may still change the config, which takes effect once merged. The workflow
 file and the `.sdlc` kit checkout are the judge itself and run from the PR: protect

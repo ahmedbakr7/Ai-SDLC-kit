@@ -267,14 +267,22 @@ class GateCatches(unittest.TestCase):
         self.assertNotEqual(code, 0, out)
         self.assertIn("fetch-depth: 0", out)
 
-    def test_pr_that_moves_no_ticket_may_not_change_code(self) -> None:
+    def test_pr_that_moves_no_ticket_reports_code_and_fails_it_when_configured(self) -> None:
         # CI used to gate only tickets whose file the PR touched: this PR had no ticket gate at all.
+        self.lead_config("[app]", '[scope]\nlead_code = "fail"\n\n[app]')
         self.sneaky_branch()
-        self.code, self.out = self.p.sdlc("gate", "pr", "--base", "main")
+        self.code, self.out = self.p.sdlc("gate", "pr", "--base", "main", "-v")
         self.assertNotEqual(self.code, 0, self.out)
         self.assertIn("no ticket moves on this branch", self.out)
         self.assertIn("outside the lead write set: app/server.py", self.out)
         self.assertNotIn("outside the lead write set: sdlc.toml", self.out)  # config is the lead's
+
+    def test_pr_that_moves_no_ticket_warns_about_code_by_default(self) -> None:
+        # A human hotfix passes, but the PR gate names every file no ticket traces.
+        self.sneaky_branch()
+        self.code, self.out = self.p.sdlc("gate", "pr", "--base", "main")
+        self.assertEqual(self.code, 0, self.out)
+        self.assertIn("WARNING 1 file(s) changed without a ticket, so no ticket traces them: app/server.py", self.out)
 
     def test_lead_pr_with_only_lead_artifacts_passes(self) -> None:
         from helpers import git

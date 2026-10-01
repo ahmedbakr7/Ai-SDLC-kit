@@ -39,8 +39,9 @@ jobs:
       # (its ticket, evidence or review file changed; status in_progress or later) and judges
       # the whole branch: every changed file is in one of that ticket's write sets, status
       # moved legally, and a done ticket has an approval that covers what is merged. A branch
-      # that moves no ticket may change only lead artifacts (specs, plans, CONTRACTS,
-      # tickets, ADRs, sdlc.toml, scope.lead_allowed): code needs a ticket.
+      # that moves no ticket is a lead PR: files beyond lead artifacts (specs, plans,
+      # CONTRACTS, tickets, ADRs, sdlc.toml, scope.lead_allowed) are reported, and fail
+      # only with scope.lead_code = "fail".
       - name: PR gate (the ticket this PR moves, or lead scope)
         if: github.event_name == 'pull_request'
         run: .sdlc/bin/sdlc gate pr --base origin/${{ github.base_ref }}

@@ -31,6 +31,7 @@ profile = ""
 [scope]
 # always_allowed = []        # globs any play may touch (lockfiles, snapshots)
 # lead_allowed = []          # globs a PR that moves no ticket may change besides lead artifacts
+# lead_code = "warn"         # other files in such a PR: "warn" (reported) or "fail" (code needs a ticket)
 
 [vcs]
 base = "main"

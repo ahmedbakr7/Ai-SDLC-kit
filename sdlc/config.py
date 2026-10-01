@@ -95,6 +95,9 @@ DEFAULTS: dict[str, Any] = {
         # Globs a PR that moves no ticket may change, besides the lead artifacts, sdlc.toml,
         # AGENTS.md and generated adapter files (`gate pr` without a ticket).
         "lead_allowed": [],
+        # What a PR that moves no ticket may do with other files (code): "warn" reports them
+        # and passes (human hotfixes), "fail" requires a ticket for every code change.
+        "lead_code": "warn",
     },
     "vcs": {
         "base": "main",

@@ -283,16 +283,24 @@ class Gate:
 
     def _lead_scope(self, c: Check) -> None:
         """A PR that moves no ticket is the lead's: specs, plans, contracts, tickets, config.
-        Code without a ticket is exactly what the pipeline exists to prevent."""
+        Other files (a human hotfix) are reported, and fail only with scope.lead_code = "fail".
+        Either way gate ci still judges the code with the base branch's config."""
         globs, _ = self.allowed()
         bad = [f for f in self.changed() if not any(_glob(f, g) for g in globs)]
+        mode = str(self.cfg.section("scope").get("lead_code", "warn"))
         c.details = [f"outside the lead write set: {f}" for f in bad]
         if self.config_note:
             c.details.append(self.config_note)
-        if bad:
-            c.status = "fail"
-            c.summary = (f"{len(bad)} file(s) changed by a PR that moves no ticket. Build them through a "
-                         "ticket, or list files the lead owns in scope.lead_allowed")
+        if mode not in ("warn", "fail"):
+            c.status, c.summary = "fail", f"scope.lead_code must be warn or fail, got {mode!r}"
+        elif bad:
+            shown = ", ".join(bad[:5]) + (f" (+{len(bad) - 5} more)" if len(bad) > 5 else "")
+            c.summary = (f"{len(bad)} file(s) changed without a ticket, so no ticket traces them: {shown}. "
+                         "Build them through a ticket, or list lead-owned files in scope.lead_allowed")
+            if mode == "fail":
+                c.status = "fail"
+            else:
+                c.summary = "WARNING " + c.summary + " (scope.lead_code = \"warn\")"
         else:
             c.summary = f"lead PR: {len(self.changed())} changed file(s), all lead artifacts"
 
