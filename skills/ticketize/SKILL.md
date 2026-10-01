@@ -1,20 +1,36 @@
 ---
 name: ticketize
-description: Split an accepted plan into tickets/*.md with exhaustive files:, resolvable depends_on, and testable AC.
+description: Cut an accepted plan into small, ordered, gate-ready tickets with exact files, numbered testable AC and full traceability. Use for /ticketize after /architect is accepted.
 ---
 
-# Skill: ticketize
+# Play: ticketize
 
-Load set, band, write set, and hard rules: `AGENTS.md`.
+Every ticket you write becomes one agent's entire world. If it is vague, too big, or
+lists the wrong files, the build will be wrong no matter how good the agent is.
 
 ## Procedure
 
-1. One ticket, one file.
-2. `depends_on` only existing ids; contract tickets before FE/BE consumers.
-3. `files:` exhaustive.
-4. `skills:` what the build agent must load.
-5. `contracts:` heading or path in CONTRACTS.md.
-6. AC checkbox-testable.
-7. No ticket for a phase not in the accepted plan.
-8. Split if > ~6 files or > ~8 AC or mixed FE+BE+contract in one ticket.
-9. Human or lead accepts the graph if any ticket is `risk: high`.
+1. Follow the plan's **Ticket cuts** and **File map** exactly. A ticket for work not in
+   the plan is forbidden; if the plan is missing something, stop and say what.
+2. Order: shared-module and contract tickets first, then backend, then frontend.
+   `depends_on` lists every ticket whose code this one imports or calls.
+3. **files:** the exact paths this ticket creates or edits (no globs, <= 8). Tests
+   beside them are implied. A shared module is created by its owner ticket and
+   listed in `shared:` by later tickets that must extend it.
+4. **acceptance_criteria:** `AC-n: <observable behaviour>`. One behaviour each, <= 8.
+   Each must be checkable by a test without asking anyone:
+   - Good: `AC-2: PUT /api/v1/plans/{id}/response with an unknown planId answers 404 not_found`
+   - Bad: `AC-2: handles errors properly` / `AC-2: the build agent does not edit tests`
+   Include the error, empty and permission cases the spec names.
+5. **requirements:** the F-/N- ids it serves. Every accepted requirement must be
+   covered by at least one ticket (`sdlc trace` checks).
+6. **contracts:** the route/page/table/event keys from CONTRACTS it implements.
+7. **skills:** `build`, the pattern skill(s), and any vendor skill the work needs.
+8. `status: draft`. The lead moves tickets to `ready` after reading the graph;
+   `risk: high` tickets also need `accepted_by:`.
+9. Run `sdlc lint` and `sdlc trace` until both are clean. Stop.
+
+## Sizing
+
+Split when a ticket has > 8 files, > 8 AC, mixes contract + backend + frontend, or
+cites more than ~6 requirements. Smaller tickets build, review and revert better.

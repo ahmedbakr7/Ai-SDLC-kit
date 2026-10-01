@@ -1,45 +1,64 @@
 ---
 name: review
-description: Review a PR with a required AC↔proof table. Approve only when diff is in bounds and required PR checks (lint + typecheck + unit) are green. Do not merge.
+description: Adversarially review one built ticket against its AC, CONTRACTS, patterns and evidence, and write reviews/<id>.md with a verdict. Use for /review <ticket-id>. Never the agent that built it.
 ---
 
-# Skill: review
+# Play: review
 
-Load set, band, write set, and hard rules: `AGENTS.md`.
+Your job is to find what is wrong before users do. Approving bad work is the failure
+this play exists to prevent; a precise `request_changes` is a success. You did not
+write this code. Do not trust its PR text, its comments or its tests' names.
 
-## Owns
+## Inputs
 
-- **AC↔proof** mapping (what post-merge `/test` used to stamp)
-- Diff ⊆ ticket `files:` (plus allowed unit/integration paths per play)
-- Contracts, patterns, DESIGN, ADR checks
-- Merge gate signal: Approve **only** when that table is complete **and** required GitHub checks (lint + typecheck + unit; integration if required) are green on the PR
-
-## Does not
-
-- Merge the PR (lead/conveyor merges after Approve + required checks green)
-- Rewrite production or tests to force green
-- Accept a post-merge proof-only test PR as a substitute for proof on the build PR
+The ticket, CONTRACTS excerpt, pattern skills, and the build evidence (gate result,
+every check, AC -> test mapping) in your prompt. Read the diff yourself:
+`git diff <base>...HEAD` and open every changed file.
 
 ## Procedure
 
-Launched by CI on every PR, not by the author session. Extra L3 triggers: auth, payments, PII, or first-of-kind ADR.
+1. **Gate.** If the build evidence is not `pass`, or is for a different commit than
+   HEAD's code, or is from a dirty tree: `request_changes`. Stop reviewing.
+2. **AC by AC.** For each AC, open the test the evidence names and answer: would this
+   test fail if the behaviour broke? Reject proof that:
+   - asserts on source text, class names or snapshots of markup instead of behaviour;
+   - mocks the function under test, or stubs the network call the AC is about;
+   - checks only the happy path when the AC names an error/empty case.
+3. **Contract.** Compare each changed route/handler with CONTRACTS line by line: path,
+   method, status codes, payload field names and types, error codes, auth rule.
+4. **Reuse.** Search the codebase for logic the diff re-implements (auth/role checks,
+   db clients, formatters, API clients, parsing). Copied logic is a blocking finding.
+5. **Edges.** Check the failure paths the spec and page files list: empty, error,
+   unauthorised, concurrent, invalid input. Missing = finding.
+6. **Security.** Authorisation enforced server-side on every new route; input
+   validated; no secrets or PII in logs; no injection via string-built queries/HTML.
+7. **Write** `reviews/<id>.md` from the template at the end of this skill
+   (frontmatter `ticket`, `verdict`, `reviewer` = your agent name, `commit` = the
+   commit in the build evidence). One AC table row per AC. Each finding has
+   `file:line`, the rule it breaks, and the change you want.
+8. Run `sdlc gate review <id>` until it passes. Stop.
 
-Write `reviews/<pr-or-sha>.md` plus inline comments if the host supports them. Do not merge.
+## Verdict
 
-Required sections in the review artifact:
+- `approve`: gate pass, every AC has real proof, no blocking finding.
+- `request_changes`: anything else. Minor findings alone do not block; list them.
 
-1. **AC↔proof table** — every ticket AC → proof (test id / command / `file:line` on the PR). Missing row = do not Approve.
-2. Findings — each needs `file:line` + rule violated (ticket `files:`, CONTRACTS.md, DESIGN.md, ADR-N, AC).
-3. **Required checks on PR** — lint + typecheck + unit green (CI `product-pr-checks`); integration green when that check is required. Red = do not Approve.
-4. Verdict — Approve or Request changes.
+## Template
 
-Checks:
+```markdown
+---
+ticket: T-NNN-NN
+verdict: approve | request_changes
+reviewer: <your agent name>
+commit: <commit from evidence>
+---
 
-1. Diff ⊆ ticket `files:` (and allowed test paths for the play that wrote them)
-2. No new public seam vs CONTRACTS.md
-3. AC↔proof table complete
-4. Patterns skills honored
-5. No silent `[OPEN]` resolution
-6. Required PR checks green (lint + typecheck + unit; integration if required)
+# Review T-NNN-NN: <title>
 
-Lead merges only when verdict is Approve **and** required checks are green. Never treat a post-merge proof-only `/test` PR as the proof conveyor.
+## Gate
+## Acceptance criteria
+| AC | Proof | What the test actually asserts |
+|---|---|---|
+## Findings
+## Checklist
+```

@@ -1,52 +1,87 @@
-# AI-SDLC kit (vendor-neutral)
+# ai-sdlc kit
 
-Host this repo on git. Product repos pin it at `.sdlc/` (submodule by default). See `CONSUME.md`. It does not depend on Claude Code, Cursor, Codex, or a particular model. Those are *adapters*.
+A contract-driven, agent-agnostic delivery pipeline for AI-built software. Upstream
+artifacts (intent → spec → plan + CONTRACTS → tickets) constrain everything
+downstream. A deterministic gate decides when each step is done, so the result does
+not depend on which agent or model did the work.
 
-## v0.2
+```
+intent ─► spec ─► plan + CONTRACTS + ADRs ─► tickets ─► build ─► test ─► review ─► merge
+  human     design    architect              ticketize   └──── sdlc run + sdlc gate ────┘
+```
 
-Importable: pin at `.sdlc/`, run `bootstrap-product.sh`, install the pre-commit wrapper as documented in `hooks/README.md`. L0 scripts under `scripts/` exist and fail loud on `files:` / CONTRACTS / ADR / AC violations. Test and app-eval runners remain product-overridable (`scripts/run-tests.sh`, `scripts/run-app-eval.sh`). Walk `examples/slice-042-return-status/` before your first real ticket.
+## Why
 
-CI workflow templates in `adapters/github/`: `check-kit.yml` (this kit) and `product-pr-checks.yml` (products — lint + typecheck + unit required; integration optional). Copy into `.github/workflows/` — see that folder’s README. Required checks + `/review` Approve are the merge gate.
+Agents are good at writing code and bad at knowing when it is actually done. Left to
+report their own progress, they ship code that type-checks but was never built,
+routes mounted at paths the client never calls, tests that grep source files, and
+reviews that approve all of it. This kit moves every "is it done?" decision out of
+the model and into one command:
 
-## Ideas
+| `sdlc gate` check | Fails when |
+|---|---|
+| `artifacts` | a spec/plan/ticket/review is malformed, a reference does not resolve, deps form a cycle |
+| `scope` | a file outside the ticket's write set changed |
+| `immutable` | an accepted ADR was edited, or an acceptance criterion was weakened without its spec |
+| `contracts` | the code exposes a route CONTRACTS does not declare, or UI code calls a path no route serves |
+| `lint` `typecheck` `unit` `integration` `e2e` `build` | the product's real command exits non-zero, **is not configured**, or **ran zero tests** |
+| `ac-coverage` | an acceptance criterion has no passing test tagged `T-001-03/AC-2` in the JUnit output |
+| `test-quality` | tests are skipped/focused or assert on source text instead of behaviour |
+| `smoke` | the started app does not serve every contract route and page |
+| `skills` | a vendored third-party skill drifted from its pinned commit and hash |
+| `review-file` | a review misses an AC row, or approves without passing evidence for the reviewed commit |
 
-| Concept | Meaning | Not |
-|---|---|---|
-| **Lead session** | Human + one agent. Decides. Writes artifacts. May spawn subagents. | A place to implement a whole feature |
-| **Subagent** | Isolated child: fresh context, narrow job, returns a brief or a diff, dies | A standing teammate with memory |
-| **Skill** | Versioned instruction pack + optional scripts an agent loads on demand | Chat history |
-| **Hook** | Deterministic gate (script). Pass/fail. No LLM. | A polite reminder in AGENTS.md |
-| **Command** | Named play a human or lead starts (`/plan`, `/ticketize`, `/build T-042-03`) | A free-form prompt |
-| **Band** | Capability class for the model, not a vendor name | “Always use the smartest model” |
+Every gate run writes JSON evidence. Review, CI and merge read evidence, not claims.
 
-## Bands (pick any vendor that fits)
+## How it runs
 
-| Band | Job type | Examples (illustrative, not required) |
-|---|---|---|
-| **L0** | Deterministic: hooks, schema check, test runner, lint | bash, tsc, pytest, spectral, playwright |
-| **L1** cheap/fast | Research digest, ticket-split draft, status rewrite, boilerplate | Haiku / Flash / Mini class |
-| **L2** mid | Bounded implement, test authoring from AC, routine review | Sonnet / GPT-4.1 / comparable |
-| **L3** frontier | Ambiguous spec, architecture, security review, first-of-kind plan, ADR | Opus / flagship reasoning class |
+| Command | What it does |
+|---|---|
+| `sdlc init --profile nextjs` | scaffold `sdlc.toml`, folders, AGENTS.md, CI workflow, tool adapters |
+| `sdlc doctor` | fail if any required check could pass vacuously (missing command, no `{junit}`, no route extractor) |
+| `sdlc lint` / `sdlc trace` | validate artifacts; requirement → ticket → AC → passing test matrix |
+| `sdlc next` | the next ticket whose dependencies are done |
+| `sdlc prompt build T-001-03` | the exact, complete prompt for a play: rules, skill, ticket, cited requirements and contracts, write set, definition of done |
+| `sdlc gate build T-001-03` | run every check for the play; write evidence |
+| `sdlc run build T-001-03 --agent X` | branch → status → prompt → agent → commit → gate → retry with the failures → evidence → `in_review` |
+| `sdlc status T-001-03 done --as merge` | move through the state machine; `done` requires an approving review |
+| `sdlc skills add superpowers/test-driven-development` | vendor a proven skill, pinned by commit + content hash |
+| `sdlc adapters sync` | regenerate CLAUDE.md, GEMINI.md, Cursor rules, Copilot instructions, slash commands |
+| `sdlc routes` | list routes: declared and built, built but undeclared, declared but not built |
+| `sdlc migrate` | upgrade v0.x tickets (number acceptance criteria) |
 
-Never put L3 on a greenfield “change the button color” ticket. Never put L1 on “design the billing state machine.”
+Stdlib-only Python ≥ 3.11. Works with any agent CLI that can take a prompt
+(Claude Code, Codex, Gemini CLI, Grok, Cursor agent, Aider, ...): agents only edit
+files, and the runner does everything else the same way for all of them.
 
-## What this kit contains
+## Start
 
-- `AGENTS.md` — always-on OS for **agents** (they need this; humans are not enough). **Test ownership:** `/build` = lint + typecheck + unit (green before PR); `/test` = integration/e2e on that PR; `/review` = AC↔proof + required checks green. Merge only when checks green + Approve. No post-merge proof-only `/test` PR as the default conveyor step.
-- `USAGE.md` — how a human runs plays after the kit is attached
-- `CONSUME.md` — pin the kit at `.sdlc/`, bootstrap, bump the pin
-- `skills/` — play skills + pattern skills + `vendor/` for git-pinned third-party skills
-- `hooks/` — L0 gates
-- `commands/` — named plays and copy-paste preambles for every play
-- `examples/slice-042-return-status/` — markdown-only golden walkthrough
-- `scripts/` — portable runners
-- `templates/` — intent, ADR, ticket
-- `adapters/` — bind to any tool; `MODELS.md` is the only place model names live
+- New or existing product: [CONSUME.md](CONSUME.md)
+- Agent tools and the runner: [adapters/README.md](adapters/README.md)
+- Walk a complete, runnable slice: [examples/returns-app](examples/returns-app/README.md)
+- Upgrading from kit v0.x: [MIGRATION.md](MIGRATION.md)
+- Rules every agent follows: [AGENTS.md](AGENTS.md)
 
-## Start here
+## Layout
 
-1. Push this repo. In a product: `git submodule add <this-remote> .sdlc && .sdlc/scripts/bootstrap-product.sh` (`CONSUME.md`)
-2. Human: `USAGE.md` then `adapters/GENERIC.md`
-3. Agent: product `AGENTS.md` shim → `.sdlc/AGENTS.md`
-4. Walk `.sdlc/examples/slice-042-return-status/` (or `examples/…` in this repo)
-5. Third-party skills: `skills/vendor/README.md` (in the product after bootstrap)
+```
+AGENTS.md         operating rules (inlined into every generated prompt)
+bin/sdlc          CLI entry (sh / .cmd)
+sdlc/             the CLI (stdlib Python)
+skills/           play skills + pattern-skill templates + vendor catalog
+templates/        intent, spec, page, plan, CONTRACTS, ADR, ticket, review, incident, sdlc.toml
+profiles/         stack defaults: nextjs, node, python
+adapters/         CI workflow template, agent/tool binding docs
+examples/         returns-app: a runnable product the kit's own tests drive end to end
+tests/            unit, gate-regression and conveyor tests (python -m unittest, from tests/)
+```
+
+## Develop the kit
+
+```bash
+cd tests && python -m unittest           # parser, every gate check, full conveyor
+python tests/regen_example.py            # re-prove the example after changing the gate
+```
+
+A kit change that weakens a check must update `tests/test_gate.py`, which exists to
+keep every check catching the defect it was added for.

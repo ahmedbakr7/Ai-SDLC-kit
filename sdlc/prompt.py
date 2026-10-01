@@ -60,6 +60,8 @@ def _ticket_context(cfg: Config, repo: Repo, t: Ticket, play: str) -> list[str]:
     if lines:
         out.append(_section("Requirements this ticket serves", "\n".join(lines)))
     out.append(_section("Contracts this ticket must honour", _contract_excerpt(cfg, repo, t)))
+    if t.type in ("frontend", "fullstack"):
+        out.extend(_design_context(cfg, repo, t))
     for s in t.skills:
         if s == play:
             continue
@@ -85,11 +87,28 @@ def _contract_excerpt(cfg: Config, repo: Repo, t: Ticket) -> str:
     chunks = re.split(r"(?m)^(?=## )", text)
     keep = [chunks[0]] if chunks and not chunks[0].startswith("## ") else []
     keys = set(refs) | {r.split(" ", 1)[-1] for r in refs}
+    always = ("convention", "error", "auth", "envelope")
     for ch in chunks:
-        if ch.startswith("## ") and any(k in ch for k in keys):
+        heading = ch.splitlines()[0].lower() if ch else ""
+        if ch.startswith("## ") and (any(k in ch for k in keys) or any(a in heading for a in always)):
             keep.append(ch)
     body = "\n".join(k.rstrip() for k in keep).strip()
     return f"Cited: {', '.join('`' + r + '`' for r in refs)}\n\nExcerpt of {cfg.rel(c.path)}:\n\n{body}"
+
+
+def _design_context(cfg: Config, repo: Repo, t: Ticket) -> list[str]:
+    """Page state tables for the pages this ticket owns, plus the design tokens."""
+    out = []
+    pages = {r for r in t.contracts if r.startswith("/")}
+    pdir = cfg.path("design") / "pages"
+    for p in sorted(pdir.glob("*.md")) if pdir.is_dir() else []:
+        first = (p.read_text(encoding="utf-8").splitlines() or [""])[0]
+        if any(first.strip().endswith(pg) for pg in pages):
+            out.append(_section(f"Page spec ({cfg.rel(p)})", _body(p)))
+    tokens = cfg.path("design") / "DESIGN.md"
+    if tokens.is_file():
+        out.append(_section("Design tokens (design/DESIGN.md)", _body(tokens)))
+    return out
 
 
 def _write_set(cfg: Config, t: Ticket, play: str) -> str:

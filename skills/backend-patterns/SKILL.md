@@ -1,24 +1,32 @@
 ---
 name: backend-patterns
-description: Product-locked backend patterns (API style, authz, persistence). Fill via ADR in the first /architect.
+description: Product-locked backend patterns (API style, errors, authz, data access, tests). Filled in the first /architect and changed only by ADR. Load on every backend ticket.
 ---
 
-# Skill: backend-patterns
+# Backend patterns (fill in during the first /architect; cite the stack ADR)
 
-Hard rules: `AGENTS.md`.
+Every row names a real module path. A builder who needs one of these concerns
+imports that module; writing a second one is a review finding.
 
-Fill the Lock in the first `/architect`. Change only by a superseding ADR.
+| Concern | Pattern | Module |
+|---|---|---|
+| Routing / handlers | | |
+| Request validation | | |
+| Error envelope | | |
+| Authn (who is calling) | | |
+| Authz (may they do this) | | |
+| Data access / transactions | | |
+| External APIs (clients, retries, fakes for tests) | | |
+| Config / secrets | | |
+| Logging | | |
+| Migrations | | |
 
-## Lock (fill in per product)
+## Framework rules the build must respect
 
-- API style (REST/RPC) and error envelope:
-- Authn / authz placement:
-- Persistence / transactions:
-- Jobs / queues:
-- Logging / trace ids:
-- Migrations:
-- Testing: handler + contract tests; no hitting real third parties in unit tests
+<!-- e.g. Next.js: route.ts may export only HTTP methods + route config; helpers live in src/server/** -->
 
-## Build agent rules
+## Tests
 
-- Do not introduce a second ORM, logger, or auth helper
+- Unit: <how handlers are called directly; test DB or fake>
+- Integration: <real DB / container; how to seed>
+- Every test name carries its AC tag (`T-NNN-NN/AC-n`).

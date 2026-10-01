@@ -1,0 +1,46 @@
+# sdlc.toml: how the kit runs checks in this product.
+# Every key below overrides the profile (.sdlc/profiles/<profile>.toml) and kit defaults.
+# Run `.sdlc/bin/sdlc doctor` after editing: it fails if a gate could pass vacuously.
+version = 1
+profile = ""
+
+[commands]
+# Each is a shell command run from the repo root. Exit code 0 = pass.
+# {junit} = path the gate reads to map tests to acceptance criteria (required for unit/integration/e2e).
+# {port}  = port for `start`.
+# lint = ""
+# typecheck = ""
+# unit = ""
+# integration = ""        # optional; runs when set
+# e2e = ""                # optional; runs when set (e.g. Playwright against `start`)
+# build = ""
+# start = ""              # long-running server for smoke probes; must listen on {port}
+# duplication = ""        # optional; e.g. jscpd
+
+[routes]
+# extractor = "nextjs-app"   # or "command" with command = "<prints METHOD /path lines>"
+
+[client]
+# patterns = [] ; globs = [] ; prefix = "/"   (calls from UI code that must hit a contract route)
+
+[tests]
+# globs = []                 # which files are tests
+# integration_globs = []     # what the test play may write
+# forbid = [ { regex = "", message = "" } ]
+
+[scope]
+# always_allowed = []        # globs any play may touch (lockfiles, snapshots)
+
+[vcs]
+base = "main"
+# pr_command = ""            # e.g. "gh pr create --fill --base {base} --head {branch}"
+
+[gate]
+max_attempts = 3
+
+# Agents `sdlc run` can drive. The kit ships none: you decide what each agent may do.
+# command placeholders: {instruction} (one line: read the prompt file and follow it),
+# {prompt_file} (repo-relative path). See .sdlc/adapters/AGENTS-RUNNER.md.
+# [agents.myagent]
+# command = "my-agent-cli {instruction}"
+# timeout = 3600

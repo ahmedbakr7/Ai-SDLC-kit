@@ -1,57 +1,64 @@
-# Consume this kit from a product repo
+# Use the kit in a product
 
-Pin this repo at `.sdlc/` (submodule SHA or subtree squash). Product files stay at the product root. Do not edit `.sdlc/` in a feature PR. To take a kit change: tag it here, then bump the pin in the product.
-
-## Layout after bootstrap
-
-```
-myapp/
-  AGENTS.md                 shim → .sdlc/AGENTS.md
-  adapters/MODELS.md
-  skills/frontend-patterns, backend-patterns, vendor/
-  intent/ design/ arch/ decisions/ tickets/ reviews/ ops/
-  .sdlc/                    this kit, read-only
-  src/
-```
-
-Product intent, tickets, CONTRACTS, filled pattern skills, `adapters/MODELS.md`, and `skills/vendor/` stay in `myapp`.
-
-## Attach
-
-Submodule (default):
+## 1. Pin it
 
 ```bash
-cd myapp
-git submodule add -b main git@github.com:YOU/ai-sdlc-kit.git .sdlc
-.sdlc/scripts/bootstrap-product.sh          # add --hooks to install pre-commit
-git add AGENTS.md adapters skills intent design arch decisions tickets reviews ops
-git commit -m "pin ai-sdlc-kit at .sdlc"
+git submodule add -b main https://github.com/ahmedbakr7/Ai-SDLC-kit.git .sdlc
+git -C .sdlc checkout <tag>          # pin a release
+.sdlc/bin/sdlc init --profile nextjs # or node | python | (none)
 ```
 
-Later clones: `git clone --recurse-submodules …`. CI: `submodules: true`.
+`init` creates (never overwrites):
 
-Subtree:
+```
+sdlc.toml                 commands, routes extractor, test globs, agents
+AGENTS.md                 points every agent at .sdlc/AGENTS.md and the CLI
+skills.lock.json          pinned vendor skills (empty)
+skills/frontend-patterns, skills/backend-patterns   filled in the first /architect
+intent/ design/ arch/ decisions/ tickets/ reviews/ evidence/ ops/
+.github/workflows/sdlc.yml                          the gate on every PR
+CLAUDE.md GEMINI.md .cursor/rules/ .github/copilot-instructions.md .claude/commands/   (adapters sync)
+.gitignore += .sdlc-run/
+```
+
+On Windows use `.sdlc\bin\sdlc.cmd`. Put `.sdlc/bin` on PATH to type `sdlc`.
+
+## 2. Make the gate real
+
+Edit `sdlc.toml` until `sdlc doctor` passes. Doctor fails when a required check could
+pass without checking anything:
+
+- every required command is set (`lint`, `typecheck`, `unit`, `build`, `start`);
+- test commands write JUnit to `{junit}` (vitest: `--reporter=junit --outputFile.junit={junit}`,
+  jest: `jest-junit`, pytest: `--junitxml={junit}`, Playwright: `PLAYWRIGHT_JUNIT_OUTPUT_NAME={junit}` with the `junit` reporter);
+- a route extractor is configured (`nextjs-app`, or `command` printing `METHOD /path`).
+
+Commit, then mark the `gate` job required in branch protection.
+
+## 3. Run the pipeline
+
+| Step | Who | Command |
+|---|---|---|
+| intent, design, architect | lead + agent, interactive | `sdlc prompt intent` → give the file to your agent; human accepts the artifact |
+| ticketize | agent | `sdlc prompt ticketize`; then `sdlc lint && sdlc trace`; lead sets tickets `ready` |
+| build | any agent, unattended | `sdlc run build $(sdlc next) --agent <name>` |
+| test | any agent | `sdlc run test T-001-03 --agent <name>` |
+| review | a **different** agent | `sdlc run review T-001-03 --agent <other>` |
+| merge | human or CI | merge the PR, then `sdlc status T-001-03 done --as merge` |
+
+`sdlc run` refuses a dirty tree, unmet dependencies, and a reviewer that built the
+ticket. Every agent commit carries an `Sdlc-Agent:` trailer.
+
+Without `sdlc run` (agent in an IDE): `sdlc status T-001-03 in_progress --as build`,
+give the agent `sdlc prompt build T-001-03`, have it iterate on `sdlc gate build
+T-001-03`, commit, then `sdlc status T-001-03 in_review --as build`.
+
+## 4. Upgrade the kit
 
 ```bash
-git subtree add --prefix .sdlc git@github.com:YOU/ai-sdlc-kit.git main --squash
-.sdlc/scripts/bootstrap-product.sh
+git -C .sdlc fetch --tags && git -C .sdlc checkout <new tag>
+.sdlc/bin/sdlc doctor && .sdlc/bin/sdlc adapters sync && .sdlc/bin/sdlc gate ci
+git add .sdlc && git commit -m "bump ai-sdlc kit to <tag>"
 ```
 
-Bind the tool to repo-root `AGENTS.md` (`adapters/GENERIC.md`). Pre-commit without `--hooks`: `ln -sf ../../.sdlc/scripts/pre-commit.sh .git/hooks/pre-commit`. Install product PR checks:
-
-```bash
-mkdir -p .github/workflows
-cp .sdlc/adapters/github/product-pr-checks.yml .github/workflows/product-pr-checks.yml
-# Mark lint, typecheck, unit required in branch protection (integration optional when present).
-```
-
-Required checks + `/review` Approve are the merge gate (`adapters/github/README.md`). Walk `.sdlc/examples/slice-042-return-status/`, then plays in `USAGE.md`.
-
-## Bump the pin
-
-```bash
-.sdlc/scripts/update-kit.sh v0.2.0    # omit arg → origin/main
-# subtree: git subtree pull --prefix .sdlc <remote> v0.2.0 --squash
-```
-
-Smoke `/test` one known ticket on an open PR (or run the product suite) — not a post-merge proof-only PR. Confirm required PR checks (lint + typecheck + unit) still go green. Commit the new `.sdlc` gitlink or subtree merge.
+Never edit `.sdlc/` inside a product: change the kit repo and bump the pin.

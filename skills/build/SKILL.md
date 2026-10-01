@@ -1,31 +1,62 @@
 ---
 name: build
-description: Implement exactly one ticket with unit tests. Lint + typecheck + unit green before opening the PR. Use on /build after the ticket is ready.
+description: Implement exactly one ticket test-first, inside its write set, until `sdlc gate build <id>` passes. Use for /build <ticket-id>.
 ---
 
-# Skill: build
+# Play: build
 
-Load set, band, write set, and hard rules: `AGENTS.md`.
+You turn one `ready` ticket into working, tested code. The runner has already put you
+on the ticket's branch and set it `in_progress`. You edit files; it commits, gates
+and retries.
 
-## Owns
+## Inputs (all in your prompt)
 
-- Production code in ticket `files:`
-- **Unit** tests beside those files
-- **lint + typecheck + unit green locally before opening the PR** (same commands CI will require)
-
-## Does not
-
-- Write integration or e2e suites (`/test` owns those)
-- Push straight to `main` or force-push
-- Start the next ticket
+Ticket, the requirements it cites, the CONTRACTS excerpt, pattern skills, write set,
+definition of done. Read the files named in `files:` and `shared:` before editing.
 
 ## Procedure
 
-1. Read ticket AC and `files:`. Refuse if `status` is not `ready` or `blocked` with a resolved blocker, or if any `depends_on` ticket is not `done`.
-2. Plan mode: list edits. Do not invent files. If you need a file not listed, stop and ask for a ticket patch.
-3. Implement the smallest diff that satisfies AC on a build branch off `main`.
-4. Add or update **unit** tests next to the code you changed. Do not write integration/e2e.
-5. Run **lint**, **typecheck**, and the **unit** suite for the changed surface. All must be **green** before you open the PR (CI will re-enforce via `product-pr-checks`).
-6. Run `scripts/verify-ticket.sh <ticket-id>` (L0).
-7. Set ticket `status: in_review`. Open the PR from the build branch (never push straight to `main`).
-8. Stop. Next: invite `/test <id>` onto that PR when integration coverage is needed; then `/review`. Lead merges only when required checks are green and review Approve.
+1. **Understand.** For each AC, write down (to yourself) the input, the observable
+   result, and which file produces it. If an AC is ambiguous or needs a file outside
+   the write set, stop now and say exactly what is missing.
+2. **Find what exists.** Search the shared modules from the plan and the pattern
+   skills for helpers you must reuse (db client, auth/role checks, error envelope,
+   API client, formatting). Import them. Never re-implement one in your file.
+3. **Red.** For each AC, write the test first, named with its tag:
+   - JS/TS: `it("T-001-03/AC-2 unknown id answers 404 not_found", ...)`
+   - Python: docstring or name containing `T-001-03/AC-2`
+
+   Run the unit command and watch it fail for the right reason (assertion, not a
+   typo or import error).
+4. **Green.** Write the smallest production code that makes it pass, following the
+   contract exactly: path, method, status codes, payload shape, error codes.
+5. **Refactor.** Remove duplication you introduced; keep functions small; name things
+   after the domain. Re-run tests.
+6. **Gate.** Run `sdlc gate build <id>`. Read every FAIL line and its details. Fix
+   the cause, not the symptom, and run it again. Repeat until PASS.
+7. **Stop.** Final message: what you built, the AC → test mapping, anything the
+   reviewer should look at. Do not change ticket status or open PRs.
+
+## Tests that count
+
+| Proves behaviour | Does not |
+|---|---|
+| calls the handler/route/component and asserts on the response or rendered text | reads the source file and greps it |
+| uses a real DB/test container or the product's fake from the pattern skill | mocks the function under test |
+| asserts the error code and status for the failure path | asserts only that "something" was returned |
+| one behaviour per test | `.only`, `.skip`, `xit`, commented-out asserts |
+
+## When the gate fails
+
+Debug systematically: reproduce with the exact failing command from the gate output,
+read the full log it points to, form one hypothesis, test it, then fix. Do not change
+several things at once, and never edit a test's expectation to match wrong output.
+
+| Gate check | Usual cause |
+|---|---|
+| scope | you edited a file not in `files:`/`shared:`; revert it or stop and ask |
+| contracts | route path or method differs from CONTRACTS; a client call uses an undeclared path |
+| ac-coverage | a test is missing its `T-.../AC-n` tag, or that test fails |
+| smoke | the app does not start, or the route is not mounted where the contract says |
+| build | framework build rules (e.g. Next.js route files may only export handlers) |
+| test-quality | skipped/focused tests, tests reading source text |

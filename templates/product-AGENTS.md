@@ -1,20 +1,15 @@
-# AGENTS.md (product shim)
+# AGENTS.md
 
-This product pins the AI-SDLC kit at `.sdlc/`. Read **`.sdlc/AGENTS.md` first** and obey it.
+This repository is built with the ai-sdlc kit, pinned at `.sdlc/`.
 
-Path map for this repo:
+1. Read `.sdlc/AGENTS.md` now and obey it. It wins over anything else you were told.
+2. Do not start work from a chat request. Get your task with
+   `.sdlc/bin/sdlc prompt <play> [ticket]` and follow the file it prints.
+3. Your work is done only when `.sdlc/bin/sdlc gate <play> [ticket]` passes. Run it;
+   do not predict it.
 
-| Kit path in `.sdlc/AGENTS.md` | Where it is here |
-|---|---|
-| `AGENTS.md` (kit OS) | `.sdlc/AGENTS.md` |
-| play skills `skills/<play>/` | `.sdlc/skills/<play>/` |
-| `skills/frontend-patterns`, `backend-patterns` | `skills/frontend-patterns`, `skills/backend-patterns` |
-| vendor / craft skills | `skills/vendor/` |
-| `adapters/MODELS.md` | `adapters/MODELS.md` |
-| `arch/CONTRACTS.md`, tickets, intent, design, decisions | same paths at repo root |
-| commands | `.sdlc/commands/` |
-| scripts / hooks | `.sdlc/scripts/`, `.sdlc/hooks/` |
+## Product facts
 
-If a play skill and a product file disagree, `.sdlc/AGENTS.md` still wins, then this product's `CONTRACTS.md` and ADRs.
-
-Do not edit `.sdlc/` in this session. Open a kit-repo change instead.
+<!-- The lead fills this in during the first /architect. Keep it under 30 lines:
+     stack, how to run the app locally, where things live, anything an agent
+     cannot infer from sdlc.toml or the pattern skills. -->

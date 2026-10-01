@@ -1,0 +1,147 @@
+{
+  "kit_evidence": 1,
+  "play": "build",
+  "ticket": "T-042-01",
+  "commit": "3fc191783499ce58a46b8ee74a834a903c48f8a9",
+  "dirty": false,
+  "base": "main",
+  "started": "2026-10-01T13:47:13+00:00",
+  "result": "pass",
+  "checks": [
+    {
+      "name": "artifacts",
+      "status": "pass",
+      "summary": "artifacts valid (0 warning(s))",
+      "details": [],
+      "ms": 16,
+      "log": ""
+    },
+    {
+      "name": "scope",
+      "status": "pass",
+      "summary": "4 changed file(s), all in scope",
+      "details": [],
+      "ms": 156,
+      "log": ""
+    },
+    {
+      "name": "immutable",
+      "status": "pass",
+      "summary": "no accepted ADR edited, no AC weakened",
+      "details": [],
+      "ms": 61,
+      "log": ""
+    },
+    {
+      "name": "contracts",
+      "status": "pass",
+      "summary": "1 code route(s) match CONTRACTS; 0 declared route(s) not built yet",
+      "details": [],
+      "ms": 172,
+      "log": ""
+    },
+    {
+      "name": "lint",
+      "status": "pass",
+      "summary": "`python tools/lint.py` ok",
+      "details": [],
+      "ms": 93,
+      "log": ".sdlc-run/logs/lint.log"
+    },
+    {
+      "name": "typecheck",
+      "status": "pass",
+      "summary": "`python tools/lint.py --types` ok",
+      "details": [],
+      "ms": 93,
+      "log": ".sdlc-run/logs/typecheck.log"
+    },
+    {
+      "name": "unit",
+      "status": "pass",
+      "summary": "`python tools/junit.py --start app --out C:\\Users\\ahmad\\AppData\\Local\\Temp\\tmpypmkakxr\\product\\.sdlc-run\\junit-unit.xml` ok (4 tests)",
+      "details": [],
+      "ms": 203,
+      "log": ".sdlc-run/logs/unit.log"
+    },
+    {
+      "name": "ac-coverage",
+      "status": "pass",
+      "summary": "all 4 AC proven by passing tests",
+      "details": [
+        "T-042-01/AC-1: passed",
+        "T-042-01/AC-2: passed",
+        "T-042-01/AC-3: passed",
+        "T-042-01/AC-4: passed"
+      ],
+      "ms": 0,
+      "log": ""
+    },
+    {
+      "name": "test-quality",
+      "status": "pass",
+      "summary": "1 test file(s) clean",
+      "details": [],
+      "ms": 0,
+      "log": ""
+    },
+    {
+      "name": "duplication",
+      "status": "skip",
+      "summary": "commands.duplication not configured",
+      "details": [],
+      "ms": 0,
+      "log": ""
+    },
+    {
+      "name": "build",
+      "status": "pass",
+      "summary": "`python -m compileall -q app tools` ok",
+      "details": [],
+      "ms": 125,
+      "log": ".sdlc-run/logs/build.log"
+    },
+    {
+      "name": "smoke",
+      "status": "pass",
+      "summary": "app booted; 1 route/page probe(s) answered",
+      "details": [],
+      "ms": 1343,
+      "log": ".sdlc-run/logs/smoke-server.log"
+    },
+    {
+      "name": "skills",
+      "status": "pass",
+      "summary": "vendored skills match skills.lock.json",
+      "details": [],
+      "ms": 0,
+      "log": ""
+    }
+  ],
+  "ac": {
+    "T-042-01/AC-1": {
+      "status": "passed",
+      "tests": [
+        "[unit] ReturnsApi test_lists_returns_with_id_and_state T-042-01/AC-1"
+      ]
+    },
+    "T-042-01/AC-2": {
+      "status": "passed",
+      "tests": [
+        "[unit] ReturnsApi test_states_are_from_the_contract_enum T-042-01/AC-2"
+      ]
+    },
+    "T-042-01/AC-3": {
+      "status": "passed",
+      "tests": [
+        "[unit] ReturnsApi test_no_returns_is_an_empty_list T-042-01/AC-3"
+      ]
+    },
+    "T-042-01/AC-4": {
+      "status": "passed",
+      "tests": [
+        "[unit] ReturnsApi test_unknown_order_is_404_not_found T-042-01/AC-4"
+      ]
+    }
+  }
+}

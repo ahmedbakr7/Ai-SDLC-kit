@@ -1,26 +1,31 @@
 ---
 name: frontend-patterns
-description: Product-locked frontend patterns (framework, data fetching, tokens). Fill via ADR in the first /architect.
+description: Product-locked frontend patterns (routing, data fetching, state, forms, i18n, tokens, component library, tests). Filled in the first /architect and changed only by ADR. Load on every frontend ticket.
 ---
 
-# Skill: frontend-patterns
+# Frontend patterns (fill in during the first /architect; cite the stack ADR)
 
-Hard rules: `AGENTS.md`.
+| Concern | Pattern | Module |
+|---|---|---|
+| Routing / layouts | | |
+| Calling the API (one client; base path from CONTRACTS) | | |
+| Server vs client components / data loading | | |
+| State | | |
+| Forms + validation | | |
+| Errors and empty states | | |
+| i18n / RTL | | |
+| Component library | | |
+| Design tokens (from DESIGN.md only) | | |
 
-Fill the Lock in the first `/architect`. Change only by a superseding ADR.
+## Rules
 
-## Lock (fill in per product)
+- Every API call goes through the one API client; paths come from CONTRACTS.
+- Pages implement every state in their `design/pages/*.md` table.
+- Components over ~200 lines get split; shared UI lives in the component library folder.
 
-- Framework / router / bundler:
-- Folder layout:
-- Server vs client data fetching:
-- Global state (allowed / forbidden):
-- Forms:
-- i18n:
-- Design tokens: load `DESIGN.md`, no raw hex / ad-hoc spacing
-- Testing: component tests next to file; e2e owned by test agent
+## Tests
 
-## Build agent rules
-
-- New page = add/update `design/pages/<route>.md` first (spec play), not here
-- No new component library
+- Component tests render and assert on what the user sees (text, roles), never on
+  source text or class names.
+- E2E (test play): real browser against the running app.
+- Every test name carries its AC tag (`T-NNN-NN/AC-n`).

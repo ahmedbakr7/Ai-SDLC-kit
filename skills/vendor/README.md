@@ -1,25 +1,31 @@
-# Craft / vendor skills
+# Vendor skills
 
-Play skills (`skills/build`, `skills/test`, …) stay ours. This folder is for **proven third-party** Agent Skills (`SKILL.md` folders).
+Play skills (`build`, `review`, ...) are the kit's and say **what** a play must deliver.
+Vendor skills are proven third-party `SKILL.md` folders that teach **technique**
+(TDD, debugging, Playwright, React performance). They never override `AGENTS.md`.
 
-Marketplace / `npx skills add` / Claude plugins teach *how to use a stack*. How work moves stays in `AGENTS.md`.
+## Pin, don't install
 
-## How to add one
+```bash
+.sdlc/bin/sdlc skills catalog                                   # curated list
+.sdlc/bin/sdlc skills add superpowers/test-driven-development   # pins commit + hash
+.sdlc/bin/sdlc skills add https://github.com/org/repo --path skills/x --ref v1.2.0
+```
 
-1. Prefer a `SKILL.md` folder (Agent Skills standard).
-2. Copy it into `skills/vendor/<name>/`.
-3. Commit it. Git is the pin; do not leave it only in `~/.claude/skills/` or account plugin sync.
-4. Put `vendor/<name>` on tickets that need it (`skills: [build, frontend-patterns, vendor/shadcn-ui]`).
+`add` copies the folder to `skills/vendor/<name>/` and records source, commit and a
+content hash in `skills.lock.json`. The `skills` gate check fails if a vendored skill
+is edited, missing, or not in the lock, so every agent on every machine gets the
+same bytes.
 
-Do not mark vendor skills always-on. Build/test agents load only `ticket.skills`. Hard rules: `AGENTS.md`.
+## Use
 
-If a plugin ships a full “PM + coder” flow, copy only the craft files.
+List a vendor skill on the tickets that need it (`skills: [build, frontend-patterns,
+test-driven-development]`). `sdlc prompt` inlines exactly those skills, so the agent
+does not depend on any tool's skill-discovery folder. Do not copy vendor skills into
+`.claude/skills`, `.agents/skills` or similar auto-loaded folders: that makes them
+always-on for every play.
 
-| Import | Write here / as ADR |
-|---|---|
-| Playwright, pytest, vendor test runners | When `/test` runs; AC mapping |
-| Supabase / Next / Trigger idioms | Whether a table/route exists (`CONTRACTS.md`) |
-| shadcn / component kit usage | Tokens and IA (`DESIGN.md`) |
-| Deploy checklists | Who is allowed to ship |
+## Update
 
-After updating a vendor skill, `/test` one known ticket.
+Re-run `sdlc skills add <key>` (optionally `--ref <tag>`), review the diff of the
+skill folder like code, and run one known ticket's gate before merging.

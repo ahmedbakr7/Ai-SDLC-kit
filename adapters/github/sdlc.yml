@@ -1,0 +1,53 @@
+# Product CI: the same gate agents run locally, enforced on every PR.
+# Installed by `sdlc init` as .github/workflows/sdlc.yml. Mark the "gate" job required
+# in branch protection. Add the services/setup your stack needs (databases, browsers).
+name: sdlc
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 0          # the gate diffs against the base branch
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Stack setup goes here, e.g. for Node:
+      # - uses: actions/setup-node@v4
+      #   with: { node-version: 22, cache: npm }
+      # - run: npm ci
+
+      - name: Doctor (fails if any required check could pass vacuously)
+        run: .sdlc/bin/sdlc doctor
+
+      - name: Gate (ci)
+        run: .sdlc/bin/sdlc gate ci --base origin/${{ github.base_ref || 'main' }}
+
+      - name: Trace (requirements -> tickets -> proven AC)
+        run: .sdlc/bin/sdlc trace
+
+      - name: Ticket gates for tickets touched by this PR
+        if: github.event_name == 'pull_request'
+        run: |
+          base=origin/${{ github.base_ref }}
+          for t in $(git diff --name-only "$base"...HEAD -- tickets/ | sed -nE 's#^tickets/(T-[0-9]+-[0-9]+).*#\1#p' | sort -u); do
+            status=$(.sdlc/bin/sdlc status "$t")
+            case "$status" in
+              in_review) .sdlc/bin/sdlc gate build "$t" --base "$base" ;;
+            esac
+          done
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sdlc-run
+          path: .sdlc-run/

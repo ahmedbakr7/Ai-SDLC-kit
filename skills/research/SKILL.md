@@ -1,16 +1,34 @@
 ---
 name: research
-description: Isolated research subagent. Use when the lead needs sources, options, or risks before writing intent.md. Returns a brief.
+description: Answer specific questions for the lead with cited, dated sources, separating facts from options and recommendations. Use for /research before an intent or ADR. Writes nothing to the repo.
 ---
 
-# Skill: research
+# Play: research
 
-Load set, band, write set, and hard rules: `AGENTS.md`.
+Return one brief to the lead, then stop. Write no files.
 
-## Procedure
+## Brief format
 
-1. Answer the lead’s questions with dated sources when possible.
-2. Separate facts, options, and recommendations.
-3. List `[OPEN]` items the spec must not pretend are decided.
-4. If you name a vendor, cite it.
-5. Return the brief to the parent lead and stop.
+```markdown
+# Research: <question>  (as of YYYY-MM-DD)
+
+## Answer
+<3-6 sentences>
+
+## Facts
+- <fact> [source, date]
+
+## Options
+| Option | For | Against | Cost/limits |
+|---|---|---|---|
+
+## Recommendation
+<one option and why; or "no recommendation" and what would decide it>
+
+## Open
+- [OPEN: <what the spec must not pretend is decided>]
+```
+
+Rules: cite every vendor/library claim with a link and date; prefer primary sources
+(official docs, changelogs, pricing pages); say "unknown" rather than guess; stop when
+each question has an answer or a clearly stated unknown.

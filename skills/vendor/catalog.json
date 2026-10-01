@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "note": "Curated third-party skills. `sdlc skills add <key>` pins the current commit and a content hash into the product's skills.lock.json. Check each license before vendoring.",
+  "skills": {
+    "superpowers/test-driven-development": {
+      "source": "https://github.com/obra/superpowers",
+      "path": "skills/test-driven-development",
+      "license": "MIT",
+      "plays": ["build", "test"],
+      "use": "red-green-refactor discipline for build tickets"
+    },
+    "superpowers/systematic-debugging": {
+      "source": "https://github.com/obra/superpowers",
+      "path": "skills/systematic-debugging",
+      "license": "MIT",
+      "plays": ["build", "test"],
+      "use": "root-cause loop when a gate check keeps failing"
+    },
+    "superpowers/verification-before-completion": {
+      "source": "https://github.com/obra/superpowers",
+      "path": "skills/verification-before-completion",
+      "license": "MIT",
+      "plays": ["build", "test", "review"],
+      "use": "never claim done without fresh evidence"
+    },
+    "anthropic/webapp-testing": {
+      "source": "https://github.com/anthropics/skills",
+      "path": "skills/webapp-testing",
+      "license": "Apache-2.0",
+      "plays": ["test"],
+      "use": "drive a running web app with Playwright for e2e proof"
+    },
+    "anthropic/frontend-design": {
+      "source": "https://github.com/anthropics/skills",
+      "path": "skills/frontend-design",
+      "license": "Apache-2.0",
+      "plays": ["design", "build"],
+      "use": "distinctive, production-grade UI on frontend tickets"
+    },
+    "vercel/react-best-practices": {
+      "source": "https://github.com/vercel-labs/agent-skills",
+      "path": "skills/react-best-practices",
+      "license": "see repository",
+      "plays": ["build", "review"],
+      "use": "React / Next.js performance and correctness rules"
+    },
+    "vercel/web-design-guidelines": {
+      "source": "https://github.com/vercel-labs/agent-skills",
+      "path": "skills/web-design-guidelines",
+      "license": "see repository",
+      "plays": ["build", "review"],
+      "use": "accessibility and interface guidelines for review"
+    }
+  }
+}

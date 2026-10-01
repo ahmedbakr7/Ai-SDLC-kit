@@ -69,7 +69,7 @@ class Gate:
         # test and review answer for what they changed after the build was proven,
         # not for the build's own diff against the base branch.
         if since is None and self.ticket and play in ("test", "review"):
-            since = build_evidence_commit(cfg, self.ticket.id)
+            since = proven_commit(cfg, self.ticket.id, ("build",) if play == "test" else ("test", "build"))
         self.since = since
 
     # -- plumbing ---------------------------------------------------------
@@ -498,11 +498,15 @@ def _acs(data: dict) -> list[tuple[str, str]]:
     return out
 
 
-def build_evidence_commit(cfg: Config, tid: str) -> str | None:
-    p = cfg.path("evidence") / f"{tid}.build.json"
-    if not p.is_file():
-        return None
-    return json.loads(p.read_text(encoding="utf-8")).get("commit") or None
+def proven_commit(cfg: Config, tid: str, plays: tuple[str, ...]) -> str | None:
+    """Commit of the first passing evidence found among `plays` (latest play first)."""
+    for play in plays:
+        p = cfg.path("evidence") / f"{tid}.{play}.json"
+        if p.is_file():
+            ev = json.loads(p.read_text(encoding="utf-8"))
+            if ev.get("result") == "pass" and ev.get("commit"):
+                return ev["commit"]
+    return None
 
 
 def extract_key(ref: str) -> str:

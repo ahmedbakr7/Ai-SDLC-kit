@@ -2,5 +2,4 @@ __pycache__/
 *.py[cod]
 .Python
 .DS_Store
-__pycache__/
 .sdlc-run/

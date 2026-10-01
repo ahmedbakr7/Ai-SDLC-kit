@@ -1,48 +1,36 @@
 ---
 name: test
-description: Author integration/e2e tests on the build PR, or run the suite in CI. No unit gap-fill. No post-merge proof-only PRs.
+description: Add integration and end-to-end tests that prove a built ticket's acceptance criteria against real infrastructure, until `sdlc gate test <id>` passes. Use for /test <ticket-id> on a ticket in review.
 ---
 
-# Skill: test
+# Play: test
 
-Load set, band, write set, and hard rules: `AGENTS.md`.
+The build play proved each AC with unit tests. You prove the same AC through the
+real stack: real HTTP, real database, real browser. You never edit production code.
 
-## Owns
+## Write set
 
-- **Integration** tests (and later e2e / evals) that lock ticket AC
-- Running those suites **against the build PR/branch** when invited
-
-## Does not
-
-- Fill unit-test gaps (build owns unit; unit must already be green on the PR)
-- Edit production source
-- Open post-merge proof-only PRs (drop that as a conveyor step)
-- Stamp the AC↔proof table (`/review` owns that)
+Only the integration/e2e paths in your prompt (`tests.integration_globs`). If
+production code is wrong, that is the finding: stop and report it.
 
 ## Procedure
 
-Two modes. Same agent kind, different write set.
+1. For each AC, decide the cheapest test that exercises the real path:
+   - API behaviour -> integration test over HTTP against the started app or the
+     framework's request handler with a real database.
+   - User-visible behaviour -> one e2e journey in a real browser (e.g. Playwright)
+     against the running app, asserting on what the user sees.
+2. Name each test with its tag (`T-001-03/AC-2 ...`) so the gate can map it.
+3. Use the product's fixtures and seeding helpers. Do not create a second test
+   framework or a second way to start the app.
+4. Run `sdlc gate test <id>` until it passes.
+5. If a test fails because production is wrong, do not change the test to match.
+   Stop and report: the AC, the command, expected vs actual, and the file:line you
+   believe is wrong. The ticket goes back to build.
 
-### Mode A — author (default `/test <id>`)
+## Good integration/e2e tests
 
-Write **integration** (and later e2e) tests that lock the ticket AC. Work on the **open build PR/branch**, not a new post-merge proof PR.
-
-Globs: integration/contract specs, `e2e/**`, `evals/**`, fixtures. Prefer paths the product already uses for non-unit suites. Do **not** author unit tests beside production files to close gaps — refuse and send that back to `/build`.
-
-1. Load ticket AC + `CONTRACTS.md` + built files on the build branch/PR.
-2. Map each AC to an integration (or e2e) test. Missing AC = fail the play, do not skip.
-3. Prefer contract/integration tests against schemas in `CONTRACTS.md`, then one e2e path per user-visible AC. Skip unit-layer authorship.
-4. Run `scripts/run-tests.sh --ticket <id>` (or the product’s integration target).
-5. If red because production is wrong: do **not** fix production. Open a note on the ticket (`blocked_by: prod`) and stop. Build agent owns prod.
-6. If red because the test is wrong: fix the test.
-7. Never delete or weaken an AC to pass. Never open a separate proof-only PR after merge.
-
-### Mode B — CI run (`/test --app`)
-
-Run the suite on the PR and report. No new PR. No AC↔proof stamp (Review owns that).
-
-- Use `scripts/run-app-eval.sh` / `scripts/run-tests.sh` (whatever the repo wired)
-- Report: command, expected, actual, file:line
-- Do not open a post-merge proof-only PR
-
-Vendor skills teach the runner. This skill owns integration/e2e authorship and the write set.
+- Start from the public surface (URL, route, page), never from internal functions.
+- Assert on status codes, response bodies and visible text from the contract/page spec.
+- Cover the error and empty states the spec names, not just the happy path.
+- Clean up their own data; can run in any order.
