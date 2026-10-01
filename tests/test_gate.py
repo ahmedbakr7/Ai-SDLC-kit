@@ -67,6 +67,14 @@ class GateCatches(unittest.TestCase):
         self.assertEqual(c["status"], "fail", c)
         self.assertEqual(c["details"], ["page in code but not in CONTRACTS: /admin (routes.command)"])
 
+    def test_table_in_code_but_not_in_contracts(self) -> None:
+        self.p.write("app/schema.py", 'RETURNS = Table("returns")\nAUDIT = Table(\n    "audit_log",\n)\n')
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml") + '\n[tables]\npatterns = [\'\'\'Table\\(\\s*"(?P<name>\\w+)"\'\'\']\n'
+                     'globs = ["app/**/*.py"]\n')
+        c = self.gate("ci", "contracts", ticket=None)["contracts"]
+        self.assertEqual(c["status"], "fail")
+        self.assertEqual(c["details"], ["table in code but not in CONTRACTS: audit_log (app/schema.py:2)"])
+
     def test_options_probe_requires_the_method_in_allow(self) -> None:
         # mutating_probe = "options" never sends the write; a router that cannot say it
         # serves DELETE (here: no OPTIONS support at all) fails instead of passing.

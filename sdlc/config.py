@@ -77,6 +77,13 @@ DEFAULTS: dict[str, Any] = {
         "exclude": [],
         "prefix": "",          # only paths starting with this are checked
     },
+    "tables": {
+        # Regexes with a named group 'name', searched across whole files (definitions often
+        # span lines), that find table definitions; each must be a CONTRACTS ```tables entry.
+        "patterns": [],
+        "globs": [],
+        "exclude": [],
+    },
     "tests": {
         "globs": [],                       # files that count as tests (for scope + quality)
         "unit_beside": True,               # build may add tests beside listed files

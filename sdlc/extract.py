@@ -137,6 +137,23 @@ def client_calls(cfg: Config, files: list[Path] | None = None) -> list[tuple[str
     return out
 
 
+def code_tables(cfg: Config) -> dict[str, str]:
+    """{'table name': 'file:line'} for table definitions found by tables.patterns."""
+    tc = cfg.section("tables")
+    pats = [re.compile(p) for p in tc.get("patterns", [])]
+    if not pats:
+        return {}
+    from .paths import glob_files
+
+    out: dict[str, str] = {}
+    for rel in glob_files(cfg.root, tc.get("globs", []), tc.get("exclude", [])):
+        text = (cfg.root / rel).read_text(encoding="utf-8", errors="replace")
+        for pat in pats:
+            for m in pat.finditer(text):
+                out.setdefault(m.group("name"), f"{rel}:{text.count(chr(10), 0, m.start()) + 1}")
+    return out
+
+
 def path_matches(path: str, contract_paths: set[str]) -> bool:
     """Does a concrete or templated client path match any contract route path?"""
     norm = normalize_path(path)

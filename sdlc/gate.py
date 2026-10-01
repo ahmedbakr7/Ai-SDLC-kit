@@ -272,6 +272,9 @@ class Gate:
         declared_pages = {normalize_path(p) for p in contracts.pages}
         for pg in sorted(set(code_pages) - declared_pages):
             details.append(f"page in code but not in CONTRACTS: {pg} ({code_pages[pg]})")
+        tables = extract.code_tables(self.cfg)
+        for name in sorted(set(tables) - set(contracts.tables)):
+            details.append(f"table in code but not in CONTRACTS: {name} ({tables[name]})")
         if self.ticket:
             mine = {extract_key(r) for r in self.ticket.contracts}
             for k in sorted(mine & declared):

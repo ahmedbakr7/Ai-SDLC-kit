@@ -23,6 +23,12 @@ globs = ["src/**/*.ts", "src/**/*.tsx", "app/**/*.ts", "app/**/*.tsx"]
 exclude = ["**/*.test.*", "**/*.spec.*", "**/route.ts", "src/server/**"]
 prefix = "/"
 
+[tables]
+# Drizzle: pgTable("name", ...), also when the name is on the next line.
+patterns = ['''\b(?:pg|mysql|sqlite)Table\(\s*[`"'](?P<name>[A-Za-z0-9_]+)[`"']''']
+globs = ["src/**/*.ts", "db/**/*.ts", "drizzle/**/*.ts"]
+exclude = ["**/*.test.*", "**/*.spec.*"]
+
 [tests]
 globs = ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx", "e2e/**"]
 integration_globs = ["e2e/**", "tests/**", "**/*.int.test.ts", "**/*.int.test.tsx"]
