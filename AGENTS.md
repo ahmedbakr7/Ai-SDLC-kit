@@ -41,7 +41,7 @@ Get the exact task with `sdlc prompt <play> [id]`. It contains everything you ne
    the plan, pattern skills). Duplicated logic is a review finding.
 6. **Tests prove behaviour.** Each acceptance criterion gets a test named with its
    tag (`T-001-03/AC-2`) that fails if the behaviour breaks. Never assert on source
-   text, never mock the unit under test, never skip or focus tests, never weaken a
+   text, never mock the unit under test, never skip, focus or invert (`it.fails`, `xfail`) tests, never weaken a
    test to make it pass.
 7. **Accepted things are immutable.** Accepted ADRs and acceptance criteria change only
    through a new ADR or a spec change, never inside a build.

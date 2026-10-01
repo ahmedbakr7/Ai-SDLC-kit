@@ -30,10 +30,16 @@ PR_ROLES = ("build", "test", "review", "merge")
 COMMAND_CHECKS = ("lint", "typecheck", "unit", "integration", "e2e", "build", "duplication")
 JUNIT_CHECKS = ("unit", "integration", "e2e")
 RUN_DIR = ".sdlc-run"
+_JS_TEST = r"\b(?:it|test|describe|suite)(?:\.\w+)*"  # it.only, describe.concurrent.only, ...
 BUILTIN_TEST_FORBID = [
-    {"regex": r"\b(it|test|describe)\.only\s*\(", "message": "focused test (.only) hides the rest of the suite"},
-    {"regex": r"\b(it|test|describe)\.skip\s*\(|\bxit\s*\(|\bxdescribe\s*\(", "message": "skipped test"},
-    {"regex": r"@pytest\.mark\.skip\b|@unittest\.skip\b", "message": "skipped test"},
+    {"regex": _JS_TEST + r"\.only\s*\(|\bf(?:it|describe)\s*\(", "message": "focused test (.only) hides the rest of the suite"},
+    {"regex": _JS_TEST + r"\.(?:skip|skipIf|runIf|todo)\s*\(|\bx(?:it|describe|test)\s*\(",
+     "message": "skipped or conditionally skipped test"},
+    {"regex": r"@pytest\.mark\.skip(?:if)?\b|\bpytest\.skip\s*\(|@unittest\.skip(?:If|Unless)?\b|\.skipTest\s*\(",
+     "message": "skipped or conditionally skipped test"},
+    # Inverted tests report "passed" when their assertion fails, so a tagged one proves the opposite.
+    {"regex": _JS_TEST + r"\.fails\s*\(|@unittest\.expectedFailure\b|@pytest\.mark\.xfail\b|\bpytest\.xfail\s*\(",
+     "message": "expected-failure test passes when its assertion fails"},
 ]
 
 

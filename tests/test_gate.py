@@ -185,6 +185,22 @@ class GateCatches(unittest.TestCase):
         self.assertEqual(c["status"], "fail")
         self.assertIn("app/test_pages.py", "\n".join(c["details"]))
 
+    def test_inverted_and_conditionally_skipped_tests(self) -> None:
+        # Vitest's it.fails and unittest's expectedFailure report "passed" when the assertion
+        # fails: tagged with an AC they prove the opposite of the AC.
+        self.apply_solution()
+        self.p.write("app/test_pages.py", self.p.read("app/test_pages.py").replace(
+            "    def test_no_returns_no_heading", "    @unittest.expectedFailure\n    def test_no_returns_no_heading"))
+        self.p.write("tests/ui.test.ts", "it.fails('T-042-02/AC-1 shows status', () => {})\n"
+                     "describe.concurrent.only('focused', () => {})\n"
+                     "it.skipIf(process.env.CI)('flaky', () => {})\n")
+        c = self.gate("build", "test-quality")["test-quality"]
+        self.assertEqual(c["status"], "fail")
+        details = c["details"]
+        self.assertTrue(any(d.startswith("app/test_pages.py:") and "expected-failure" in d for d in details), details)
+        for ln, msg in ((1, "expected-failure"), (2, "focused"), (3, "conditionally skipped")):
+            self.assertTrue(any(d.startswith(f"tests/ui.test.ts:{ln}: ") and msg in d for d in details), details)
+
     def test_file_outside_ticket_scope(self) -> None:
         self.apply_solution()
         self.p.write("app/returns.py", self.p.read("app/returns.py") + "\n# drive-by edit\n")
