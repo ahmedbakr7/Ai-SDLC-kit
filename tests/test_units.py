@@ -14,6 +14,15 @@ class Frontmatter(unittest.TestCase):
         self.assertEqual(d, {"a": 1, "b": "x: y", "c": ["p", "q, r", 3], "d": ["one", "two: 2"],
                              "e": None, "f": "l1\nl2"})
 
+    def test_plain_scalars_fold_across_lines_like_yaml(self) -> None:
+        d = fm.parse("title: Fix the very\n  long title  # note\nfiles:\n  - a\n")
+        self.assertEqual(d, {"title": "Fix the very long title", "files": ["a"]})
+
+    def test_errors_say_how_to_fix(self) -> None:
+        with self.assertRaises(fm.ParseError) as e:
+            fm.parse('title: "Fix the very\n  long title"\n')
+        self.assertIn("one quoted line or a '|' block", str(e.exception))
+
     def test_rejects_what_it_does_not_understand(self) -> None:
         for bad in ("a:\n  b: 1\n", "a: {b: 1}\n", "a: [x, [y]]\n", "a: 1\na: 2\n", "  a: 1\n", 'a: "open\n'):
             with self.subTest(bad=bad), self.assertRaises(fm.ParseError):

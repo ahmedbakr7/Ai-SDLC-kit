@@ -67,7 +67,8 @@ def _scalar(raw: str, path: str, line: int) -> Any:
         return ""
     if raw[0] == '"':
         if len(raw) < 2 or raw[-1] != '"':
-            raise ParseError(path, line, f"unterminated double-quoted string: {raw}")
+            raise ParseError(path, line, f"unterminated double-quoted string: {raw} (a quoted value must "
+                             "close on the same line; for longer text use one quoted line or a '|' block)")
         try:
             return json.loads(raw)
         except json.JSONDecodeError as e:
@@ -77,7 +78,7 @@ def _scalar(raw: str, path: str, line: int) -> Any:
             raise ParseError(path, line, f"unterminated single-quoted string: {raw}")
         return raw[1:-1].replace("''", "'")
     if raw[0] in "{&*!|>":
-        raise ParseError(path, line, f"unsupported YAML construct: {raw}")
+        raise ParseError(path, line, f"unsupported YAML construct: {raw} (quote the value: \"...\")")
     if raw in ("true", "True"):
         return True
     if raw in ("false", "False"):
@@ -131,7 +132,8 @@ def parse(fm: str, path: str = "<frontmatter>", first_line: int = 2) -> dict[str
             i += 1
             continue
         if line[0] in " \t":
-            raise ParseError(path, ln, f"unexpected indentation: {line.strip()}")
+            raise ParseError(path, ln, f"unexpected indentation: {line.strip()} (a value that continues on "
+                             "the next line must be one quoted line or a '|' block; list items start with '- ')")
         m = KEY_RE.match(line)
         if not m:
             raise ParseError(path, ln, f"expected 'key: value', got: {line.strip()}")
@@ -154,6 +156,12 @@ def parse(fm: str, path: str = "<frontmatter>", first_line: int = 2) -> dict[str
             data[key] = _split_inline_list(rest[1:-1], path, ln)
             continue
         if rest:
+            if rest[0] not in "\"'":
+                # YAML plain scalars may continue on more-indented lines; they fold with spaces.
+                while (i < len(lines) and lines[i].strip() and lines[i][0] in " \t"
+                       and not lines[i].lstrip().startswith(("- ", "#"))):
+                    rest += " " + _strip_comment(lines[i].strip())
+                    i += 1
             data[key] = _scalar(rest, path, ln)
             continue
         # empty value: block list or empty
@@ -172,7 +180,8 @@ def parse(fm: str, path: str = "<frontmatter>", first_line: int = 2) -> dict[str
                 i += 1
                 continue
             if nxt[0] in " \t":
-                raise ParseError(path, first_line + i, f"nested maps are not supported: {stripped}")
+                raise ParseError(path, first_line + i, f"nested maps are not supported: {stripped} "
+                                 "(use a top-level key, or a list item quoted as one string: - \"a: b\")")
             break
         data[key] = items if items else None
     return data
