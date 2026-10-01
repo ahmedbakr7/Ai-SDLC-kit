@@ -108,6 +108,14 @@ def lint_ticket(repo: Repo, t: Ticket, reqs: dict) -> list[Issue]:
         err(f"risk must be one of {RISKS}, got {t.risk!r}")
     if t.status == "blocked" and not str(d.get("blocked_by", "")).strip():
         err("status blocked needs a non-empty blocked_by")
+    if t.status == "done":
+        # `sdlc status ... done` enforces this; a hand-edited status must not skip it.
+        try:
+            rv = repo.review_for(t.id)
+        except fm.ParseError:
+            rv = None
+        if rv is None or rv.verdict != "approve":
+            err(f"status done needs {repo.cfg.data['paths']['reviews']}/{t.id}.md with verdict: approve")
 
     for dep in t.depends_on:
         if dep == t.id:

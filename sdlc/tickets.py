@@ -20,6 +20,22 @@ class TransitionError(RuntimeError):
     pass
 
 
+def reachable(frm: str, to: str, role: str) -> bool:
+    """Can `role` alone move a ticket from `frm` to `to` (in any number of legal steps)?"""
+    if frm == to or (to == "blocked" and role in ANY_TO_BLOCKED):
+        return True
+    seen, todo = {frm}, [frm]
+    while todo:
+        cur = todo.pop()
+        for (a, b), roles in TRANSITIONS.items():
+            if a == cur and role in roles and b not in seen:
+                if b == to:
+                    return True
+                seen.add(b)
+                todo.append(b)
+    return False
+
+
 def check_transition(repo: Repo, t: Ticket, to: str, role: str, reason: str = "") -> None:
     frm = t.status
     if to == "blocked":

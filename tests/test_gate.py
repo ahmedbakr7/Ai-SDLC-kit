@@ -154,7 +154,8 @@ class GateCatches(unittest.TestCase):
         self.p.commit("build T-042-02")
         code, out = self.p.sdlc("gate", "build", "T-042-02")
         self.assertEqual(code, 0, out)
-        self.p.commit("evidence T-042-02: build gate pass")
+        self.assertEqual(self.p.sdlc("status", "T-042-02", "in_review", "--as", "build")[0], 0)
+        self.p.commit("evidence T-042-02: build gate pass")  # one commit, as `sdlc run` does
         return json.loads(self.p.read("evidence/T-042-02.build.json"))["commit"]
 
     def test_partial_gate_run_is_not_evidence(self) -> None:
@@ -171,20 +172,21 @@ class GateCatches(unittest.TestCase):
         from helpers import git
 
         self.build_and_commit()
+        start = git(self.p.root, "rev-parse", "HEAD").strip()  # what `sdlc run` records before the agent
         self.p.write("app/returns.py", self.p.read("app/returns.py") + "\n# production change in a test play\n")
         self.p.commit("sneak")
         ev = json.loads(self.p.read("evidence/T-042-02.build.json"))
         ev["commit"] = git(self.p.root, "rev-parse", "HEAD").strip()
         self.p.write("evidence/T-042-02.build.json", json.dumps(ev, indent=2))
         self.p.commit("forge")
-        c = self.gate("test", "scope")["scope"]
+        self.code, self.out = self.p.sdlc("gate", "test", "T-042-02", "--since", start, "--only", "scope")
+        c = json.loads(self.p.read(".sdlc-run/T-042-02.test.json"))["checks"][0]
         self.assertEqual(c["status"], "fail")
         self.assertIn("outside test write set: evidence/T-042-02.build.json", c["details"])
+        self.assertIn("outside test write set: app/returns.py", c["details"])
 
     def test_review_must_name_the_proven_commit_exactly(self) -> None:
         proven = self.build_and_commit()
-        self.p.sdlc("status", "T-042-02", "in_review", "--as", "build")
-        self.p.commit("in review")
         review = (FIXTURES_DIR / "solutions" / "review-T-042-02" / "reviews" / "T-042-02.md").read_text(encoding="utf-8")
         for commit, want in ((proven[:3], "fail"), ("0000000", "fail"), (proven[:7], "pass"), (proven, "pass")):
             with self.subTest(commit=commit):
@@ -212,6 +214,23 @@ class GateCatches(unittest.TestCase):
         c = self.gate("review", "review-file")["review-file"]
         self.assertEqual(c["status"], "fail")
         self.assertIn("test evidence is older than the build evidence", "\n".join(c["details"]))
+
+    def test_play_cannot_mark_its_own_ticket_done(self) -> None:
+        self.build_and_commit()
+        rel = "tickets/T-042-02-order-page.md"
+        self.p.write(rel, self.p.read(rel).replace("status: in_review", "status: done"))
+        c = self.gate("test", "scope")["scope"]
+        self.assertEqual(c["status"], "fail")
+        self.assertIn(f"{rel}: status in_review -> done is not a move the test play may make", c["details"])
+        # ... and with no approving review, `done` is an artifact error for every gate, CI included.
+        a = self.gate("ci", "artifacts", ticket=None)["artifacts"]
+        self.assertEqual(a["status"], "fail")
+        self.assertIn("status done needs reviews/T-042-02.md with verdict: approve", "\n".join(a["details"]))
+
+    def test_build_may_move_its_ticket_to_in_review(self) -> None:
+        self.build_and_commit()  # ready -> in_progress -> in_review, both build moves
+        c = self.gate("build", "scope")["scope"]
+        self.assertEqual(c["status"], "pass", c)
 
     def test_tests_beside_listed_files_are_in_scope(self) -> None:
         self.apply_solution()

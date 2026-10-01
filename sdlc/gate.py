@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Callable
 
-from . import config, extract, fm, gitutil, lint, paths
+from . import config, extract, fm, gitutil, lint, paths, tickets
 from .artifacts import Repo, Ticket
 from .config import Config
 
@@ -71,10 +71,12 @@ class Gate:
         self.junit_used: dict[str, bool] = {}
         self.checks: list[Check] = []
         self._changed: list[str] | None = None
-        # test and review answer for what they changed after the build was proven,
-        # not for the build's own diff against the base branch.
+        # test and review answer for what they changed after the earlier plays' evidence was
+        # committed, not for the build's own diff against the base branch. `sdlc run` passes
+        # the HEAD it saw before the agent started; without it this falls back to the commit
+        # history, which an agent with git access could shape (CI judges the whole PR instead).
         if since is None and self.ticket and play in ("test", "review"):
-            since = proven_commit(cfg, self.ticket.id, ("build",) if play == "test" else ("test", "build"))
+            since = _evidence_commit(cfg, self.ticket.id, ("build",) if play == "test" else EVIDENCE_PLAYS)
         self.since = since
 
     # -- plumbing ---------------------------------------------------------
@@ -202,16 +204,20 @@ class Gate:
         t = self.ticket
         globs, exact = self.allowed()
         tests = self.cfg.section("tests")
-        bad = []
+        bad, moves = [], []
         for f in self.changed():
             if f in exact or any(_glob(f, g) for g in globs):
                 continue
             if self.play == "build" and tests.get("unit_beside", True) and _is_test_beside(f, t.files, tests.get("globs", [])):
                 continue
-            if f == self.cfg.rel(t.path) and _only_status_changed(self.cfg, self.since or self.base, f):
-                continue
+            if f == self.cfg.rel(t.path) and (move := _status_change(self.cfg, self.since or self.base, f)):
+                # Only the status may change, and only along moves this play's role may make
+                # (a test agent cannot mark its own ticket done).
+                if tickets.reachable(*move, self.play):
+                    continue
+                moves.append(f"{f}: status {move[0]} -> {move[1]} is not a move the {self.play} play may make")
             bad.append(f)
-        c.details = [f"outside {self.play} write set: {f}" for f in bad]
+        c.details = moves + [f"outside {self.play} write set: {f}" for f in bad]
         if self.config_note:
             c.details.append(self.config_note)
         if bad:
@@ -539,6 +545,13 @@ def proven_commit(cfg: Config, tid: str, plays: tuple[str, ...]) -> str | None:
     return None
 
 
+def _evidence_commit(cfg: Config, tid: str, plays: tuple[str, ...]) -> str | None:
+    """The last commit that committed evidence for `plays` (where the next play starts)."""
+    rels = [cfg.rel(cfg.path("evidence") / f"{tid}.{p}.json") for p in plays]
+    out = gitutil.git(cfg.root, "log", "-1", "--format=%H", "--", *rels, check=False).strip()
+    return out or proven_commit(cfg, tid, tuple(reversed(plays)))
+
+
 def extract_key(ref: str) -> str:
     from .artifacts import normalize_route_key
 
@@ -600,25 +613,27 @@ def _is_test_beside(f: str, files: list[str], test_globs: list[str]) -> bool:
     return False
 
 
-def _only_status_changed(cfg: Config, ref: str, rel: str) -> bool:
+def _status_change(cfg: Config, ref: str, rel: str) -> tuple[str, str] | None:
+    """(old status, new status) when nothing but status/blocked_by changed in a ticket since `ref`."""
     try:
         ref = gitutil.merge_base(cfg.root, ref)
     except gitutil.GitError:
         pass  # a commit sha, not a branch
     old = gitutil.show(cfg.root, ref, "./" + rel)
-    if old is None:
-        return False
-    new = (cfg.root / rel).read_text(encoding="utf-8")
+    p = cfg.root / rel
+    if old is None or not p.is_file():
+        return None
     try:
         ofm, obody, _ = fm.split(old)
-        nfm, nbody, _ = fm.split(new)
+        nfm, nbody, _ = fm.split(p.read_text(encoding="utf-8"))
         od, nd = fm.parse(ofm or ""), fm.parse(nfm or "")
     except fm.ParseError:
-        return False
+        return None
+    statuses = (str(od.get("status", "")), str(nd.get("status", "")))
     for d in (od, nd):
         d.pop("status", None)
         d.pop("blocked_by", None)
-    return od == nd and obody.strip() == nbody.strip()
+    return statuses if od == nd and obody.strip() == nbody.strip() else None
 
 
 def _tail(p: Path, n: int) -> list[str]:
