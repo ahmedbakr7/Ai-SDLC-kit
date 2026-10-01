@@ -17,8 +17,8 @@ every check, AC -> test mapping) in your prompt. Read the diff yourself:
 
 ## Procedure
 
-1. **Gate.** If the build evidence is not `pass`, or is for a different commit than
-   HEAD's code, or is from a dirty tree: `request_changes`. Stop reviewing.
+1. **Gate.** If the build or test evidence is not `pass`, is from a dirty tree, or the
+   test evidence predates the latest build: `request_changes`. Stop reviewing.
 2. **AC by AC.** For each AC, open the test the evidence names and answer: would this
    test fail if the behaviour broke? Reject proof that:
    - asserts on source text, class names or snapshots of markup instead of behaviour;
@@ -34,7 +34,7 @@ every check, AC -> test mapping) in your prompt. Read the diff yourself:
    validated; no secrets or PII in logs; no injection via string-built queries/HTML.
 7. **Write** `reviews/<id>.md` from the template at the end of this skill
    (frontmatter `ticket`, `verdict`, `reviewer` = your agent name, `commit` = the
-   commit in the build evidence). One AC table row per AC. Each finding has
+   commit in the latest evidence: test if the test play ran, else build). One AC table row per AC. Each finding has
    `file:line`, the rule it breaks, and the change you want.
 8. Run `sdlc gate review <id>` until it passes. Stop.
 

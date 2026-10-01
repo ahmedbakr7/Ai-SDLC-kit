@@ -24,6 +24,7 @@ from .artifacts import Repo, Ticket
 from .config import Config
 
 TICKET_PLAYS = ("build", "test", "review")
+EVIDENCE_PLAYS = ("build", "test")  # plays whose passing evidence is committed under evidence/
 COMMAND_CHECKS = ("lint", "typecheck", "unit", "integration", "e2e", "build", "duplication")
 JUNIT_CHECKS = ("unit", "integration", "e2e")
 RUN_DIR = ".sdlc-run"
@@ -143,13 +144,15 @@ class Gate:
             "ac": self.ac_matrix() if self.ticket else {},
             "config_note": self.config_note,
         }
+        if self.only:
+            ev["partial"] = True  # a subset of the play's checks proves nothing about the play
         self.write_evidence(ev)
         return ev
 
     def write_evidence(self, ev: dict) -> Path:
         name = f"{self.ticket.id}.{self.play}.json" if self.ticket else f"{self.play}.json"
         dest = self.run_dir / name
-        if self.ticket and self.play in ("build", "test"):
+        if self.ticket and self.play in EVIDENCE_PLAYS and not ev.get("partial"):
             dest = self.cfg.path("evidence") / name
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(json.dumps(ev, indent=2) + "\n", encoding="utf-8")
@@ -180,7 +183,8 @@ class Gate:
         cfg, t = self.cfg, self.ticket
         paths = cfg.section("paths")
         globs = list(cfg.section("scope").get("always_allowed", []))
-        exact: set[str] = {f"{paths['evidence']}/{t.id}.{p}.json" for p in ("build", "test")} if t else set()
+        # A play may write only its own evidence: test/review must not rewrite the build's proof.
+        exact: set[str] = {f"{paths['evidence']}/{t.id}.{self.play}.json"} if t and self.play in EVIDENCE_PLAYS else set()
         tests = cfg.section("tests")
         if self.play == "build" and t:
             exact |= set(t.files)
@@ -490,7 +494,7 @@ class Gate:
         ev_problems = _evidence_problems(self.cfg, self.ticket, str(data.get("commit", "")))
         c.details += ev_problems
         if data.get("verdict") == "approve" and ev_problems:
-            c.status, c.summary = "fail", "approve without passing build evidence for the reviewed commit"
+            c.status, c.summary = "fail", "approve without passing evidence for the reviewed commit"
         elif any(i.level == "error" for i in issues):
             c.status, c.summary = "fail", "review file invalid"
         else:
@@ -530,7 +534,7 @@ def proven_commit(cfg: Config, tid: str, plays: tuple[str, ...]) -> str | None:
         p = cfg.path("evidence") / f"{tid}.{play}.json"
         if p.is_file():
             ev = json.loads(p.read_text(encoding="utf-8"))
-            if ev.get("result") == "pass" and ev.get("commit"):
+            if ev.get("result") == "pass" and ev.get("commit") and not ev.get("partial"):
                 return ev["commit"]
     return None
 
@@ -542,18 +546,39 @@ def extract_key(ref: str) -> str:
 
 
 def _evidence_problems(cfg: Config, t: Ticket, commit: str) -> list[str]:
-    p = cfg.path("evidence") / f"{t.id}.build.json"
-    if not p.is_file():
-        return [f"no build evidence {cfg.rel(p)}"]
-    ev = json.loads(p.read_text(encoding="utf-8"))
-    out = []
-    if ev.get("result") != "pass":
-        out.append("build evidence result is not pass")
-    if ev.get("dirty"):
-        out.append("build evidence came from a dirty tree; it does not describe any commit")
-    if commit and ev.get("commit") and not (ev["commit"].startswith(commit) or commit.startswith(ev["commit"][:7])):
-        out.append(f"build evidence is for {ev['commit'][:10]}, review is for {commit[:10]}")
+    """Problems with approving `commit`: build (and test, once it ran) must have passed on a
+    clean tree, and the review must name the commit the latest of them proved."""
+    out: list[str] = []
+    proven: dict[str, str] = {}
+    for play in EVIDENCE_PLAYS:
+        p = cfg.path("evidence") / f"{t.id}.{play}.json"
+        if not p.is_file():
+            if play == "build":
+                out.append(f"no build evidence {cfg.rel(p)}")
+            continue
+        ev = json.loads(p.read_text(encoding="utf-8"))
+        if ev.get("result") != "pass" or ev.get("partial"):
+            out.append(f"{play} evidence is not a full passing gate run")
+        if ev.get("dirty"):
+            out.append(f"{play} evidence came from a dirty tree; it does not describe any commit")
+        if ev.get("commit"):
+            proven[play] = str(ev["commit"])
+    latest = proven.get("build")
+    if "test" in proven:
+        if latest and not gitutil.is_ancestor(cfg.root, latest, proven["test"]):
+            out.append("test evidence is older than the build evidence; re-run the test play on the new build")
+        else:
+            latest = proven["test"]
+    if latest and not _same_commit(commit, latest):
+        out.append(f"review is for {commit[:12] or '(none)'}, but the latest evidence is for {latest[:12]}; "
+                   "review the commit that was proven last")
     return out
+
+
+def _same_commit(ref: str, full: str) -> bool:
+    """`ref` names `full`: an abbreviated sha of at least 7 hex digits, or the full sha."""
+    ref = ref.strip().lower()
+    return len(ref) >= 7 and re.fullmatch(r"[0-9a-f]+", ref) is not None and full.lower().startswith(ref)
 
 
 def _glob(path: str, pattern: str) -> bool:

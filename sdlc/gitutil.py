@@ -43,6 +43,11 @@ def changed_files(root: Path, base: str) -> list[str]:
     return sorted(n.strip() for n in names if n.strip())
 
 
+def is_ancestor(root: Path, older: str, newer: str) -> bool:
+    return subprocess.run(["git", "merge-base", "--is-ancestor", older, newer], cwd=root,
+                          capture_output=True).returncode == 0
+
+
 def show(root: Path, ref: str, path: str) -> str | None:
     r = subprocess.run(["git", "show", f"{ref}:{path}"], cwd=root, capture_output=True,
                        text=True, encoding="utf-8", errors="replace")

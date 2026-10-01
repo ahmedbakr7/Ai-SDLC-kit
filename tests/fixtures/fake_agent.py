@@ -31,10 +31,11 @@ if os.environ.get("FAKE_AGENT_STRAY") == "1" and play == "build" and not retry:
 elif stray.exists():
     stray.unlink()
 
-commit = ""
-ev = repo / "evidence" / f"{tid}.build.json"
-if ev.is_file():
-    commit = json.loads(ev.read_text(encoding="utf-8"))["commit"]
+commit = ""  # a reviewer names the commit the latest evidence proved
+for name in (f"{tid}.build.json", f"{tid}.test.json"):
+    ev = repo / "evidence" / name
+    if ev.is_file():
+        commit = json.loads(ev.read_text(encoding="utf-8"))["commit"]
 
 for src in solution.rglob("*"):
     if src.is_file():

@@ -4,7 +4,7 @@ read source text, "green" suites that ran nothing, AC with no test, edited ADRs)
 import json
 import unittest
 
-from helpers import ProductRepo
+from helpers import FIXTURES as FIXTURES_DIR, ProductRepo
 
 
 class GateCatches(unittest.TestCase):
@@ -22,18 +22,17 @@ class GateCatches(unittest.TestCase):
         args = ["gate", play] + ([ticket] if ticket else []) + ["--only", ",".join(checks)]
         self.code, self.out = self.p.sdlc(*args)
         name = f"{ticket}.{play}.json" if ticket else f"{play}.json"
-        for d in ("evidence", ".sdlc-run"):
-            f = self.p.root / d / name
-            if f.is_file():
-                ev = json.loads(f.read_text(encoding="utf-8"))
-                return {c["name"]: c for c in ev["checks"]}
+        f = self.p.root / ".sdlc-run" / name  # --only runs are partial: never under evidence/
+        if f.is_file():
+            ev = json.loads(f.read_text(encoding="utf-8"))
+            return {c["name"]: c for c in ev["checks"]}
         self.fail(self.out)
 
-    def apply_solution(self) -> None:
+    def apply_solution(self, name: str = "build-T-042-02") -> None:
         from helpers import FIXTURES
         import shutil
 
-        sol = FIXTURES / "solutions" / "build-T-042-02"
+        sol = FIXTURES / "solutions" / name
         for f in sol.rglob("*"):
             if f.is_file():
                 dest = self.p.root / f.relative_to(sol)
@@ -148,6 +147,71 @@ class GateCatches(unittest.TestCase):
         self.assertIn("outside build write set: app/stray.py", details)
         self.assertIn("outside build write set: sdlc.toml", details)
         self.assertIn("differs from main", details)
+
+    def build_and_commit(self) -> str:
+        """The reference build, gated and committed the way the runner does it. Returns the proven commit."""
+        self.apply_solution()
+        self.p.commit("build T-042-02")
+        code, out = self.p.sdlc("gate", "build", "T-042-02")
+        self.assertEqual(code, 0, out)
+        self.p.commit("evidence T-042-02: build gate pass")
+        return json.loads(self.p.read("evidence/T-042-02.build.json"))["commit"]
+
+    def test_partial_gate_run_is_not_evidence(self) -> None:
+        # `--only lint` passing must not leave a passing evidence/ file that review and trace trust.
+        code, out = self.p.sdlc("gate", "build", "T-042-02", "--only", "lint")
+        self.assertEqual(code, 0, out)
+        self.assertFalse((self.p.root / "evidence" / "T-042-02.build.json").exists())
+        ev = json.loads(self.p.read(".sdlc-run/T-042-02.build.json"))
+        self.assertTrue(ev["partial"])
+
+    def test_test_play_cannot_rewrite_build_evidence(self) -> None:
+        # The test agent commits a production change, then points the build evidence at that
+        # commit so the test play's "changed since the proven build" diff no longer shows it.
+        from helpers import git
+
+        self.build_and_commit()
+        self.p.write("app/returns.py", self.p.read("app/returns.py") + "\n# production change in a test play\n")
+        self.p.commit("sneak")
+        ev = json.loads(self.p.read("evidence/T-042-02.build.json"))
+        ev["commit"] = git(self.p.root, "rev-parse", "HEAD").strip()
+        self.p.write("evidence/T-042-02.build.json", json.dumps(ev, indent=2))
+        self.p.commit("forge")
+        c = self.gate("test", "scope")["scope"]
+        self.assertEqual(c["status"], "fail")
+        self.assertIn("outside test write set: evidence/T-042-02.build.json", c["details"])
+
+    def test_review_must_name_the_proven_commit_exactly(self) -> None:
+        proven = self.build_and_commit()
+        self.p.sdlc("status", "T-042-02", "in_review", "--as", "build")
+        self.p.commit("in review")
+        review = (FIXTURES_DIR / "solutions" / "review-T-042-02" / "reviews" / "T-042-02.md").read_text(encoding="utf-8")
+        for commit, want in ((proven[:3], "fail"), ("0000000", "fail"), (proven[:7], "pass"), (proven, "pass")):
+            with self.subTest(commit=commit):
+                self.p.write("reviews/T-042-02.md", review.replace("{commit}", commit))
+                c = self.gate("review", "review-file")["review-file"]
+                self.assertEqual(c["status"], want, c)
+
+    def test_review_rejects_test_evidence_older_than_the_build(self) -> None:
+        # build -> test -> rebuild: the old test evidence no longer describes the code.
+        from helpers import git
+
+        first = self.build_and_commit()
+        ev = json.loads(self.p.read("evidence/T-042-02.build.json"))
+        ev.update(play="test")
+        self.p.write("evidence/T-042-02.test.json", json.dumps(ev, indent=2))
+        self.p.commit("test evidence at the first build")
+        self.p.write("app/pages.py", self.p.read("app/pages.py") + "\n# rebuild after review\n")
+        self.p.commit("rebuild")
+        self.assertEqual(self.p.sdlc("gate", "build", "T-042-02")[0], 0)
+        self.p.commit("evidence: rebuild")
+        latest = git(self.p.root, "rev-parse", "HEAD~1").strip()
+        self.assertNotEqual(first, latest)
+        review = (FIXTURES_DIR / "solutions" / "review-T-042-02" / "reviews" / "T-042-02.md").read_text(encoding="utf-8")
+        self.p.write("reviews/T-042-02.md", review.replace("{commit}", latest))
+        c = self.gate("review", "review-file")["review-file"]
+        self.assertEqual(c["status"], "fail")
+        self.assertIn("test evidence is older than the build evidence", "\n".join(c["details"]))
 
     def test_tests_beside_listed_files_are_in_scope(self) -> None:
         self.apply_solution()

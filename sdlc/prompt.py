@@ -10,7 +10,7 @@ import json
 import re
 from pathlib import Path
 
-from . import fm, skills
+from . import fm, gitutil, skills
 from .artifacts import Repo, Ticket
 from .config import KIT_ROOT, Config
 
@@ -70,7 +70,7 @@ def _ticket_context(cfg: Config, repo: Repo, t: Ticket, play: str) -> list[str]:
             out.append(_section(f"Skill: {s}", _body(p)))
     out.append(_section("Write set (the gate rejects anything else)", _write_set(cfg, t, play)))
     if play == "review":
-        out.append(_section("Build evidence", _evidence(cfg, t)))
+        out.append(_section("Evidence (build, test) and the diff", _evidence(cfg, t)))
     out.append(_section("Definition of done", _dod(cfg, t, play)))
     return out
 
@@ -141,15 +141,28 @@ def _dod(cfg: Config, t: Ticket, play: str) -> str:
 
 
 def _evidence(cfg: Config, t: Ticket) -> str:
-    p = cfg.path("evidence") / f"{t.id}.build.json"
-    if not p.is_file():
-        return f"No build evidence at {cfg.rel(p)}. Verdict must be request_changes."
-    ev = json.loads(p.read_text(encoding="utf-8"))
-    rows = [f"- result: **{ev.get('result')}** at commit `{str(ev.get('commit'))[:12]}` (dirty={ev.get('dirty')})"]
-    for c in ev.get("checks", []):
-        rows.append(f"- {c['name']}: {c['status']} — {c['summary']}")
-    for tag, v in ev.get("ac", {}).items():
-        rows.append(f"- {tag}: {v['status']} — " + "; ".join(v["tests"][:3]))
+    rows, latest = [], ""
+    for play in ("build", "test"):
+        p = cfg.path("evidence") / f"{t.id}.{play}.json"
+        if not p.is_file():
+            rows.append(f"### {play}\n\nNo {play} evidence at `{cfg.rel(p)}`."
+                        + (" Verdict must be request_changes." if play == "build" else ""))
+            continue
+        ev = json.loads(p.read_text(encoding="utf-8"))
+        latest = str(ev.get("commit", "")) or latest
+        rows.append(f"### {play}\n\n- result: **{ev.get('result')}** at commit `{ev.get('commit')}` "
+                    f"(dirty={ev.get('dirty')})")
+        for c in ev.get("checks", []):
+            rows.append(f"- {c['name']}: {c['status']} — {c['summary']}")
+        for tag, v in ev.get("ac", {}).items():
+            rows.append(f"- {tag}: {v['status']} — " + "; ".join(v["tests"][:3]))
+    if latest:
+        rows.append(f"\nSet `commit: {latest}` in the review frontmatter (the latest proven commit).")
+    try:
+        changed = gitutil.changed_files(cfg.root, cfg.section("vcs").get("base", "main"))
+        rows.append("\n### Files this ticket changed (open every one)\n\n" + "\n".join(f"- `{f}`" for f in changed))
+    except gitutil.GitError:
+        pass
     return "\n".join(rows)
 
 

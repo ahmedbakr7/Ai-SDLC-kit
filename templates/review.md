@@ -2,7 +2,7 @@
 ticket: T-NNN-NN
 verdict: request_changes  # approve | request_changes
 reviewer: <agent name from sdlc.toml, not the builder>
-commit: <the commit in evidence/T-NNN-NN.build.json>
+commit: <the commit in the latest evidence: evidence/T-NNN-NN.test.json if the test play ran, else .build.json>
 ---
 
 # Review T-NNN-NN: <title>

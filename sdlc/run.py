@@ -90,6 +90,9 @@ def run(cfg: Config, play: str, tid: str, agent: str, attempts: int | None, base
         return 0
 
     _checkout(root, branch, base, create=(play == "build"))
+    # test and review are judged on what changed after this point. Taken before any agent
+    # runs, so no file the agent can write (e.g. evidence) can move it.
+    since = gitutil.head(root) if play != "build" else None
     if play == "build" and t.status == "ready":
         tickets.set_status(repo, t, "in_progress", "build")
         _commit(root, f"start {tid}: {t.data.get('title')}", agent)
@@ -105,7 +108,7 @@ def run(cfg: Config, play: str, tid: str, agent: str, attempts: int | None, base
                            timeout=int(agents(cfg)[agent].get("timeout", 3600)))
         _say(f"agent exited {r.returncode} after {int(time.monotonic() - t0)}s")
         _commit(root, f"{play} {tid}: {t.data.get('title')} (attempt {n})", agent)
-        g = Gate(cfg, play, tid, base)
+        g = Gate(cfg, play, tid, base, since=since)
         ev = g.run(on_check=_report)
         if ev["result"] == "pass":
             repo = Repo(cfg)
