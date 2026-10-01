@@ -262,6 +262,7 @@ class GateCatches(unittest.TestCase):
         checks = self.gate("ci", "artifacts", "contracts", ticket=None)  # KeyError if the PR's plan was obeyed
         self.assertEqual(checks["contracts"]["status"], "fail")
         self.assertIn("differs from main", self.out)
+        self.assertIn("admin override", self.out)  # the way out when the base config itself is broken
         # A base CI cannot resolve (shallow clone) must not fall back to trusting the PR's config.
         code, out = self.p.sdlc("gate", "ci", "--base", "origin/nowhere", "--only", "artifacts")
         self.assertNotEqual(code, 0, out)

@@ -36,6 +36,8 @@ which finds the ticket a PR moves (in_progress, in_review or done) or, when it m
 none, reports every file beyond the lead artifacts (a failure with
 `scope.lead_code = "fail"`). Other CI systems run the same commands. Every gate
 uses the base branch's `sdlc.toml`, so a PR cannot weaken the gate that judges it; a
-lead PR may still change the config, which takes effect once merged. The workflow
+lead PR may still change the config, which takes effect once merged. If the base
+branch's config is itself broken (so the fix cannot pass), main is already red: a
+maintainer merges the fix with an admin override, and the gate prints that hint. The workflow
 file and the `.sdlc` kit checkout are the judge itself and run from the PR: protect
 them with CODEOWNERS.

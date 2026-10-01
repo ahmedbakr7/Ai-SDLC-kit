@@ -110,6 +110,11 @@ def cmd_gate(args) -> int:
     ev = g.run(on_check=show)
     if ev.get("config_note"):
         print(f"note: {ev['config_note']}")
+        if ev["result"] != "pass" and args.play in ("ci", "pr"):
+            # Judging by the base config is deliberate; this is the one case it gets in the way.
+            print("note: if this PR fixes a check that is broken on the base branch, the base branch is "
+                  "already red: a maintainer merges the config fix with an admin override, and every "
+                  "later PR is judged by it. Nothing in the PR itself can switch the config it is judged by.")
     print(f"\ngate {args.play} {args.ticket or ''}: {ev['result'].upper()}  evidence: {ev['path']}")
     return 0 if ev["result"] == "pass" else EXIT_FAIL
 
