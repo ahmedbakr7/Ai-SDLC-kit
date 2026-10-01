@@ -352,6 +352,18 @@ class GateCatches(unittest.TestCase):
         self.assertEqual(c["status"], "fail")
         self.assertIn("tickets/T-042-01-returns-api.md: done ticket deleted", "\n".join(c["details"]))
 
+    def test_commands_run_in_a_root_with_spaces(self) -> None:
+        # An absolute {junit} path split at the space: unit failed on any such checkout.
+        from helpers import ProductRepo
+
+        p = ProductRepo("my product")
+        try:
+            code, out = p.sdlc("gate", "ci", "--only", "unit")
+            self.assertEqual(code, 0, out)
+            self.assertIn("--out .sdlc-run/junit-unit.xml", p.read(".sdlc-run/logs/unit.log").splitlines()[0])
+        finally:
+            p.close()
+
     def test_full_build_gate_passes_on_the_reference_solution(self) -> None:
         self.apply_solution()
         self.code, self.out = self.p.sdlc("gate", "build", "T-042-02")

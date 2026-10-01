@@ -22,9 +22,9 @@ def git(root: Path, *args: str) -> str:
 
 
 class ProductRepo:
-    def __init__(self) -> None:
+    def __init__(self, name: str = "product") -> None:
         self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name) / "product"
+        self.root = Path(self.tmp.name) / name
         shutil.copytree(EXAMPLE, self.root, ignore=shutil.ignore_patterns(".sdlc-run", "__pycache__"))
         agent = f'"{Path(sys.executable).as_posix()}" "{(FIXTURES / "fake_agent.py").as_posix()}" {{prompt_file}}'
         with open(self.root / "sdlc.toml", "a", encoding="utf-8") as f:

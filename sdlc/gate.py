@@ -303,11 +303,10 @@ class Gate:
         junit = self.run_dir / f"junit-{c.name}.xml"
         if junit.exists():
             junit.unlink()
-        port = str(self.cfg.section("app")["port"])
-        rendered = cmd.replace("{junit}", str(junit)).replace("{port}", port)
-        # Evidence is committed: show a root-relative path so it is the same on every machine.
-        shown = cmd.replace("{junit}", self.cfg.rel(junit)).replace("{port}", port)
-        code, log = self._shell(c.name, rendered)
+        # Commands run at the root: a root-relative path survives a root with spaces in it
+        # (an unquoted absolute path splits into two arguments) and reads the same in evidence.
+        shown = cmd.replace("{junit}", self.cfg.rel(junit)).replace("{port}", str(self.cfg.section("app")["port"]))
+        code, log = self._shell(c.name, shown)
         c.log = self.cfg.rel(log)
         tail = _tail(log, 40)
         if code != 0:
@@ -435,7 +434,7 @@ class Gate:
                     p.write_bytes(old)
             junit = self.run_dir / "junit-ac-red.xml"
             junit.unlink(missing_ok=True)
-            code, log = self._shell("ac-red", cmd.replace("{junit}", str(junit))
+            code, log = self._shell("ac-red", cmd.replace("{junit}", self.cfg.rel(junit))
                                     .replace("{port}", str(self.cfg.section("app")["port"])))
             c.log = self.cfg.rel(log)
             self._read_junit("ac-red", junit, into=cases)
