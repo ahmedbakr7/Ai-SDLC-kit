@@ -37,7 +37,10 @@ class Globs(unittest.TestCase):
     def test_dialect(self) -> None:
         cases = [("a.test.ts", "**/*.test.ts", True), ("src/x/a.test.ts", "**/*.test.ts", True),
                  ("src/a.ts", "src/*.ts", True), ("src/x/a.ts", "src/*.ts", False),
-                 ("e2e/a/b.ts", "e2e/**", True), ("src/app/[id]/page.tsx", "src/app/[id]/page.tsx", True)]
+                 ("e2e/a/b.ts", "e2e/**", True), ("src/app/[id]/page.tsx", "src/app/[id]/page.tsx", True),
+                 # dot-folders keep their dot; only a leading "./" is stripped
+                 (".github/workflows/x.yml", ".github/**", True), ("github/x.yml", ".github/**", False),
+                 (".sdlc-run/a.json", ".sdlc-run/**", True), ("src/a.ts", "./src/a.ts", True)]
         for path, pat, want in cases:
             with self.subTest(path=path, pat=pat):
                 self.assertEqual(paths.match(path, pat), want)

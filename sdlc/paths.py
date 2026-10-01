@@ -34,7 +34,9 @@ def _compile(pattern: str) -> re.Pattern[str]:
 
 
 def match(path: str, pattern: str) -> bool:
-    return bool(_compile(pattern.lstrip("./")).match(path))
+    if pattern.startswith("./"):
+        pattern = pattern[2:]
+    return bool(_compile(pattern).match(path))
 
 
 def match_any(path: str, patterns: list[str]) -> bool:

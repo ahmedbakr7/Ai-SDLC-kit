@@ -233,16 +233,19 @@ class Gate:
         junit = self.run_dir / f"junit-{c.name}.xml"
         if junit.exists():
             junit.unlink()
-        rendered = cmd.replace("{junit}", str(junit)).replace("{port}", str(self.cfg.section("app")["port"]))
+        port = str(self.cfg.section("app")["port"])
+        rendered = cmd.replace("{junit}", str(junit)).replace("{port}", port)
+        # Evidence is committed: show a root-relative path so it is the same on every machine.
+        shown = cmd.replace("{junit}", self.cfg.rel(junit)).replace("{port}", port)
         code, log = self._shell(c.name, rendered)
         c.log = self.cfg.rel(log)
         tail = _tail(log, 40)
         if code != 0:
-            c.status, c.summary, c.details = "fail", f"`{rendered}` exited {code}", tail
+            c.status, c.summary, c.details = "fail", f"`{shown}` exited {code}", tail
             if c.name in JUNIT_CHECKS and "{junit}" in cmd and junit.is_file():
                 self.junit_used[c.name] = self._read_junit(c.name, junit) > 0
             return
-        c.summary = f"`{rendered}` ok"
+        c.summary = f"`{shown}` ok"
         if c.name in JUNIT_CHECKS:
             if "{junit}" not in cmd:
                 self.junit_used[c.name] = False
