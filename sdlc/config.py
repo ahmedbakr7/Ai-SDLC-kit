@@ -35,7 +35,7 @@ DEFAULTS: dict[str, Any] = {
     "gate": {
         # Checks every play's gate runs, in order. A missing command for a
         # required check is a FAILURE, never a silent pass.
-        "build": ["artifacts", "scope", "immutable", "contracts", "lint", "typecheck", "unit", "ac-coverage",
+        "build": ["artifacts", "scope", "immutable", "contracts", "lint", "typecheck", "unit", "ac-coverage", "ac-red",
                   "test-quality", "duplication", "build", "smoke", "skills"],
         "test": ["artifacts", "scope", "immutable", "contracts", "lint", "typecheck", "unit", "integration",
                  "e2e", "ac-coverage", "test-quality", "build", "smoke", "skills"],

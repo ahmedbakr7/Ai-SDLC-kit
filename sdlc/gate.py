@@ -186,8 +186,8 @@ class Gate:
         """Ticket plays whose write sets apply: one, or all of them for a whole ticket PR."""
         return PR_ROLES if self.play == "pr" else (self.play,)
 
-    def allowed(self) -> tuple[list[str], set[str]]:
-        """(glob patterns, exact paths) the current play may change."""
+    def allowed(self, roles: tuple[str, ...] | None = None) -> tuple[list[str], set[str]]:
+        """(glob patterns, exact paths) the current play (or `roles`) may change."""
         cfg, t = self.cfg, self.ticket
         paths = cfg.section("paths")
         globs = list(cfg.section("scope").get("always_allowed", []))
@@ -195,7 +195,7 @@ class Gate:
         if not t:
             return globs, exact
         tests = cfg.section("tests")
-        for play in self.roles():
+        for play in roles or self.roles():
             # A play may write only its own evidence: test/review must not rewrite the build's proof.
             if play in EVIDENCE_PLAYS:
                 exact.add(f"{paths['evidence']}/{t.id}.{play}.json")
@@ -208,6 +208,22 @@ class Gate:
                 exact.add(f"{paths['reviews']}/{t.id}.md")
         return globs, exact
 
+    def _earlier_play_outputs(self) -> list[Callable[[str], bool]]:
+        """A rebuild (review asked for changes) runs on a branch that already holds the test
+        and review plays' files. They are not the build's to change, but they may stay, as
+        long as the build has not touched them since that play committed."""
+        t, out = self.ticket, []
+        anchors = {"test": f"{self.cfg.data['paths']['evidence']}/{t.id}.test.json",
+                   "review": f"{self.cfg.data['paths']['reviews']}/{t.id}.md"}
+        for play, anchor in anchors.items():
+            done_at = gitutil.git(self.cfg.root, "log", "-1", "--format=%H", "--", anchor, check=False).strip()
+            if not done_at:
+                continue
+            touched = set(gitutil.changed_since(self.cfg.root, done_at))
+            globs, exact = self.allowed((play,))
+            out.append(lambda f, g=globs, e=exact, tch=touched: f not in tch and (f in e or any(_glob(f, x) for x in g)))
+        return out
+
     def check_scope(self, c: Check) -> None:
         if not self.ticket:
             c.status, c.summary = "skip", "no ticket"
@@ -215,9 +231,12 @@ class Gate:
         t = self.ticket
         globs, exact = self.allowed()
         tests = self.cfg.section("tests")
+        earlier = self._earlier_play_outputs() if self.play == "build" else []
         bad, moves = [], []
         for f in self.changed():
             if f in exact or any(_glob(f, g) for g in globs):
+                continue
+            if any(ok(f) for ok in earlier):
                 continue
             if ("build" in self.roles() and tests.get("unit_beside", True)
                     and _is_test_beside(f, t.files, tests.get("globs", []))):
@@ -306,10 +325,11 @@ class Gate:
             else:
                 c.summary += f" ({n} tests)"
 
-    def _read_junit(self, source: str, path: Path) -> int:
+    def _read_junit(self, source: str, path: Path, into: list[TestCase] | None = None) -> int:
+        into = self.testcases if into is None else into
         try:
             root = ET.parse(path).getroot()
-        except ET.ParseError:
+        except (ET.ParseError, OSError):
             return 0
         n = 0
         for tc in root.iter("testcase"):
@@ -321,7 +341,7 @@ class Gate:
                 st = "skipped"
             else:
                 st = "passed"
-            self.testcases.append(TestCase(name, st, source))
+            into.append(TestCase(name, st, source))
         return n
 
     def ac_matrix(self, ticket: Ticket | None = None) -> dict:
@@ -368,6 +388,66 @@ class Gate:
                 c.status = "fail"
                 c.summary = (f"no passing integration/e2e test carries a {self.ticket.id}/AC-n tag; "
                              "the test play must prove AC through the real stack")
+
+    def check_ac_red(self, c: Check) -> None:
+        """Each AC needs a tagged test that fails without the ticket's code. The unit command
+        runs again with the ticket's production files put back to the base branch; an AC
+        whose tagged tests all still pass is proven by tests that do not depend on the work
+        (`expect(true)`, asserting on a fixture, re-testing old behaviour)."""
+        t = self.ticket
+        cmd = self.cfg.commands.get("unit", "")
+        if not t or not cmd or "{junit}" not in cmd:
+            c.status, c.summary = "skip", "needs a ticket and a unit command with {junit} (ac-coverage reports that)"
+            return
+        test_globs = self.cfg.section("tests").get("globs", [])
+        prod = sorted(f for f in set(t.files) | {f for f in self.changed() if any(_glob(f, g) for g in t.shared)}
+                      if not any(_glob(f, g) for g in test_globs))
+        mb = gitutil.merge_base(self.cfg.root, self.base)
+        prod = [f for f in prod if _norm(gitutil.show_bytes(self.cfg.root, mb, "./" + f)) != _read_or_none(self.cfg.root / f)]
+        if not prod:
+            c.status, c.summary = "skip", f"no production file of {t.id} differs from {self.base}; nothing to revert"
+            return
+        backup = self.run_dir / "red-backup"
+        _restore_red_backup(self.cfg.root, backup)  # a previous run that was killed mid-way
+        cases: list[TestCase] = []
+        backup.mkdir(parents=True)
+        try:
+            manifest = {}
+            for f in prod:
+                p = self.cfg.root / f
+                if p.is_file():
+                    (backup / str(len(manifest))).write_bytes(p.read_bytes())
+                    manifest[f] = str(len(manifest))
+                else:
+                    manifest[f] = None
+                (backup / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+                old = gitutil.show_bytes(self.cfg.root, mb, "./" + f)
+                if old is None:
+                    p.unlink(missing_ok=True)
+                else:
+                    p.parent.mkdir(parents=True, exist_ok=True)
+                    p.write_bytes(old)
+            junit = self.run_dir / "junit-ac-red.xml"
+            junit.unlink(missing_ok=True)
+            code, log = self._shell("ac-red", cmd.replace("{junit}", str(junit))
+                                    .replace("{port}", str(self.cfg.section("app")["port"])))
+            c.log = self.cfg.rel(log)
+            self._read_junit("ac-red", junit, into=cases)
+        finally:
+            _restore_red_backup(self.cfg.root, backup)
+        green = []
+        for tag in t.ac_tags():
+            pat = re.compile(re.escape(tag) + r"(?!\d)")
+            hits = [tc for tc in cases if pat.search(tc.name)]
+            if hits and all(h.status == "passed" for h in hits):
+                green.append(f"{tag}: passes without this ticket's code ({'; '.join(h.name for h in hits[:3])})")
+        c.details = green
+        if green:
+            c.status = "fail"
+            c.summary = (f"{len(green)} AC proven only by tests that pass with {', '.join(prod) or 'nothing'} "
+                         f"reverted to {self.base}; assert on what this ticket built")
+        else:
+            c.summary = f"every AC has a test that fails without the ticket's code ({len(prod)} file(s) reverted)"
 
     def check_test_quality(self, c: Check) -> None:
         tests = self.cfg.section("tests")
@@ -680,6 +760,31 @@ def _status_change(cfg: Config, ref: str, rel: str) -> tuple[str, str] | None:
         d.pop("status", None)
         d.pop("blocked_by", None)
     return statuses if od == nd and obody.strip() == nbody.strip() else None
+
+
+def _norm(b: bytes | None) -> bytes | None:
+    return None if b is None else b.replace(b"\r\n", b"\n")
+
+
+def _read_or_none(p: Path) -> bytes | None:
+    return _norm(p.read_bytes()) if p.is_file() else None
+
+
+def _restore_red_backup(root: Path, backup: Path) -> None:
+    """Put back the files ac-red reverted (also recovers from a run killed mid-way)."""
+    manifest = backup / "manifest.json"
+    if manifest.is_file():
+        for f, slot in json.loads(manifest.read_text(encoding="utf-8")).items():
+            p = root / f
+            if slot is None:
+                p.unlink(missing_ok=True)
+            else:
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_bytes((backup / slot).read_bytes())
+    if backup.exists():
+        import shutil
+
+        shutil.rmtree(backup)
 
 
 def _tail(p: Path, n: int) -> list[str]:

@@ -2,10 +2,10 @@
   "kit_evidence": 1,
   "play": "build",
   "ticket": "T-042-01",
-  "commit": "3fc191783499ce58a46b8ee74a834a903c48f8a9",
+  "commit": "a0f7fd6975df7599208843112f10097f2c724925",
   "dirty": false,
   "base": "main",
-  "started": "2026-10-01T13:47:13+00:00",
+  "started": "2026-10-01T14:50:53+00:00",
   "result": "pass",
   "checks": [
     {
@@ -13,7 +13,7 @@
       "status": "pass",
       "summary": "artifacts valid (0 warning(s))",
       "details": [],
-      "ms": 16,
+      "ms": 15,
       "log": ""
     },
     {
@@ -21,7 +21,7 @@
       "status": "pass",
       "summary": "4 changed file(s), all in scope",
       "details": [],
-      "ms": 156,
+      "ms": 343,
       "log": ""
     },
     {
@@ -29,7 +29,7 @@
       "status": "pass",
       "summary": "no accepted ADR edited, no AC weakened",
       "details": [],
-      "ms": 61,
+      "ms": 63,
       "log": ""
     },
     {
@@ -37,7 +37,7 @@
       "status": "pass",
       "summary": "1 code route(s) match CONTRACTS; 0 declared route(s) not built yet",
       "details": [],
-      "ms": 172,
+      "ms": 170,
       "log": ""
     },
     {
@@ -45,7 +45,7 @@
       "status": "pass",
       "summary": "`python tools/lint.py` ok",
       "details": [],
-      "ms": 93,
+      "ms": 94,
       "log": ".sdlc-run/logs/lint.log"
     },
     {
@@ -59,15 +59,15 @@
     {
       "name": "unit",
       "status": "pass",
-      "summary": "`python tools/junit.py --start app --out C:\\Users\\ahmad\\AppData\\Local\\Temp\\tmpypmkakxr\\product\\.sdlc-run\\junit-unit.xml` ok (4 tests)",
+      "summary": "`python tools/junit.py --start app --out .sdlc-run/junit-unit.xml` ok (4 tests)",
       "details": [],
-      "ms": 203,
+      "ms": 202,
       "log": ".sdlc-run/logs/unit.log"
     },
     {
       "name": "ac-coverage",
       "status": "pass",
-      "summary": "all 4 AC proven by passing tests",
+      "summary": "all 4 AC of 1 ticket(s) proven by passing tests",
       "details": [
         "T-042-01/AC-1: passed",
         "T-042-01/AC-2: passed",
@@ -76,6 +76,14 @@
       ],
       "ms": 0,
       "log": ""
+    },
+    {
+      "name": "ac-red",
+      "status": "pass",
+      "summary": "every AC has a test that fails without the ticket's code (2 file(s) reverted)",
+      "details": [],
+      "ms": 328,
+      "log": ".sdlc-run/logs/ac-red.log"
     },
     {
       "name": "test-quality",
@@ -143,5 +151,6 @@
         "[unit] ReturnsApi test_unknown_order_is_404_not_found T-042-01/AC-4"
       ]
     }
-  }
+  },
+  "config_note": ""
 }

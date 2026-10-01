@@ -48,6 +48,11 @@ def is_ancestor(root: Path, older: str, newer: str) -> bool:
                           capture_output=True).returncode == 0
 
 
+def show_bytes(root: Path, ref: str, path: str) -> bytes | None:
+    r = subprocess.run(["git", "show", f"{ref}:{path}"], cwd=root, capture_output=True)
+    return r.stdout if r.returncode == 0 else None
+
+
 def show(root: Path, ref: str, path: str) -> str | None:
     r = subprocess.run(["git", "show", f"{ref}:{path}"], cwd=root, capture_output=True,
                        text=True, encoding="utf-8", errors="replace")

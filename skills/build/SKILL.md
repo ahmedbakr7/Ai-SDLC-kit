@@ -60,6 +60,7 @@ several things at once, and never edit a test's expectation to match wrong outpu
 | scope | you edited a file not in `files:`/`shared:`; revert it or stop and ask |
 | contracts | route path or method differs from CONTRACTS; a client call uses an undeclared path |
 | ac-coverage | a test is missing its `T-.../AC-n` tag, or that test fails |
+| ac-red | the AC's tests also pass with your files reverted: assert on what you built |
 | smoke | the app does not start, or the route is not mounted where the contract says |
 | build | framework build rules (e.g. Next.js route files may only export handlers) |
 | test-quality | skipped/focused tests, tests reading source text |

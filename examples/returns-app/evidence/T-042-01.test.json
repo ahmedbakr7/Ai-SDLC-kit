@@ -2,10 +2,10 @@
   "kit_evidence": 1,
   "play": "test",
   "ticket": "T-042-01",
-  "commit": "e7507edff69ae07121b38330e561c4a26566ce80",
+  "commit": "b0b62a29389a69ca014fe11538658349142df2b3",
   "dirty": false,
   "base": "main",
-  "started": "2026-10-01T13:47:16+00:00",
+  "started": "2026-10-01T14:50:57+00:00",
   "result": "pass",
   "checks": [
     {
@@ -13,15 +13,15 @@
       "status": "pass",
       "summary": "artifacts valid (0 warning(s))",
       "details": [],
-      "ms": 15,
+      "ms": 16,
       "log": ""
     },
     {
       "name": "scope",
       "status": "pass",
-      "summary": "3 changed file(s), all in scope",
+      "summary": "1 changed file(s), all in scope",
       "details": [],
-      "ms": 125,
+      "ms": 61,
       "log": ""
     },
     {
@@ -29,7 +29,7 @@
       "status": "pass",
       "summary": "no accepted ADR edited, no AC weakened",
       "details": [],
-      "ms": 32,
+      "ms": 0,
       "log": ""
     },
     {
@@ -53,23 +53,23 @@
       "status": "pass",
       "summary": "`python tools/lint.py --types` ok",
       "details": [],
-      "ms": 93,
+      "ms": 94,
       "log": ".sdlc-run/logs/typecheck.log"
     },
     {
       "name": "unit",
       "status": "pass",
-      "summary": "`python tools/junit.py --start app --out C:\\Users\\ahmad\\AppData\\Local\\Temp\\tmpypmkakxr\\product\\.sdlc-run\\junit-unit.xml` ok (4 tests)",
+      "summary": "`python tools/junit.py --start app --out .sdlc-run/junit-unit.xml` ok (4 tests)",
       "details": [],
-      "ms": 203,
+      "ms": 187,
       "log": ".sdlc-run/logs/unit.log"
     },
     {
       "name": "integration",
       "status": "pass",
-      "summary": "`python tools/junit.py --start tests --out C:\\Users\\ahmad\\AppData\\Local\\Temp\\tmpypmkakxr\\product\\.sdlc-run\\junit-integration.xml` ok (2 tests)",
+      "summary": "`python tools/junit.py --start tests --out .sdlc-run/junit-integration.xml` ok (2 tests)",
       "details": [],
-      "ms": 796,
+      "ms": 781,
       "log": ".sdlc-run/logs/integration.log"
     },
     {
@@ -83,7 +83,7 @@
     {
       "name": "ac-coverage",
       "status": "pass",
-      "summary": "all 4 AC proven by passing tests",
+      "summary": "all 4 AC of 1 ticket(s) proven by passing tests",
       "details": [
         "T-042-01/AC-1: passed",
         "T-042-01/AC-2: passed",
@@ -106,7 +106,7 @@
       "status": "pass",
       "summary": "`python -m compileall -q app tools` ok",
       "details": [],
-      "ms": 92,
+      "ms": 108,
       "log": ".sdlc-run/logs/build.log"
     },
     {
@@ -114,7 +114,7 @@
       "status": "pass",
       "summary": "app booted; 1 route/page probe(s) answered",
       "details": [],
-      "ms": 1297,
+      "ms": 1327,
       "log": ".sdlc-run/logs/smoke-server.log"
     },
     {
@@ -153,5 +153,6 @@
         "[integration] ReturnsOverHttp test_unknown_order_over_http T-042-01/AC-4"
       ]
     }
-  }
+  },
+  "config_note": ""
 }

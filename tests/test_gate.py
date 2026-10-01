@@ -85,6 +85,27 @@ class GateCatches(unittest.TestCase):
         self.assertEqual(c["status"], "fail")
         self.assertIn("T-042-02/AC-3: missing", c["details"])
 
+    def test_ac_proven_only_by_a_tautology(self) -> None:
+        # The real AC-3 test loses its tag; a test that asserts nothing about the work takes it.
+        self.apply_solution()
+        self.p.write("app/test_pages.py", self.p.read("app/test_pages.py").replace('"""T-042-02/AC-3"""', '"""no tag"""'))
+        self.p.write("app/test_server.py", 'import unittest\n\n\nclass Unknown(unittest.TestCase):\n'
+                     '    def test_unknown_state(self) -> None:\n        """T-042-02/AC-3"""\n'
+                     '        self.assertTrue(True)\n')
+        pages = self.p.read("app/pages.py")
+        checks = self.gate("build", "unit", "ac-coverage", "ac-red")
+        self.assertEqual(checks["ac-coverage"]["status"], "pass")  # the tag alone satisfies coverage
+        self.assertEqual(checks["ac-red"]["status"], "fail")
+        self.assertEqual(len(checks["ac-red"]["details"]), 1)
+        self.assertIn("T-042-02/AC-3: passes without this ticket's code", checks["ac-red"]["details"][0])
+        self.assertEqual(self.p.read("app/pages.py"), pages)  # reverted files are restored
+        self.assertFalse((self.p.root / ".sdlc-run" / "red-backup").exists())
+
+    def test_ac_red_passes_on_the_reference_solution(self) -> None:
+        self.apply_solution()
+        c = self.gate("build", "unit", "ac-red")["ac-red"]
+        self.assertEqual(c["status"], "pass", c)
+
     def test_ac_with_a_failing_test(self) -> None:
         self.apply_solution()
         self.p.write("app/pages.py", self.p.read("app/pages.py").replace('"Unknown"', '"???"'))
@@ -150,6 +171,9 @@ class GateCatches(unittest.TestCase):
 
     def build_and_commit(self) -> str:
         """The reference build, gated and committed the way the runner does it. Returns the proven commit."""
+        from helpers import git
+
+        git(self.p.root, "checkout", "-q", "-b", "build/T-042-02")
         self.apply_solution()
         self.p.commit("build T-042-02")
         code, out = self.p.sdlc("gate", "build", "T-042-02")
@@ -214,6 +238,18 @@ class GateCatches(unittest.TestCase):
         c = self.gate("review", "review-file")["review-file"]
         self.assertEqual(c["status"], "fail")
         self.assertIn("test evidence is older than the build evidence", "\n".join(c["details"]))
+
+    def test_rebuild_keeps_but_may_not_edit_the_test_plays_files(self) -> None:
+        self.build_and_commit()
+        self.p.write("tests/test_order_page_http.py", '"""T-042-02 integration tests"""\n')
+        self.p.write("evidence/T-042-02.test.json", self.p.read("evidence/T-042-02.build.json"))
+        self.p.commit("test play")
+        self.p.write("app/pages.py", self.p.read("app/pages.py") + "\n# rebuild\n")
+        self.assertEqual(self.gate("build", "scope")["scope"]["status"], "pass")
+        self.p.write("tests/test_order_page_http.py", '"""weakened by the builder"""\n')
+        c = self.gate("build", "scope")["scope"]
+        self.assertEqual(c["status"], "fail")
+        self.assertIn("outside build write set: tests/test_order_page_http.py", c["details"])
 
     def test_play_cannot_mark_its_own_ticket_done(self) -> None:
         self.build_and_commit()
