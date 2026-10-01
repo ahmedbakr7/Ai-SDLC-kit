@@ -84,8 +84,16 @@ class KitConsistency(unittest.TestCase):
                         "skills/backend-patterns/SKILL.md", "skills.lock.json", ".claude/commands/sdlc-build.md"):
                 self.assertTrue((root / rel).is_file(), rel)
             self.assertIn('profile = "nextjs"', (root / "sdlc.toml").read_text())
-            # nextjs profile supplies commands; nothing is vacuous except what needs the product
-            self.assertEqual(code, 0, out.getvalue())
+            # The profile supplies commands, but nothing is installed: every check would fail.
+            self.assertNotEqual(code, 0, out.getvalue())
+            for tool in ("eslint", "tsc", "vitest", "next", "jscpd"):
+                self.assertIn(f"{tool} is not installed", out.getvalue())
+            for tool in ("eslint", "tsc", "vitest", "next", "jscpd"):
+                (root / "node_modules" / ".bin").mkdir(parents=True, exist_ok=True)
+                (root / "node_modules" / ".bin" / tool).write_text("")
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                self.assertEqual(cli.main(["--root", d, "doctor"]), 0, out.getvalue())
 
 
 if __name__ == "__main__":

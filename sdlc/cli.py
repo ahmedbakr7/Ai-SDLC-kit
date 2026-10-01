@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import json
 import shutil
 import sys
@@ -206,6 +207,43 @@ def cmd_init(args) -> int:
     return 0
 
 
+JS_RUNNERS = {"npx": ("--no-install", "--no", "-y", "--yes"), "bunx": (), "pnpx": ()}
+
+
+def _unresolvable(root: Path, cmd: str) -> str:
+    """Why the command's program cannot be found from `root`, or '' if it can. Static: it
+    looks the program up instead of running it, so doctor stays fast and side-effect free."""
+    import shlex
+
+    import re
+
+    try:
+        words = [w.strip('"') for w in shlex.split(cmd, posix=os.name != "nt")]
+    except ValueError:
+        return ""
+    while words and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[0]):
+        words.pop(0)  # VAR=value prefixes
+    if not words:
+        return ""
+    prog, rest = words[0], words[1:]
+    if prog in JS_RUNNERS or (prog in ("pnpm", "yarn") and rest[:1] == ["exec"]):
+        tool = next((w for w in rest if w != "exec" and not w.startswith("-")), "")
+        if tool and not any((root / "node_modules" / ".bin" / (tool + ext)).exists() for ext in ("", ".cmd")):
+            return f"{tool} is not installed (no node_modules/.bin/{tool}); run your package manager's install"
+        return ""
+    if prog in ("npm", "pnpm", "yarn") and rest:
+        script = rest[1] if rest[0] == "run" and len(rest) > 1 else rest[0]
+        if rest[0] == "run" or script in ("test", "start"):
+            pkg = root / "package.json"
+            scripts = json.loads(pkg.read_text(encoding="utf-8")).get("scripts", {}) if pkg.is_file() else {}
+            if script not in scripts:
+                return f"package.json has no script {script!r}"
+        return ""
+    if shutil.which(prog) is None and not (root / prog).exists():
+        return f"{prog!r} is not on PATH"
+    return ""
+
+
 def cmd_doctor(args) -> int:
     import subprocess
 
@@ -219,12 +257,16 @@ def cmd_doctor(args) -> int:
     for play in ("build", "ci"):
         required |= set(cfg.section("gate").get(play, []))
     optional = set(cfg.section("gate").get("optional", []))
-    for name in ("lint", "typecheck", "unit", "integration", "e2e", "build", "start"):
+    for name in ("lint", "typecheck", "unit", "integration", "e2e", "build", "duplication", "start"):
         need = name in required or (name == "start" and "smoke" in required)
         if not cfg.commands.get(name):
             (probs if need and name not in optional else notes).append(f"commands.{name} is not set")
-        elif name in ("unit", "integration", "e2e") and "{junit}" not in cfg.commands[name]:
+            continue
+        if name in ("unit", "integration", "e2e") and "{junit}" not in cfg.commands[name]:
             probs.append(f"commands.{name} has no {{junit}} placeholder; AC coverage cannot be proven")
+        missing = _unresolvable(cfg.root, cfg.commands[name])
+        if missing:
+            probs.append(f"commands.{name}: {missing}; the check would fail (or never run) as configured")
     if "contracts" in required and not cfg.section("routes").get("extractor"):
         probs.append("routes.extractor is not set; contract drift cannot be checked")
     if not cfg.section("tests").get("globs"):

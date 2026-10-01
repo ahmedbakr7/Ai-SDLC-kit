@@ -47,10 +47,14 @@ def problems(m: dict) -> list[str]:
 
 
 def render(m: dict) -> str:
-    lines = ["| Requirement | Tickets | AC proven |", "|---|---|---|"]
+    # A requirement does not map to particular AC, so show each serving ticket's own proof
+    # rather than a sum that mixes tickets (4/4 + 0/3 is not "4/7 of this requirement").
+    lines = ["| Requirement | Ticket: status, AC proven |", "|---|---|"]
     for r, v in m["requirements"].items():
-        ts = v["tickets"]
-        proven = sum(1 for t in ts for a in m["tickets"][t]["acs"].values() if a["proof"] == "passed")
-        total = sum(len(m["tickets"][t]["acs"]) for t in ts)
-        lines.append(f"| {r} | {', '.join(ts) or '—'} | {proven}/{total} |")
+        cells = []
+        for tid in v["tickets"]:
+            t = m["tickets"][tid]
+            proven = sum(1 for a in t["acs"].values() if a["proof"] == "passed")
+            cells.append(f"{tid}: {t['status']}, {proven}/{len(t['acs'])}")
+        lines.append(f"| {r} | {'; '.join(cells) or '— (no ticket)'} |")
     return "\n".join(lines)
