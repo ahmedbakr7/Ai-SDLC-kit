@@ -553,30 +553,37 @@ class Gate:
         mb = self.since or gitutil.merge_base(cfg.root, self.base)
         changed = set(self.changed())
         adr_dir = cfg.data["paths"]["decisions"]
+        tdir = cfg.data["paths"]["tickets"]
         problems = []
         for f in sorted(changed):
-            if paths.match(f, f"{adr_dir}/ADR-*.md") and gitutil.show(cfg.root, mb, "./" + f) is not None:
-                problems.append(f"{f}: accepted ADR edited; write a new ADR that supersedes it")
+            if paths.match(f, f"{adr_dir}/ADR-*.md"):
+                old = _frontmatter(gitutil.show(cfg.root, mb, "./" + f))
+                if old is not None and old.get("status") == "accepted":
+                    problems.append(f"{f}: accepted ADR edited; write a new ADR that supersedes it")
+            elif paths.match(f, f"{tdir}/T-*.md") and not (cfg.root / f).exists():
+                old = _frontmatter(gitutil.show(cfg.root, mb, "./" + f))
+                if old is not None and old.get("status") not in ("draft", None):
+                    problems.append(f"{f}: {old.get('status')} ticket deleted; supersede it with a new ticket instead")
+        reqs_now = {r: v.text for r, v in self.repo.requirements().items()}
         for t in self.repo.tickets.values():
             rel = cfg.rel(t.path)
             if rel not in changed:
                 continue
-            old = gitutil.show(cfg.root, mb, "./" + rel)
-            if old is None:
-                continue
-            try:
-                ofm, _, _ = fm.split(old)
-                old_acs = dict(_acs(fm.parse(ofm or "")))
-            except fm.ParseError:
-                continue
+            old = _frontmatter(gitutil.show(cfg.root, mb, "./" + rel))
+            if old is None or old.get("status") in ("draft", None):
+                continue  # AC are not accepted until the lead makes the ticket ready
+            old_acs = dict(_acs(old))
             new_acs = dict(t.acs)
-            spec = str(t.data.get("source_spec", ""))
+            # An AC may change only together with a requirement it serves: the spec decides.
+            cited = [str(r) for r in (old.get("requirements") or [])]
+            spec = str(old.get("source_spec", ""))
+            reqs_then = _requirements_at(cfg, mb, spec)
+            moved = [r for r in cited if reqs_then.get(r) != reqs_now.get(r)]
             for ac, text in old_acs.items():
-                if not ac:
-                    continue
-                if new_acs.get(ac) != text and spec not in changed:
+                if ac and new_acs.get(ac) != text and not moved:
                     what = "removed" if ac not in new_acs else "reworded"
-                    problems.append(f"{rel}: {ac} {what} without changing {spec or 'its source_spec'}")
+                    problems.append(f"{rel}: {ac} {what}, but none of its requirements "
+                                    f"({', '.join(cited) or 'none'}) changed in {spec or 'its source_spec'}")
         c.details = problems
         if problems:
             c.status, c.summary = "fail", f"{len(problems)} immutable artifact(s) changed"
@@ -633,6 +640,28 @@ class Gate:
                 lf.write(f"\n[sdlc] timed out after {timeout}s\n")
                 code = 124
         return code, log
+
+
+def _frontmatter(text: str | None) -> dict | None:
+    if text is None:
+        return None
+    try:
+        head, _, _ = fm.split(text)
+        return fm.parse(head or "")
+    except fm.ParseError:
+        return {}
+
+
+def _requirements_at(cfg: Config, ref: str, spec: str) -> dict[str, str]:
+    from .artifacts import REQ_DEF_RE
+
+    text = gitutil.show(cfg.root, ref, "./" + spec) if spec else None
+    out = {}
+    for line in (fm.split(text)[1] if text else "").split("\n"):
+        m = REQ_DEF_RE.match(line)
+        if m:
+            out[m.group(1)] = m.group(2).strip()
+    return out
 
 
 def _acs(data: dict) -> list[tuple[str, str]]:

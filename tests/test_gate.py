@@ -297,6 +297,26 @@ class GateCatches(unittest.TestCase):
         self.assertEqual(c["status"], "fail")
         self.assertIn("AC-3 reworded", "\n".join(c["details"]))
 
+    def test_unrelated_spec_edit_does_not_license_an_ac_change(self) -> None:
+        rel, spec = "tickets/T-042-02-order-page.md", "design/spec-042-return-status.md"
+        self.p.write(rel, self.p.read(rel).replace("and the page still answers 200", "if convenient"))
+        # F-042-1 is not one of T-042-02's requirements: before, any spec edit let the AC change.
+        self.p.write(spec, self.p.read(spec).replace("each with `id` and `state`.", "each with `id`, `state`."))
+        c = self.gate("ci", "immutable", ticket=None)["immutable"]
+        self.assertEqual(c["status"], "fail")
+        self.assertIn("AC-3 reworded, but none of its requirements (F-042-5, F-042-6, N-042-1) changed",
+                      "\n".join(c["details"]))
+        # Changing the requirement the AC serves is the legitimate path.
+        self.p.write(spec, self.p.read(spec).replace('is shown as "Unknown" instead of failing the page.',
+                                                     'is shown as "Unknown".'))
+        self.assertEqual(self.gate("ci", "immutable", ticket=None)["immutable"]["status"], "pass")
+
+    def test_deleting_an_accepted_ticket(self) -> None:
+        (self.p.root / "tickets" / "T-042-01-returns-api.md").unlink()
+        c = self.gate("ci", "immutable", ticket=None)["immutable"]
+        self.assertEqual(c["status"], "fail")
+        self.assertIn("tickets/T-042-01-returns-api.md: done ticket deleted", "\n".join(c["details"]))
+
     def test_full_build_gate_passes_on_the_reference_solution(self) -> None:
         self.apply_solution()
         self.code, self.out = self.p.sdlc("gate", "build", "T-042-02")
