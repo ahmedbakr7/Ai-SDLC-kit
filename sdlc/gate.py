@@ -475,9 +475,13 @@ class Gate:
                     manifest[f] = None
                 (backup / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
                 old = gitutil.show_bytes(self.cfg.root, mb, "./" + f)
-                if old is None:
-                    p.unlink(missing_ok=True)
-                else:
+                if old is None and p.is_file():
+                    # Empty, not deleted: a test file importing a module the ticket created
+                    # would otherwise fail at import as a whole, and a tautology in it would
+                    # count as red. Imports of an empty module resolve (to undefined/attribute
+                    # errors), so each test passes or fails on its own assertions.
+                    p.write_bytes(b"")
+                elif old is not None:
                     p.parent.mkdir(parents=True, exist_ok=True)
                     p.write_bytes(old)
             junit = self.run_dir / "junit-ac-red.xml"
@@ -488,17 +492,23 @@ class Gate:
             self._read_junit("ac-red", junit, into=cases)
         finally:
             _restore_red_backup(self.cfg.root, backup)
-        green = []
+        green, unknown = [], []
         for tag in t.ac_tags():
             pat = re.compile(re.escape(tag) + r"(?!\d)")
             hits = [tc for tc in cases if pat.search(tc.name)]
             if hits and all(h.status == "passed" for h in hits):
                 green.append(f"{tag}: passes without this ticket's code ({'; '.join(h.name for h in hits[:3])})")
-        c.details = green
+            elif not hits:
+                unknown.append(f"{tag}: its tests did not run without the ticket's code (whole file failed to "
+                               "load?); not proven red, not counted against it")
+        c.details = green + unknown
         if green:
             c.status = "fail"
             c.summary = (f"{len(green)} AC proven only by tests that pass with {', '.join(prod) or 'nothing'} "
                          f"reverted to {self.base}; assert on what this ticket built")
+        elif unknown:
+            c.summary = (f"no AC passes without the ticket's code; {len(unknown)} AC could not be checked "
+                         f"({len(prod)} file(s) reverted)")
         else:
             c.summary = f"every AC has a test that fails without the ticket's code ({len(prod)} file(s) reverted)"
 

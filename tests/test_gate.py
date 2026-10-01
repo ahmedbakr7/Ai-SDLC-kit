@@ -136,6 +136,20 @@ class GateCatches(unittest.TestCase):
         self.assertEqual(self.p.read("app/pages.py"), pages)  # reverted files are restored
         self.assertFalse((self.p.root / ".sdlc-run" / "red-backup").exists())
 
+    def test_tautology_beside_the_module_the_ticket_creates(self) -> None:
+        # The natural place for it: the test file that imports the new app/pages.py. Deleting
+        # pages.py failed that whole file at import, so the tautology counted as red.
+        self.apply_solution()
+        t = self.p.read("app/test_pages.py")
+        i = t.index('"""T-042-02/AC-3"""')
+        self.p.write("app/test_pages.py", t[:i] + '"""T-042-02/AC-3"""\n        self.assertTrue(True)\n')
+        pages = (self.p.root / "app" / "pages.py").read_bytes()
+        c = self.gate("build", "unit", "ac-red")["ac-red"]
+        self.assertEqual(c["status"], "fail", c)
+        self.assertEqual(len(c["details"]), 1, c["details"])
+        self.assertIn("T-042-02/AC-3: passes without this ticket's code", c["details"][0])
+        self.assertEqual((self.p.root / "app" / "pages.py").read_bytes(), pages)
+
     def test_any_gate_restores_what_an_interrupted_ac_red_reverted(self) -> None:
         self.apply_solution()
         pages = self.p.read("app/pages.py")
