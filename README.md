@@ -23,7 +23,7 @@ the model and into one command:
 | `artifacts` | a spec/plan/ticket/review is malformed, a reference does not resolve, deps form a cycle |
 | `scope` | a file outside the play's write set changed, or the ticket's status moved in a way the play's role may not (a test agent cannot mark its ticket done) |
 | `immutable` | an accepted ADR was edited, or an acceptance criterion was weakened without its spec |
-| `contracts` | the code exposes a route CONTRACTS does not declare, or UI code calls a path no route serves |
+| `contracts` | the code exposes a route or page CONTRACTS does not declare, or UI code calls a path no route serves |
 | `lint` `typecheck` `unit` `integration` `e2e` `build` | the product's real command exits non-zero, **is not configured**, or **ran zero tests** |
 | `ac-coverage` | an acceptance criterion has no passing test tagged `T-001-03/AC-2` in the JUnit output; in `gate ci`, for every ticket in review or done; in `gate test`, no integration/e2e test proves any of the ticket's AC |
 | `ac-red` | with the ticket's production files reverted to the base branch, every tagged test of some AC still passes: the test does not depend on the work (`expect(true)`, re-testing old behaviour) |

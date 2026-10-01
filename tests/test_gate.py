@@ -57,6 +57,16 @@ class GateCatches(unittest.TestCase):
         details = "\n".join(c["details"])
         self.assertIn("GET /api/v1/orders/{}/returns", details)
 
+    def test_page_in_code_but_not_in_contracts(self) -> None:
+        # The route extractor command may report pages as 'PAGE /path' lines.
+        self.p.write("tools/surface.py", "import runpy, sys\nrunpy.run_path('tools/routes.py')\n"
+                     "print('PAGE /orders/{id}')\nprint('PAGE /admin')\n")
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace('command = "python tools/routes.py"',
+                                                                   'command = "python tools/surface.py"'))
+        c = self.gate("ci", "contracts", ticket=None)["contracts"]
+        self.assertEqual(c["status"], "fail", c)
+        self.assertEqual(c["details"], ["page in code but not in CONTRACTS: /admin (routes.command)"])
+
     def test_client_calls_a_path_no_contract_serves(self) -> None:
         self.p.write("app/static/app.js", 'export const load = (id) => fetch(`/v1/orders/${id}/returns`);\n')
         with open(self.p.root / "sdlc.toml", "a", encoding="utf-8") as f:

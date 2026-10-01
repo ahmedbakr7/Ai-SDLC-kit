@@ -1,5 +1,5 @@
 # Python service with pytest + ruff + mypy. Set routes.command to print
-# "METHOD /path" lines (e.g. iterate app.routes for FastAPI/Flask).
+# "METHOD /path" lines (e.g. iterate app.routes for FastAPI/Flask), plus "PAGE /path" for HTML pages.
 
 [commands]
 lint = "ruff check ."

@@ -31,7 +31,8 @@ pass without checking anything:
 - every required command is set (`lint`, `typecheck`, `unit`, `build`, `start`);
 - test commands write JUnit to `{junit}` (vitest: `--reporter=junit --outputFile.junit={junit}`,
   jest: `jest-junit`, pytest: `--junitxml={junit}`, Playwright: `PLAYWRIGHT_JUNIT_OUTPUT_NAME={junit}` with the `junit` reporter);
-- a route extractor is configured (`nextjs-app`, or `command` printing `METHOD /path`).
+- a route extractor is configured (`nextjs-app`, which also reports pages, or `command` printing
+  `METHOD /path` lines and, optionally, `PAGE /path` lines for server-rendered pages).
 
 Commit, then mark the `gate` job required in branch protection.
 

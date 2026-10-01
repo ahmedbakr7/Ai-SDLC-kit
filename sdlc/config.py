@@ -63,7 +63,7 @@ DEFAULTS: dict[str, Any] = {
     },
     "routes": {
         "extractor": "",       # nextjs-app | command
-        "command": "",         # prints "METHOD /path" lines (extractor=command)
+        "command": "",         # prints "METHOD /path" and optional "PAGE /path" lines (extractor=command)
         "roots": [],           # extractor-specific source roots
     },
     "client": {

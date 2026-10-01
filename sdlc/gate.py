@@ -20,7 +20,7 @@ from pathlib import Path, PurePosixPath
 from typing import Callable
 
 from . import config, extract, fm, gitutil, lint, paths, tickets
-from .artifacts import AC_TAG_RE, Repo, Ticket
+from .artifacts import AC_TAG_RE, Repo, Ticket, normalize_path
 from .config import Config
 
 TICKET_PLAYS = ("build", "test", "review")
@@ -261,7 +261,7 @@ class Gate:
     def check_contracts(self, c: Check) -> None:
         contracts = self.repo.contracts
         declared = {r.key for r in contracts.routes}
-        code, errs = extract.code_routes(self.cfg)
+        code, code_pages, errs = extract.code_surface(self.cfg)
         details = list(errs)
         if errs and not code:
             c.status, c.summary, c.details = "fail", "cannot extract routes from code", details
@@ -269,6 +269,9 @@ class Gate:
         undeclared = sorted(set(code) - declared)
         for k in undeclared:
             details.append(f"route in code but not in CONTRACTS: {k} ({code[k]})")
+        declared_pages = {normalize_path(p) for p in contracts.pages}
+        for pg in sorted(set(code_pages) - declared_pages):
+            details.append(f"page in code but not in CONTRACTS: {pg} ({code_pages[pg]})")
         if self.ticket:
             mine = {extract_key(r) for r in self.ticket.contracts}
             for k in sorted(mine & declared):
@@ -633,8 +636,9 @@ class Gate:
             lf.write(f"$ {cmd}\n")
             lf.flush()
             try:
+                env = dict(os.environ, CI=os.environ.get("CI", "1"), NO_COLOR="1", FORCE_COLOR="0")
                 r = subprocess.run(cmd, shell=True, cwd=self.cfg.root, stdout=lf, stderr=subprocess.STDOUT,
-                                   timeout=timeout, env=dict(os.environ, CI=os.environ.get("CI", "1")))
+                                   timeout=timeout, env=env)
                 code = r.returncode
             except subprocess.TimeoutExpired:
                 lf.write(f"\n[sdlc] timed out after {timeout}s\n")

@@ -63,14 +63,20 @@ class NextjsRoutes(unittest.TestCase):
                 "src/app/(marketing)/api/ping/route.ts": "export function GET() {}",
                 "src/app/_private/route.ts": "export function GET() {}",
                 "src/app/api/v1/plans/page.tsx": "export default function P() {}",
+                "src/app/page.tsx": "export default function Home() {}",
+                "src/app/(app)/plans/[planId]/page.tsx": "export default function P() {}",
+                "src/app/[locale]/settings/page.mdx": "# Settings",
+                "src/app/@modal/login/page.tsx": "export default function M() {}",
+                "src/app/plans/_parts/page.tsx": "export default function Hidden() {}",
             }
             for rel, text in files.items():
                 (root / rel).parent.mkdir(parents=True, exist_ok=True)
                 (root / rel).write_text(text)
-            routes, errs = extract.code_routes(config.load(root))
+            routes, pages, errs = extract.code_surface(config.load(root))
             self.assertEqual(errs, [])
             self.assertEqual(sorted(routes), ["GET /api/ping", "GET /api/v1/plans", "PATCH /api/v1/plans/{}",
                                               "POST /api/v1/plans"])
+            self.assertEqual(sorted(pages), ["/", "/api/v1/plans", "/plans/{}", "/{}/settings"])
 
 
 class Lint(unittest.TestCase):
@@ -107,6 +113,15 @@ class Lint(unittest.TestCase):
             msgs = "\n".join(str(i) for i in lint_repo(Repo(config.load(p.root))))
             self.assertIn("T-042-01 and T-042-02 both write app/server.py but neither depends on the other", msgs)
             self.assertIn("shared module app/returns.py: owner T-042-02 does not list it in files:", msgs)
+        finally:
+            p.close()
+
+    def test_contract_owner_must_be_a_ticket(self) -> None:
+        p = helpers.ProductRepo()
+        try:
+            p.write("arch/CONTRACTS.md", p.read("arch/CONTRACTS.md").replace("owner=T-042-02", "owner=T-042-20"))
+            msgs = "\n".join(str(i) for i in lint_repo(Repo(config.load(p.root))))
+            self.assertIn("page /orders/{id}: owner=T-042-20 is not a ticket", msgs)
         finally:
             p.close()
 

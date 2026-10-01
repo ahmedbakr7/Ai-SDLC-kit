@@ -151,15 +151,21 @@ def cmd_routes(args) -> int:
     from . import extract
 
     cfg = _cfg(args)
-    code, errs = extract.code_routes(cfg)
-    declared = {r.key for r in Repo(cfg).contracts.routes}
+    from .artifacts import normalize_path
+
+    routes, pages, errs = extract.code_surface(cfg)
+    contracts = Repo(cfg).contracts
+    code = set(routes) | {f"PAGE {p}" for p in pages}
+    declared = {r.key for r in contracts.routes}
+    if pages:  # only extractors that report pages can say a page is not built
+        declared |= {f"PAGE {normalize_path(p)}" for p in contracts.pages}
     for e in errs:
         print(f"ERROR {e}")
-    for k in sorted(set(code) | declared):
+    for k in sorted(code | declared):
         tag = "ok  " if k in code and k in declared else "CODE" if k in code else "TODO"
         print(f"{tag}  {k}")
     print("\nok = declared and built; CODE = built but undeclared (drift); TODO = declared, not built")
-    return EXIT_FAIL if set(code) - declared or errs else 0
+    return EXIT_FAIL if code - declared or errs else 0
 
 
 def cmd_init(args) -> int:

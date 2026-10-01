@@ -1,5 +1,5 @@
 # Generic Node/TypeScript service (Express, Fastify, Hono...). Set routes.command
-# to a script that prints "METHOD /path" for every mounted route.
+# to a script that prints "METHOD /path" for every mounted route (and "PAGE /path" for pages).
 
 [commands]
 lint = "npx --no-install eslint . --max-warnings 0"

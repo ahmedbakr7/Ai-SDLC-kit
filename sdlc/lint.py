@@ -105,7 +105,15 @@ def _lint_docs(repo: Repo) -> list[Issue]:
     if not contracts.path.is_file():
         if repo.tickets:
             out.append(Issue("error", cfg.data["paths"]["contracts"], "missing CONTRACTS file"))
-    elif not (contracts.routes or contracts.tables or contracts.events):
+    elif repo.tickets:
+        # A page/route owner that is not a ticket is never probed by smoke (it only probes
+        # pages whose owner is being built or shipped), so a typo silently disables the probe.
+        owners = [(r.key, r.attrs.get("owner")) for r in contracts.routes]
+        owners += [(f"page {p}", a.get("owner")) for p, a in contracts.page_attrs.items()]
+        for what, owner in owners:
+            if owner and owner not in repo.tickets:
+                out.append(Issue("error", cfg.rel(contracts.path), f"{what}: owner={owner} is not a ticket"))
+    if contracts.path.is_file() and not (contracts.routes or contracts.tables or contracts.events):
         out.append(Issue("warn", cfg.rel(contracts.path),
                          "no ```routes / ```tables / ```events blocks; drift and smoke checks have nothing to compare"))
     rdir = cfg.path("reviews")
