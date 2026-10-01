@@ -30,6 +30,7 @@ PR_ROLES = ("build", "test", "review", "merge")
 COMMAND_CHECKS = ("lint", "typecheck", "unit", "integration", "e2e", "build", "duplication")
 JUNIT_CHECKS = ("unit", "integration", "e2e")
 RUN_DIR = ".sdlc-run"
+RED_BACKUP = "red-backup"  # under RUN_DIR: files ac-red reverted, until it puts them back
 _JS_TEST = r"\b(?:it|test|describe|suite)(?:\.\w+)*"  # it.only, describe.concurrent.only, ...
 BUILTIN_TEST_FORBID = [
     {"regex": _JS_TEST + r"\.only\s*\(|\bf(?:it|describe)\s*\(", "message": "focused test (.only) hides the rest of the suite"},
@@ -63,6 +64,7 @@ class TestCase:
 class Gate:
     def __init__(self, cfg: Config, play: str, ticket_id: str | None, base: str | None,
                  only: list[str] | None = None, verbose: bool = False, since: str | None = None):
+        recover(cfg.root)  # before anything reads the tree
         self.base = base or cfg.section("vcs").get("base", "main")
         self.config_note = ""
         if ticket_id and play in (*TICKET_PLAYS, "pr"):
@@ -418,8 +420,7 @@ class Gate:
         if not prod:
             c.status, c.summary = "skip", f"no production file of {t.id} differs from {self.base}; nothing to revert"
             return
-        backup = self.run_dir / "red-backup"
-        _restore_red_backup(self.cfg.root, backup)  # a previous run that was killed mid-way
+        backup = self.run_dir / RED_BACKUP
         cases: list[TestCase] = []
         backup.mkdir(parents=True)
         try:
@@ -820,11 +821,20 @@ def _read_or_none(p: Path) -> bytes | None:
     return _norm(p.read_bytes()) if p.is_file() else None
 
 
-def _restore_red_backup(root: Path, backup: Path) -> None:
-    """Put back the files ac-red reverted (also recovers from a run killed mid-way)."""
+def recover(root: Path) -> list[str]:
+    """Undo an ac-red run that was killed mid-way: it left the ticket's production files
+    reverted to the base branch, and their only copy (uncommitted work included) in the
+    backup. Every gate and `sdlc run` calls this first. Returns the restored files."""
+    return _restore_red_backup(root, root / RUN_DIR / RED_BACKUP)
+
+
+def _restore_red_backup(root: Path, backup: Path) -> list[str]:
+    """Put back the files ac-red reverted."""
     manifest = backup / "manifest.json"
+    restored = []
     if manifest.is_file():
         for f, slot in json.loads(manifest.read_text(encoding="utf-8")).items():
+            restored.append(f)
             p = root / f
             if slot is None:
                 p.unlink(missing_ok=True)
@@ -835,6 +845,7 @@ def _restore_red_backup(root: Path, backup: Path) -> None:
         import shutil
 
         shutil.rmtree(backup)
+    return restored
 
 
 def _tail(p: Path, n: int) -> list[str]:

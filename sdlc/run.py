@@ -18,7 +18,7 @@ from pathlib import Path
 from . import gitutil, prompt, tickets
 from .artifacts import Repo
 from .config import Config
-from .gate import Gate
+from .gate import Gate, recover
 
 INSTRUCTION = ("You are running one play of the ai-sdlc kit. Read the file {prompt_file} completely "
                "and do exactly what it says. It is your entire task. When you are done, stop.")
@@ -62,6 +62,9 @@ def run(cfg: Config, play: str, tid: str, agent: str, attempts: int | None, base
     attempts = attempts or int(cfg.section("gate").get("max_attempts", 3))
     branch = vcs.get("branch", "{play}/{id}").format(play="build", id=tid)
 
+    restored = recover(root)
+    if restored:
+        _say(f"restored {len(restored)} file(s) an interrupted ac-red check had reverted: {', '.join(restored)}")
     if gitutil.is_dirty(root):
         raise SystemExit("working tree is dirty; commit or stash first so every change is attributable")
     if play != "build" and not dry_run:

@@ -98,6 +98,25 @@ class Conveyor(unittest.TestCase):
         self.assertNotEqual(code, 0)
         self.assertIn("dirty", out)
 
+    def test_run_recovers_files_an_interrupted_ac_red_reverted(self) -> None:
+        # ac-red was killed after reverting production files: the tree is dirty and the
+        # backup holds the only copy. The next run restores them instead of refusing to start.
+        p = self.p
+        backup = p.root / ".sdlc-run" / "red-backup"
+        backup.mkdir(parents=True)
+        original = (p.root / "app" / "returns.py").read_bytes()
+        (backup / "0").write_bytes(original)
+        (backup / "manifest.json").write_text(json.dumps({"app/returns.py": "0", "app/new.py": None}),
+                                              encoding="utf-8")
+        p.write("app/returns.py", "# reverted by ac-red\n")
+        p.write("app/new.py", "# not in the working tree before ac-red; it wrote the base version\n")
+        code, out = p.sdlc("run", "build", "T-042-02", "--agent", "fake", "--dry-run")
+        self.assertEqual(code, 0, out)
+        self.assertIn("restored 2 file(s)", out)
+        self.assertEqual((p.root / "app" / "returns.py").read_bytes(), original)
+        self.assertFalse((p.root / "app" / "new.py").exists())
+        self.assertFalse(backup.exists())
+
     def test_build_refuses_unmet_dependencies(self) -> None:
         p = self.p
         t1 = p.read("tickets/T-042-01-returns-api.md").replace("status: done", "status: in_review")

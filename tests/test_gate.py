@@ -136,6 +136,18 @@ class GateCatches(unittest.TestCase):
         self.assertEqual(self.p.read("app/pages.py"), pages)  # reverted files are restored
         self.assertFalse((self.p.root / ".sdlc-run" / "red-backup").exists())
 
+    def test_any_gate_restores_what_an_interrupted_ac_red_reverted(self) -> None:
+        self.apply_solution()
+        pages = self.p.read("app/pages.py")
+        backup = self.p.root / ".sdlc-run" / "red-backup"
+        backup.mkdir(parents=True)
+        (backup / "0").write_text(pages, encoding="utf-8")
+        (backup / "manifest.json").write_text(json.dumps({"app/pages.py": "0"}), encoding="utf-8")
+        self.p.write("app/pages.py", "# reverted by a killed ac-red\n")
+        self.gate("build", "lint")
+        self.assertEqual(self.p.read("app/pages.py"), pages)
+        self.assertFalse(backup.exists())
+
     def test_ac_red_passes_on_the_reference_solution(self) -> None:
         self.apply_solution()
         c = self.gate("build", "unit", "ac-red")["ac-red"]
