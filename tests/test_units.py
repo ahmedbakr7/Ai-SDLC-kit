@@ -93,6 +93,31 @@ class Lint(unittest.TestCase):
         finally:
             p.close()
 
+    def test_one_owner_per_shared_concern(self) -> None:
+        p = helpers.ProductRepo()
+        try:
+            # Both tickets open and unordered, both writing the route table.
+            t1 = "tickets/T-042-01-returns-api.md"
+            p.write(t1, p.read(t1).replace("status: done", "status: in_review"))
+            t2 = "tickets/T-042-02-order-page.md"
+            p.write(t2, p.read(t2).replace("depends_on:\n  - T-042-01", "depends_on: []"))
+            # The plan names an owner that never creates the module.
+            plan = "arch/plan-042-return-status.md"
+            p.write(plan, p.read(plan).replace("| `app/returns.py` | T-042-01 |", "| `app/returns.py` | T-042-02 |"))
+            msgs = "\n".join(str(i) for i in lint_repo(Repo(config.load(p.root))))
+            self.assertIn("T-042-01 and T-042-02 both write app/server.py but neither depends on the other", msgs)
+            self.assertIn("shared module app/returns.py: owner T-042-02 does not list it in files:", msgs)
+        finally:
+            p.close()
+
+    def test_build_prompt_lists_shared_modules_to_import(self) -> None:
+        from sdlc import prompt
+
+        text = prompt.render(config.load(helpers.EXAMPLE), "build", "T-042-02")
+        self.assertIn("## Shared modules (import these; never re-implement them)", text)
+        self.assertIn("| `app/returns.py` | T-042-01 | read returns for an order; the only place that knows "
+                      "the data source | exists: import it |", text)
+
 
 if __name__ == "__main__":
     unittest.main()

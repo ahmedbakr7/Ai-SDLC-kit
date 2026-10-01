@@ -15,8 +15,10 @@ lists the wrong files, the build will be wrong no matter how good the agent is.
 2. Order: shared-module and contract tickets first, then backend, then frontend.
    `depends_on` lists every ticket whose code this one imports or calls.
 3. **files:** the exact paths this ticket creates or edits (no globs, <= 8). Tests
-   beside them are implied. A shared module is created by its owner ticket and
-   listed in `shared:` by later tickets that must extend it.
+   beside them are implied. A shared module is created by its owner ticket (the
+   plan's Shared modules table; the owner lists it in `files:`) and listed in
+   `shared:` or `files:` by later tickets that must extend it. Two open tickets that
+   write the same file must be ordered with `depends_on` (`sdlc lint` checks both).
 4. **acceptance_criteria:** `AC-n: <observable behaviour>`. One behaviour each, <= 8.
    Each must be checkable by a test without asking anyone:
    - Good: `AC-2: PUT /api/v1/plans/{id}/response with an unknown planId answers 404 not_found`

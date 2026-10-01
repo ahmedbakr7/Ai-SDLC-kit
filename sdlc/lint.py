@@ -36,7 +36,48 @@ def lint_repo(repo: Repo, only_ticket: str | None = None) -> list[Issue]:
 
     if only_ticket is None:
         issues.extend(_cycles(tickets))
+        issues.extend(_unordered_writers(tickets))
     return issues
+
+
+def _shared_module_owners(repo: Repo, plan: Path) -> list[Issue]:
+    """Each shared module in a plan has one owner ticket that creates it. Without that, every
+    ticket needing the concern writes its own copy (the planRoleFor x3 / createDb x5 failure)."""
+    from .prompt import shared_module_rows
+
+    out: list[Issue] = []
+    mine = [t for t in repo.tickets.values() if str(t.data.get("source_plan", "")) == repo.cfg.rel(plan)]
+    if not mine:
+        return out  # not ticketized yet
+    for path, owner, _ in shared_module_rows(repo.cfg, plan):
+        t = repo.tickets.get(owner)
+        if t is None:
+            out.append(Issue("error", repo.cfg.rel(plan), f"shared module {path}: owner {owner!r} is not a ticket"))
+        elif path not in t.files:
+            out.append(Issue("error", repo.cfg.rel(plan), f"shared module {path}: owner {owner} does not list it in files:"))
+    return out
+
+
+def _unordered_writers(tickets: dict[str, Ticket]) -> list[Issue]:
+    """Two open tickets that write the same file must be ordered by depends_on; otherwise they
+    build in parallel, conflict, and each implements the shared concern its own way."""
+    def ancestors(tid: str, seen: set[str]) -> set[str]:
+        for d in tickets[tid].depends_on:
+            if d in tickets and d not in seen:
+                seen.add(d)
+                ancestors(d, seen)
+        return seen
+
+    anc = {tid: ancestors(tid, set()) for tid in tickets}
+    open_ = sorted(tid for tid, t in tickets.items() if t.status != "done")
+    out = []
+    for i, a in enumerate(open_):
+        for b in open_[i + 1:]:
+            both = sorted(set(tickets[a].files) & set(tickets[b].files))
+            if both and a not in anc[b] and b not in anc[a]:
+                out.append(Issue("error", "tickets/", f"{a} and {b} both write {', '.join(both)} but neither "
+                                 "depends on the other; add depends_on, or give the file one owner ticket"))
+    return out
 
 
 def _lint_docs(repo: Repo) -> list[Issue]:
@@ -59,6 +100,7 @@ def _lint_docs(repo: Repo) -> list[Issue]:
             continue
         _doc_status(data, cfg.rel(p), out)
         _headings(body, PLAN_HEADINGS, cfg.rel(p), out)
+        out.extend(_shared_module_owners(repo, p))
     contracts = repo.contracts
     if not contracts.path.is_file():
         if repo.tickets:

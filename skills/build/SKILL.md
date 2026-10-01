@@ -19,9 +19,12 @@ definition of done. Read the files named in `files:` and `shared:` before editin
 1. **Understand.** For each AC, write down (to yourself) the input, the observable
    result, and which file produces it. If an AC is ambiguous or needs a file outside
    the write set, stop now and say exactly what is missing.
-2. **Find what exists.** Search the shared modules from the plan and the pattern
-   skills for helpers you must reuse (db client, auth/role checks, error envelope,
-   API client, formatting). Import them. Never re-implement one in your file.
+2. **Find what exists.** Your prompt's *Shared modules* table says which modules
+   exist (import them), which are yours to create, and which are not built yet (if
+   you need one of those, stop). Also search the pattern skills for helpers you must
+   reuse (db client, auth/role checks, error envelope, API client, formatting).
+   Never re-implement one in your file, even when your write set seems to force it:
+   that is a stop, not a workaround.
 3. **Red.** For each AC, write the test first, named with its tag:
    - JS/TS: `it("T-001-03/AC-2 unknown id answers 404 not_found", ...)`
    - Python: docstring or name containing `T-001-03/AC-2`

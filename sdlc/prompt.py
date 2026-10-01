@@ -60,6 +60,9 @@ def _ticket_context(cfg: Config, repo: Repo, t: Ticket, play: str) -> list[str]:
     if lines:
         out.append(_section("Requirements this ticket serves", "\n".join(lines)))
     out.append(_section("Contracts this ticket must honour", _contract_excerpt(cfg, repo, t)))
+    shared = _shared_modules(cfg, t)
+    if shared:
+        out.append(_section("Shared modules (import these; never re-implement them)", shared))
     if t.type in ("frontend", "fullstack"):
         out.extend(_design_context(cfg, repo, t))
     for s in t.skills:
@@ -94,6 +97,39 @@ def _contract_excerpt(cfg: Config, repo: Repo, t: Ticket) -> str:
             keep.append(ch)
     body = "\n".join(k.rstrip() for k in keep).strip()
     return f"Cited: {', '.join('`' + r + '`' for r in refs)}\n\nExcerpt of {cfg.rel(c.path)}:\n\n{body}"
+
+
+def shared_module_rows(cfg: Config, plan: Path) -> list[tuple[str, str, str]]:
+    """(module path, owner ticket, exposes) from a plan's '## Shared modules' table."""
+    if not plan.is_file():
+        return []
+    _, body, _ = fm.split(plan.read_text(encoding="utf-8"))
+    m = re.search(r"^## Shared modules\s*$(.*?)(?=^## |\Z)", body, re.M | re.S)
+    rows = []
+    for line in (m.group(1) if m else "").splitlines():
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        path = re.fullmatch(r"`([^`]+)`", cells[0]) if len(cells) >= 2 else None
+        if path:
+            rows.append((path.group(1), cells[1], cells[2] if len(cells) > 2 else ""))
+    return rows
+
+
+def _shared_modules(cfg: Config, t: Ticket) -> str:
+    """The plan's shared modules, marked with whether they exist yet and whether this
+    ticket owns them, so the builder imports instead of copying (copies are a review finding)."""
+    rows = shared_module_rows(cfg, cfg.root / str(t.data.get("source_plan", "")))
+    if not rows:
+        return ""
+    out = ["| Module | Owner | Exposes | State |", "|---|---|---|---|"]
+    for path, owner, exposes in rows:
+        if owner == t.id:
+            state = "**yours to create/extend**"
+        elif (cfg.root / path).exists():
+            state = "exists: import it"
+        else:
+            state = f"not built yet: if you need it, stop (it belongs to {owner})"
+        out.append(f"| `{path}` | {owner} | {exposes} | {state} |")
+    return "\n".join(out)
 
 
 def _design_context(cfg: Config, repo: Repo, t: Ticket) -> list[str]:
