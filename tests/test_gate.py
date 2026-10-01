@@ -232,6 +232,62 @@ class GateCatches(unittest.TestCase):
         self.assertIn("outside build write set: sdlc.toml", details)
         self.assertIn("differs from main", details)
 
+    def sneaky_branch(self) -> None:
+        """A PR that moves no ticket: adds a route CONTRACTS does not declare and trims the CI gate."""
+        from helpers import git
+
+        git(self.p.root, "checkout", "-q", "-b", "sneaky")
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml") + '\n[gate]\nci = ["artifacts"]\n')
+        self.p.write("app/server.py", self.p.read("app/server.py").replace(
+            '("api", "GET", "/api/orders/{id}/returns", get_returns),',
+            '("api", "GET", "/api/orders/{id}/returns", get_returns),\n    ("api", "DELETE", "/api/orders/{id}", get_returns),'))
+        self.p.commit("sneaky")
+
+    def test_ci_is_judged_by_the_base_branch_config(self) -> None:
+        self.sneaky_branch()
+        checks = self.gate("ci", "artifacts", "contracts", ticket=None)  # KeyError if the PR's plan was obeyed
+        self.assertEqual(checks["contracts"]["status"], "fail")
+        self.assertIn("differs from main", self.out)
+        # A base CI cannot resolve (shallow clone) must not fall back to trusting the PR's config.
+        code, out = self.p.sdlc("gate", "ci", "--base", "origin/nowhere", "--only", "artifacts")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("fetch-depth: 0", out)
+
+    def test_pr_that_moves_no_ticket_may_not_change_code(self) -> None:
+        # CI used to gate only tickets whose file the PR touched: this PR had no ticket gate at all.
+        self.sneaky_branch()
+        self.code, self.out = self.p.sdlc("gate", "pr", "--base", "main")
+        self.assertNotEqual(self.code, 0, self.out)
+        self.assertIn("no ticket moves on this branch", self.out)
+        self.assertIn("outside the lead write set: app/server.py", self.out)
+        self.assertNotIn("outside the lead write set: sdlc.toml", self.out)  # config is the lead's
+
+    def test_lead_pr_with_only_lead_artifacts_passes(self) -> None:
+        from helpers import git
+
+        git(self.p.root, "checkout", "-q", "-b", "lead/plan")
+        self.p.write("arch/CONTRACTS.md", self.p.read("arch/CONTRACTS.md") + "\n<!-- clarified -->\n")
+        self.p.write("design/spec-042-return-status.md",
+                     self.p.read("design/spec-042-return-status.md") + "\nA note from the lead.\n")
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace("[app]", "[app]\nready_timeout = 90"))
+        self.p.commit("lead: plan")
+        self.code, self.out = self.p.sdlc("gate", "pr", "--base", "main")
+        self.assertEqual(self.code, 0, self.out)
+        self.assertIn("lead PR: 3 changed file(s), all lead artifacts", self.out)
+
+    def test_pr_finds_the_ticket_it_moves(self) -> None:
+        self.build_and_commit()
+        self.code, self.out = self.p.sdlc("gate", "pr", "--base", "main")
+        self.assertIn("gate pr: ticket T-042-02", self.out)
+        self.assertEqual(self.code, 0, self.out)
+        # A second ticket's file on the same branch: one PR, one ticket.
+        t = self.p.read("tickets/T-042-01-returns-api.md")
+        self.p.write("tickets/T-042-01-returns-api.md", t.replace("status: done", "status: in_review"))
+        self.p.commit("drag another ticket along")
+        self.code, self.out = self.p.sdlc("gate", "pr", "--base", "main")
+        self.assertNotEqual(self.code, 0)
+        self.assertIn("moves 2 tickets (T-042-01, T-042-02)", self.out)
+
     def build_and_commit(self) -> str:
         """The reference build, gated and committed the way the runner does it. Returns the proven commit."""
         from helpers import git
@@ -272,7 +328,7 @@ class GateCatches(unittest.TestCase):
         self.assertIn("outside test write set: evidence/T-042-02.build.json", c["details"])
         self.assertIn("outside test write set: app/returns.py", c["details"])
 
-    def test_and_commit(self) -> str:
+    def run_test_play(self) -> str:
         """The reference test play on top of build_and_commit(). Returns the commit it proved."""
         self.apply_solution("test-T-042-02")
         self.p.commit("test T-042-02")
@@ -304,7 +360,7 @@ class GateCatches(unittest.TestCase):
 
     def test_review_must_name_the_proven_commit_exactly(self) -> None:
         self.build_and_commit()
-        proven = self.test_and_commit()
+        proven = self.run_test_play()
         review = (FIXTURES_DIR / "solutions" / "review-T-042-02" / "reviews" / "T-042-02.md").read_text(encoding="utf-8")
         for commit, want in ((proven[:3], "fail"), ("0000000", "fail"), (proven[:7], "pass"), (proven, "pass")):
             with self.subTest(commit=commit):

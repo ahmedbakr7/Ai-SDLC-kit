@@ -35,21 +35,15 @@ jobs:
       - name: Trace (requirements -> tickets -> proven AC)
         run: .sdlc/bin/sdlc trace
 
-      # A ticket PR carries one ticket from in_progress through build, test, review and
-      # (optionally) done. `gate pr` judges the whole branch: every changed file is in one
-      # of the ticket's write sets, status moved legally, and a done ticket has an approval
-      # that covers what is merged. Lead PRs (draft/ready tickets) are covered by gate ci.
-      - name: Ticket gate for the ticket this PR moves
+      # Every PR is a ticket PR or a lead PR. `gate pr` finds the one ticket the branch moves
+      # (its ticket, evidence or review file changed; status in_progress or later) and judges
+      # the whole branch: every changed file is in one of that ticket's write sets, status
+      # moved legally, and a done ticket has an approval that covers what is merged. A branch
+      # that moves no ticket may change only lead artifacts (specs, plans, CONTRACTS,
+      # tickets, ADRs, sdlc.toml, scope.lead_allowed): code needs a ticket.
+      - name: PR gate (the ticket this PR moves, or lead scope)
         if: github.event_name == 'pull_request'
-        run: |
-          base=origin/${{ github.base_ref }}
-          fail=0
-          for t in $(git diff --name-only "$base"...HEAD | sed -nE 's#^(.*/)?(T-[0-9]+-[0-9]+)[^/]*\.md$#\2#p' | sort -u); do
-            case "$(.sdlc/bin/sdlc status "$t")" in
-              in_progress|in_review|done) .sdlc/bin/sdlc gate pr "$t" --base "$base" || fail=1 ;;
-            esac
-          done
-          exit $fail
+        run: .sdlc/bin/sdlc gate pr --base origin/${{ github.base_ref }}
 
       - uses: actions/upload-artifact@v4
         if: always()

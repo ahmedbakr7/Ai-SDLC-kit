@@ -25,7 +25,8 @@ from .config import Config
 
 TICKET_PLAYS = ("build", "test", "review")
 EVIDENCE_PLAYS = ("build", "test")  # plays whose passing evidence is committed under evidence/
-# `gate pr <id>` judges one ticket's whole branch (build + test + review + the merge's `done`).
+# `gate pr <id>` judges one ticket's whole branch (build + test + review + the merge's `done`);
+# without a ticket, a lead PR (lead_write_set).
 PR_ROLES = ("build", "test", "review", "merge")
 COMMAND_CHECKS = ("lint", "typecheck", "unit", "integration", "e2e", "build", "duplication")
 JUNIT_CHECKS = ("unit", "integration", "e2e")
@@ -66,8 +67,10 @@ class Gate:
                  only: list[str] | None = None, verbose: bool = False, since: str | None = None):
         recover(cfg.root)  # before anything reads the tree
         self.base = base or cfg.section("vcs").get("base", "main")
+        self.base_given = base is not None
+        self.play = play
         self.config_note = ""
-        if ticket_id and play in (*TICKET_PLAYS, "pr"):
+        if play in ("ci", "pr") or (ticket_id and play in TICKET_PLAYS):
             cfg = self._trusted_config(cfg)
         self.cfg = cfg
         self.repo = Repo(cfg)
@@ -91,12 +94,19 @@ class Gate:
 
     # -- plumbing ---------------------------------------------------------
     def _trusted_config(self, cfg: Config) -> Config:
-        """A ticket play is judged by the base branch's sdlc.toml, never by the branch under
-        test: otherwise the agent being gated could drop a check or swap a command."""
+        """Ticket plays and CI are judged by the base branch's sdlc.toml, never by the branch
+        under test: otherwise the change being gated could drop a check or swap a command
+        (a PR adding `[gate] ci = ["artifacts"]` passed its own CI). A config change takes
+        effect once it is on the base branch."""
         try:
             mb = gitutil.merge_base(cfg.root, self.base)
-        except gitutil.GitError:
+        except gitutil.GitError as e:
+            if self.base_given:  # CI names its base: a shallow clone must not mean "trust the PR"
+                raise SystemExit(f"{e}; the gate needs the base branch's history (fetch-depth: 0)") from None
+            self.config_note = f"{e}; judged with this branch's {config.CONFIG_NAME}"
             return cfg
+        if self.play == "ci" and mb == gitutil.head(cfg.root):
+            return cfg  # on the base branch itself (a push, or the lead editing config locally)
         committed = gitutil.show(cfg.root, mb, "./" + config.CONFIG_NAME)
         if committed is None:
             return cfg
@@ -201,6 +211,8 @@ class Gate:
         globs = list(cfg.section("scope").get("always_allowed", []))
         exact: set[str] = set()
         if not t:
+            if self.play == "pr":
+                globs += lead_write_set(cfg)
             return globs, exact
         tests = cfg.section("tests")
         for play in roles or self.roles():
@@ -234,7 +246,10 @@ class Gate:
 
     def check_scope(self, c: Check) -> None:
         if not self.ticket:
-            c.status, c.summary = "skip", "no ticket"
+            if self.play == "pr":
+                self._lead_scope(c)
+            else:
+                c.status, c.summary = "skip", "no ticket"
             return
         t = self.ticket
         globs, exact = self.allowed()
@@ -265,6 +280,21 @@ class Gate:
                          f"ask the lead to add them to files:/shared: on {t.id}")
         else:
             c.summary = f"{len(self.changed())} changed file(s), all in scope"
+
+    def _lead_scope(self, c: Check) -> None:
+        """A PR that moves no ticket is the lead's: specs, plans, contracts, tickets, config.
+        Code without a ticket is exactly what the pipeline exists to prevent."""
+        globs, _ = self.allowed()
+        bad = [f for f in self.changed() if not any(_glob(f, g) for g in globs)]
+        c.details = [f"outside the lead write set: {f}" for f in bad]
+        if self.config_note:
+            c.details.append(self.config_note)
+        if bad:
+            c.status = "fail"
+            c.summary = (f"{len(bad)} file(s) changed by a PR that moves no ticket. Build them through a "
+                         "ticket, or list files the lead owns in scope.lead_allowed")
+        else:
+            c.summary = f"lead PR: {len(self.changed())} changed file(s), all lead artifacts"
 
     def check_contracts(self, c: Check) -> None:
         contracts = self.repo.contracts
@@ -623,7 +653,10 @@ class Gate:
 
     def check_review_file(self, c: Check) -> None:
         if not self.ticket:
-            c.status, c.summary = "fail", "review needs a ticket"
+            if self.play == "pr":
+                c.status, c.summary = "skip", "lead PR: no ticket to review"
+            else:
+                c.status, c.summary = "fail", "review needs a ticket"
             return
         p = self.cfg.path("reviews") / f"{self.ticket.id}.md"
         if not p.is_file():
@@ -695,6 +728,32 @@ def _acs(data: dict) -> list[tuple[str, str]]:
         if m:
             out.append((m.group(1), m.group(2)))
     return out
+
+
+def lead_write_set(cfg: Config) -> list[str]:
+    """Globs a PR that moves no ticket may change: the lead plays' artifacts, the kit's
+    config and generated entry files, and whatever scope.lead_allowed adds."""
+    from . import adapters
+
+    p = cfg.data["paths"]
+    out = [f"{p[k]}/**" for k in ("intent", "design", "arch", "decisions", "tickets", "ops", "skills")]
+    out += [p["contracts"], p["skills_lock"], config.CONFIG_NAME, "AGENTS.md", *adapters.files(cfg)]
+    return out + list(cfg.section("scope").get("lead_allowed", []))
+
+
+def pr_tickets(cfg: Config, base: str) -> list[str]:
+    """Tickets a branch moves: in progress or later, with their ticket, evidence or review
+    file changed against the base. `gate pr` without an id judges the one it finds."""
+    repo = Repo(cfg)
+    p = cfg.data["paths"]
+    dirs = (p["tickets"], p["evidence"], p["reviews"])
+    ids = set()
+    for f in gitutil.changed_files(cfg.root, base):
+        m = re.search(r"(?:^|/)(T-\d+-\d+)[^/]*$", f)
+        if m and any(f.startswith(d.rstrip("/") + "/") for d in dirs):
+            ids.add(m.group(1))
+    live = ("in_progress", "in_review", "done")
+    return sorted(i for i in ids if i in repo.tickets and repo.tickets[i].status in live)
 
 
 def proven_commit(cfg: Config, tid: str, plays: tuple[str, ...]) -> str | None:

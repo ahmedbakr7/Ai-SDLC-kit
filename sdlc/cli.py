@@ -83,9 +83,20 @@ def cmd_prompt(args) -> int:
 
 
 def cmd_gate(args) -> int:
-    from .gate import Gate
+    from .gate import Gate, pr_tickets, recover
 
     cfg = _cfg(args)
+    if args.play == "pr" and not args.ticket:
+        # CI does not know which ticket a PR carries; the branch's changes say so.
+        recover(cfg.root)
+        found = pr_tickets(cfg, args.base or cfg.section("vcs").get("base", "main"))
+        if len(found) > 1:
+            print(f"gate pr: this branch moves {len(found)} tickets ({', '.join(found)}); "
+                  "a ticket PR carries exactly one", file=sys.stderr)
+            return EXIT_FAIL
+        args.ticket = found[0] if found else None
+        print(f"gate pr: ticket {args.ticket}" if args.ticket else
+              "gate pr: no ticket moves on this branch; judging it as a lead PR", flush=True)
     g = Gate(cfg, args.play, args.ticket, args.base, only=args.only.split(",") if args.only else None,
              since=args.since)
 
@@ -97,6 +108,8 @@ def cmd_gate(args) -> int:
                 print(f"        {d}")
 
     ev = g.run(on_check=show)
+    if ev.get("config_note"):
+        print(f"note: {ev['config_note']}")
     print(f"\ngate {args.play} {args.ticket or ''}: {ev['result'].upper()}  evidence: {ev['path']}")
     return 0 if ev["result"] == "pass" else EXIT_FAIL
 

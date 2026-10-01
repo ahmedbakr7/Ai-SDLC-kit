@@ -92,6 +92,9 @@ DEFAULTS: dict[str, Any] = {
     },
     "scope": {
         "always_allowed": [],              # globs any play may touch (lockfiles, snapshots)
+        # Globs a PR that moves no ticket may change, besides the lead artifacts, sdlc.toml,
+        # AGENTS.md and generated adapter files (`gate pr` without a ticket).
+        "lead_allowed": [],
     },
     "vcs": {
         "base": "main",

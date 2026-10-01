@@ -54,8 +54,9 @@ class Conveyor(unittest.TestCase):
         self.assertIn("Sdlc-Agent: fake\nSdlc-Play: build", log)
         self.assertIn("Sdlc-Agent: fake-reviewer\nSdlc-Play: review", log)
         # What product CI runs on this PR: the whole branch is in the ticket's write sets.
-        code, out = p.sdlc("gate", "pr", "T-042-02", "--base", "main")
+        code, out = p.sdlc("gate", "pr", "--base", "main")
         self.assertEqual(code, 0, out)
+        self.assertIn("gate pr: ticket T-042-02", out)
 
     def test_approval_does_not_cover_code_changed_after_review(self) -> None:
         p = self.p
