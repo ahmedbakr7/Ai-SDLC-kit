@@ -227,6 +227,17 @@ class GateCatches(unittest.TestCase):
         self.assertEqual(a["status"], "fail")
         self.assertIn("status done needs reviews/T-042-02.md with verdict: approve", "\n".join(a["details"]))
 
+    def test_ci_reproves_every_shipped_ticket(self) -> None:
+        # T-042-01 is done. A later change (e.g. another ticket's build editing a shared test
+        # file) drops the tag from one of its AC tests. Before: gate ci stayed green.
+        c = self.gate("ci", "unit", "ac-coverage", ticket=None)["ac-coverage"]
+        self.assertEqual(c["status"], "pass", c)
+        self.assertIn("all 4 AC of 1 ticket(s)", c["summary"])
+        self.p.write("app/test_returns.py", self.p.read("app/test_returns.py").replace('"""T-042-01/AC-4"""', '"""404"""'))
+        c = self.gate("ci", "unit", "ac-coverage", ticket=None)["ac-coverage"]
+        self.assertEqual(c["status"], "fail")
+        self.assertEqual(c["details"], ["T-042-01/AC-4: missing"])
+
     def test_build_may_move_its_ticket_to_in_review(self) -> None:
         self.build_and_commit()  # ready -> in_progress -> in_review, both build moves
         c = self.gate("build", "scope")["scope"]

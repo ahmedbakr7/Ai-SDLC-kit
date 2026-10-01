@@ -32,9 +32,11 @@ class Conveyor(unittest.TestCase):
         smoke = next(c for c in ev["checks"] if c["name"] == "smoke")
         self.assertIn("2 route/page probe(s)", smoke["summary"])
 
+        # Reviews start from wherever the operator is; the runner reads the ticket's branch.
+        git(p.root, "checkout", "-q", "main")
         code, out = p.sdlc("run", "review", "T-042-02", "--agent", "fake")
         self.assertNotEqual(code, 0)
-        self.assertIn("different agent", out)
+        self.assertIn("review it with a different agent", out)
 
         code, out = p.sdlc("run", "review", "T-042-02", "--agent", "fake-reviewer")
         self.assertEqual(code, 0, out)
@@ -43,9 +45,52 @@ class Conveyor(unittest.TestCase):
 
         code, out = p.sdlc("status", "T-042-02", "done", "--as", "merge")
         self.assertEqual(code, 0, out)
+        p.commit("merge: T-042-02 done")
         log = git(p.root, "log", "--format=%s%n%b")
-        self.assertIn("Sdlc-Agent: fake", log)
-        self.assertIn("Sdlc-Agent: fake-reviewer", log)
+        self.assertIn("Sdlc-Agent: fake\nSdlc-Play: build", log)
+        self.assertIn("Sdlc-Agent: fake-reviewer\nSdlc-Play: review", log)
+        # What product CI runs on this PR: the whole branch is in the ticket's write sets.
+        code, out = p.sdlc("gate", "pr", "T-042-02", "--base", "main")
+        self.assertEqual(code, 0, out)
+
+    def test_approval_does_not_cover_code_changed_after_review(self) -> None:
+        p = self.p
+        self.assertEqual(p.sdlc("run", "build", "T-042-02", "--agent", "fake")[0], 0)
+        self.assertEqual(p.sdlc("run", "review", "T-042-02", "--agent", "fake-reviewer")[0], 0)
+        p.write("app/pages.py", p.read("app/pages.py") + "\n# after the review\n")
+        p.commit("late change")
+        code, out = p.sdlc("status", "T-042-02", "done", "--as", "merge")
+        self.assertNotEqual(code, 0)
+        self.assertIn("changed after the reviewed commit", out)
+        p.write("tickets/T-042-02-order-page.md",
+                p.read("tickets/T-042-02-order-page.md").replace("status: in_review", "status: done"))
+        p.commit("hand-set done")
+        code, out = p.sdlc("gate", "pr", "T-042-02", "--base", "main")
+        self.assertNotEqual(code, 0)
+        self.assertIn("changed after the reviewed commit", out)
+        self.assertIn("app/pages.py", out)
+
+    def test_an_agent_with_build_or_test_commits_cannot_review(self) -> None:
+        p = self.p
+        self.assertEqual(p.sdlc("run", "build", "T-042-02", "--agent", "fake")[0], 0)
+        # Another agent adds a commit in a later play: the builder is still an author.
+        p.write("tests/test_extra.py", '"""integration tests"""\n')
+        git(p.root, "add", "-A")
+        git(p.root, "commit", "-q", "-m", "test T-042-02", "-m", "Sdlc-Agent: fake-reviewer\nSdlc-Play: test")
+        for agent in ("fake", "fake-reviewer"):
+            with self.subTest(agent=agent):
+                code, out = p.sdlc("run", "review", "T-042-02", "--agent", agent)
+                self.assertNotEqual(code, 0)
+                self.assertIn(f"has build/test commits by {agent}", out)
+
+    def test_test_play_must_add_real_stack_proof(self) -> None:
+        # Unit tests from the build already carry every tag; a test play that adds nothing
+        # must not pass.
+        p = self.p
+        self.assertEqual(p.sdlc("run", "build", "T-042-02", "--agent", "fake")[0], 0)
+        code, out = p.sdlc("gate", "test", "T-042-02")
+        self.assertNotEqual(code, 0)
+        self.assertIn("no passing integration/e2e test carries a T-042-02/AC-n tag", out)
 
     def test_build_refuses_a_dirty_tree(self) -> None:
         self.p.write("notes.txt", "uncommitted")

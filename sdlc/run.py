@@ -56,15 +56,20 @@ def run(cfg: Config, play: str, tid: str, agent: str, attempts: int | None, base
         extra: str = "", dry_run: bool = False) -> int:
     if play not in ("build", "test", "review"):
         raise SystemExit("sdlc run drives build, test and review; lead plays are interactive (use sdlc prompt)")
-    repo = Repo(cfg)
-    t = repo.ticket(tid)
     root = cfg.root
     vcs = cfg.section("vcs")
     base = base or vcs.get("base", "main")
     attempts = attempts or int(cfg.section("gate").get("max_attempts", 3))
+    branch = vcs.get("branch", "{play}/{id}").format(play="build", id=tid)
 
     if gitutil.is_dirty(root):
         raise SystemExit("working tree is dirty; commit or stash first so every change is attributable")
+    if play != "build" and not dry_run:
+        # test and review continue the ticket's branch: read its status and history there,
+        # not on whatever branch happens to be checked out.
+        _checkout(root, branch, base, create=False)
+    repo = Repo(cfg)
+    t = repo.ticket(tid)
 
     if play == "build":
         if t.status == "ready":
@@ -78,24 +83,25 @@ def run(cfg: Config, play: str, tid: str, agent: str, attempts: int | None, base
         raise SystemExit(f"{play} runs on tickets in_review; {tid} is {t.status}")
 
     if play == "review" and cfg.section("review").get("require_distinct_agent", True):
-        built_by = _built_by(root, base)
-        if built_by == agent:
-            raise SystemExit(f"{tid} was built by {agent}; review it with a different agent")
+        authors = _authors(root, base)
+        if agent in authors:
+            raise SystemExit(f"{tid} has build/test commits by {agent}; review it with a different agent "
+                             f"(authors: {', '.join(sorted(authors))})")
 
-    branch = vcs.get("branch", "{play}/{id}").format(play="build", id=tid)
     if dry_run:
         p = prompt.write(cfg, play, tid, prompt.render(cfg, play, tid, extra=extra))
         cmd, _ = agent_command(cfg, agent, p)
         _say(f"would checkout {branch}, run: {cmd}")
         return 0
 
-    _checkout(root, branch, base, create=(play == "build"))
+    if play == "build":
+        _checkout(root, branch, base, create=True)
     # test and review are judged on what changed after this point. Taken before any agent
     # runs, so no file the agent can write (e.g. evidence) can move it.
     since = gitutil.head(root) if play != "build" else None
     if play == "build" and t.status == "ready":
         tickets.set_status(repo, t, "in_progress", "build")
-        _commit(root, f"start {tid}: {t.data.get('title')}", agent)
+        _commit(root, f"start {tid}: {t.data.get('title')}", agent, play)
 
     feedback = ""
     for n in range(1, attempts + 1):
@@ -103,32 +109,68 @@ def run(cfg: Config, play: str, tid: str, agent: str, attempts: int | None, base
         text = prompt.render(cfg, play, tid, feedback=feedback, extra=extra)
         pf = prompt.write(cfg, play, tid, text)
         cmd, stdin = agent_command(cfg, agent, pf)
-        t0 = time.monotonic()
-        r = subprocess.run(cmd, shell=True, cwd=root, input=stdin, text=True if stdin else None,
-                           timeout=int(agents(cfg)[agent].get("timeout", 3600)))
-        _say(f"agent exited {r.returncode} after {int(time.monotonic() - t0)}s")
-        _commit(root, f"{play} {tid}: {t.data.get('title')} (attempt {n})", agent)
+        before = gitutil.head(root)
+        log = cfg.root / ".sdlc-run" / "logs" / f"agent-{play}-{tid}-{n}.log"
+        code, secs = _run_agent(cmd, stdin, root, int(agents(cfg)[agent].get("timeout", 3600)), log)
+        _say(f"agent exited {code} after {secs}s; output: {cfg.rel(log)}")
+        problem = _history_problem(root, branch, before)
+        if problem:
+            # Never commit onto a branch the agent switched to, or over history it rewrote.
+            _say(f"stopped: {problem}")
+            return 1
+        _commit(root, f"{play} {tid}: {t.data.get('title')} (attempt {n})", agent, play)
         g = Gate(cfg, play, tid, base, since=since)
         ev = g.run(on_check=_report)
         if ev["result"] == "pass":
             repo = Repo(cfg)
             if play == "build":
                 tickets.set_status(repo, repo.ticket(tid), "in_review", "build")
-            _commit(root, f"evidence {tid}: {play} gate pass", agent)
+            _commit(root, f"evidence {tid}: {play} gate pass", agent, play)
             _say(f"gate passed; evidence at {ev['path']}")
             _open_pr(cfg, branch, base, tid, play)
             return 0
         feedback = _feedback(ev)
-        _commit(root, f"evidence {tid}: {play} gate fail (attempt {n})", agent)
+        _commit(root, f"evidence {tid}: {play} gate fail (attempt {n})", agent, play)
 
     repo = Repo(cfg)
     failed = [c["name"] for c in ev["checks"] if c["status"] == "fail"]
     if play == "build":
         tickets.set_status(repo, repo.ticket(tid), "blocked", "build",
                            reason=f"gate failed after {attempts} attempts: {', '.join(failed)}")
-        _commit(root, f"block {tid}: gate failed", agent)
+        _commit(root, f"block {tid}: gate failed", agent, play)
     _say(f"gate still failing after {attempts} attempts: {', '.join(failed)}")
     return 1
+
+
+def _run_agent(cmd: str, stdin: str | None, root: Path, timeout: int, log: Path) -> tuple[int, int]:
+    """Run the agent with its output in a log; on timeout kill its whole process tree."""
+    from .gate import _kill, _new_group
+
+    log.parent.mkdir(parents=True, exist_ok=True)
+    t0 = time.monotonic()
+    with open(log, "w", encoding="utf-8") as lf:
+        lf.write(f"$ {cmd}\n")
+        lf.flush()
+        proc = subprocess.Popen(cmd, shell=True, cwd=root, stdout=lf, stderr=subprocess.STDOUT,
+                                stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL,
+                                text=True, encoding="utf-8", **_new_group())
+        try:
+            proc.communicate(stdin, timeout=timeout)
+            code = proc.returncode
+        except subprocess.TimeoutExpired:
+            _kill(proc)
+            lf.write(f"\n[sdlc run] agent killed after {timeout}s\n")
+            code = 124
+    return code, int(time.monotonic() - t0)
+
+
+def _history_problem(root: Path, branch: str, before: str) -> str:
+    cur = gitutil.git(root, "rev-parse", "--abbrev-ref", "HEAD", check=False).strip()
+    if cur != branch:
+        return f"the agent left {branch} (now on {cur}); nothing was committed"
+    if not gitutil.is_ancestor(root, before, "HEAD"):
+        return f"the agent rewrote history on {branch} ({before[:10]} is no longer an ancestor of HEAD)"
+    return ""
 
 
 def _report(c) -> None:
@@ -161,19 +203,24 @@ def _checkout(root: Path, branch: str, base: str, create: bool) -> None:
         raise SystemExit(f"branch {branch} does not exist; run build first")
 
 
-def _commit(root: Path, msg: str, agent: str) -> None:
+def _commit(root: Path, msg: str, agent: str, play: str) -> None:
     gitutil.git(root, "add", "-A")
     if not gitutil.git(root, "diff", "--cached", "--name-only").strip():
         return
-    gitutil.git(root, "commit", "-q", "-m", msg, "-m", f"Sdlc-Agent: {agent}")
+    gitutil.git(root, "commit", "-q", "-m", msg, "-m", f"Sdlc-Agent: {agent}\nSdlc-Play: {play}")
 
 
-def _built_by(root: Path, base: str) -> str:
-    log = gitutil.git(root, "log", f"{gitutil.merge_base(root, base)}..HEAD", "--format=%B", check=False)
+def _authors(root: Path, base: str) -> set[str]:
+    """Agents with a non-review commit on this branch (a commit with no Sdlc-Play counts)."""
+    log = gitutil.git(root, "log", f"{gitutil.merge_base(root, base)}..HEAD",
+                      "--format=%(trailers:key=Sdlc-Agent,valueonly,separator=%x2C)|"
+                      "%(trailers:key=Sdlc-Play,valueonly,separator=%x2C)", check=False)
+    out = set()
     for line in log.splitlines():
-        if line.startswith("Sdlc-Agent:"):
-            return line.split(":", 1)[1].strip()
-    return ""
+        agent, _, play = line.partition("|")
+        if agent.strip() and play.strip() != "review":
+            out.add(agent.strip())
+    return out
 
 
 def _open_pr(cfg: Config, branch: str, base: str, tid: str, play: str) -> None:

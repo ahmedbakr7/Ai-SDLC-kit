@@ -20,15 +20,15 @@ class TransitionError(RuntimeError):
     pass
 
 
-def reachable(frm: str, to: str, role: str) -> bool:
-    """Can `role` alone move a ticket from `frm` to `to` (in any number of legal steps)?"""
-    if frm == to or (to == "blocked" and role in ANY_TO_BLOCKED):
+def reachable(frm: str, to: str, roles: tuple[str, ...]) -> bool:
+    """Can these roles alone move a ticket from `frm` to `to` (in any number of legal steps)?"""
+    if frm == to or (to == "blocked" and set(roles) & set(ANY_TO_BLOCKED)):
         return True
     seen, todo = {frm}, [frm]
     while todo:
         cur = todo.pop()
-        for (a, b), roles in TRANSITIONS.items():
-            if a == cur and role in roles and b not in seen:
+        for (a, b), allowed in TRANSITIONS.items():
+            if a == cur and set(roles) & set(allowed) and b not in seen:
                 if b == to:
                     return True
                 seen.add(b)
@@ -58,6 +58,12 @@ def check_transition(repo: Repo, t: Ticket, to: str, role: str, reason: str = ""
         rv = repo.review_for(t.id)
         if rv is None or rv.verdict != "approve":
             raise TransitionError(f"{t.id}: needs {repo.cfg.data['paths']['reviews']}/{t.id}.md with verdict: approve")
+        from .gate import _changed_after_review, _evidence_problems
+
+        commit = str(rv.data.get("commit", ""))
+        problems = _evidence_problems(repo.cfg, t, commit) or _changed_after_review(repo.cfg, t, commit)
+        if problems:
+            raise TransitionError(f"{t.id}: the approval does not cover this branch: " + "; ".join(problems))
 
 
 def set_status(repo: Repo, t: Ticket, to: str, role: str, reason: str = "") -> str:

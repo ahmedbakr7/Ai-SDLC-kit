@@ -294,7 +294,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(fn=cmd_prompt)
 
     p = sp.add_parser("gate", help="run every check for a play; writes evidence")
-    p.add_argument("play", choices=["build", "test", "review", "ci"])
+    p.add_argument("play", choices=["build", "test", "review", "pr", "ci"])
     p.add_argument("ticket", nargs="?")
     p.add_argument("--base", help="base branch (default vcs.base)")
     p.add_argument("--since", help="judge scope on changes after this commit (default: base branch "

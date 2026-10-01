@@ -41,7 +41,10 @@ DEFAULTS: dict[str, Any] = {
                  "e2e", "ac-coverage", "test-quality", "build", "smoke", "skills"],
         "review": ["artifacts", "scope", "immutable", "review-file"],
         "ci": ["artifacts", "immutable", "contracts", "lint", "typecheck", "unit", "integration", "e2e",
-               "test-quality", "duplication", "build", "smoke", "skills"],
+               "ac-coverage", "test-quality", "duplication", "build", "smoke", "skills"],
+        # One ticket's whole branch, as CI sees it: every file is in some play's write set,
+        # status moved only legally, and a `done` ticket carries an approval of what ships.
+        "pr": ["artifacts", "scope", "immutable", "review-file"],
         # Checks that may be skipped when their command is not configured.
         "optional": ["integration", "e2e", "duplication"],
         "max_attempts": 3,

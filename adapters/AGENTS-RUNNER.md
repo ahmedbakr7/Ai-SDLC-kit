@@ -22,7 +22,10 @@ timeout = 3600    # seconds per attempt
 - Run `.sdlc/bin/sdlc gate <play> <id>` and the product's test commands, so it can
   iterate before the runner's own gate run. (It still works without this; the runner
   gates every attempt and feeds failures back, but each round trip costs an attempt.)
-- Exit when finished. Interactive prompts will hang until `timeout`.
+- Exit when finished. Its stdin is closed (or carries the prompt with `stdin = "prompt"`),
+  so an agent waiting for interactive input exits or hangs until `timeout`, after which
+  the runner kills its whole process tree and gates whatever it left.
+- Stay on the branch and do not rewrite history; the runner refuses to commit otherwise.
 
 Consult your agent CLI's documentation for its non-interactive mode and permission
 flags, and grant the narrowest set that allows the above.

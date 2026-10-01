@@ -21,17 +21,20 @@ the model and into one command:
 | `sdlc gate` check | Fails when |
 |---|---|
 | `artifacts` | a spec/plan/ticket/review is malformed, a reference does not resolve, deps form a cycle |
-| `scope` | a file outside the ticket's write set changed |
+| `scope` | a file outside the play's write set changed, or the ticket's status moved in a way the play's role may not (a test agent cannot mark its ticket done) |
 | `immutable` | an accepted ADR was edited, or an acceptance criterion was weakened without its spec |
 | `contracts` | the code exposes a route CONTRACTS does not declare, or UI code calls a path no route serves |
 | `lint` `typecheck` `unit` `integration` `e2e` `build` | the product's real command exits non-zero, **is not configured**, or **ran zero tests** |
-| `ac-coverage` | an acceptance criterion has no passing test tagged `T-001-03/AC-2` in the JUnit output |
+| `ac-coverage` | an acceptance criterion has no passing test tagged `T-001-03/AC-2` in the JUnit output; in `gate ci`, for every ticket in review or done; in `gate test`, no integration/e2e test proves any of the ticket's AC |
 | `test-quality` | tests are skipped/focused or assert on source text instead of behaviour |
 | `smoke` | the started app does not serve every contract route and page |
 | `skills` | a vendored third-party skill drifted from its pinned commit and hash |
-| `review-file` | a review misses an AC row, or approves without passing evidence for the reviewed commit |
+| `review-file` | a review misses an AC row, approves a commit other than the latest proven one, or code changed after the reviewed commit |
 
-Every gate run writes JSON evidence. Review, CI and merge read evidence, not claims.
+Every full gate run writes JSON evidence (`--only` runs are partial and never count).
+Ticket plays are judged by the base branch's `sdlc.toml`, so an agent cannot reconfigure
+its own gate. CI re-runs the gate and judges the whole ticket branch (`sdlc gate pr`);
+it never trusts committed evidence on its own.
 
 ## How it runs
 
@@ -43,8 +46,9 @@ Every gate run writes JSON evidence. Review, CI and merge read evidence, not cla
 | `sdlc next` | the next ticket whose dependencies are done |
 | `sdlc prompt build T-001-03` | the exact, complete prompt for a play: rules, skill, ticket, cited requirements and contracts, write set, definition of done |
 | `sdlc gate build T-001-03` | run every check for the play; write evidence |
+| `sdlc gate pr T-001-03` | CI: judge a ticket's whole branch (write sets, status moves, the approval covers what merges) |
 | `sdlc run build T-001-03 --agent X` | branch → status → prompt → agent → commit → gate → retry with the failures → evidence → `in_review` |
-| `sdlc status T-001-03 done --as merge` | move through the state machine; `done` requires an approving review |
+| `sdlc status T-001-03 done --as merge` | move through the state machine; `done` requires an approval of the latest proven commit with nothing changed since |
 | `sdlc skills add superpowers/test-driven-development` | vendor a proven skill, pinned by commit + content hash |
 | `sdlc adapters sync` | regenerate CLAUDE.md, GEMINI.md, Cursor rules, Copilot instructions, slash commands |
 | `sdlc routes` | list routes: declared and built, built but undeclared, declared but not built |

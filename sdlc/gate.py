@@ -20,11 +20,13 @@ from pathlib import Path, PurePosixPath
 from typing import Callable
 
 from . import config, extract, fm, gitutil, lint, paths, tickets
-from .artifacts import Repo, Ticket
+from .artifacts import AC_TAG_RE, Repo, Ticket
 from .config import Config
 
 TICKET_PLAYS = ("build", "test", "review")
 EVIDENCE_PLAYS = ("build", "test")  # plays whose passing evidence is committed under evidence/
+# `gate pr <id>` judges one ticket's whole branch (build + test + review + the merge's `done`).
+PR_ROLES = ("build", "test", "review", "merge")
 COMMAND_CHECKS = ("lint", "typecheck", "unit", "integration", "e2e", "build", "duplication")
 JUNIT_CHECKS = ("unit", "integration", "e2e")
 RUN_DIR = ".sdlc-run"
@@ -57,7 +59,7 @@ class Gate:
                  only: list[str] | None = None, verbose: bool = False, since: str | None = None):
         self.base = base or cfg.section("vcs").get("base", "main")
         self.config_note = ""
-        if ticket_id and play in TICKET_PLAYS:
+        if ticket_id and play in (*TICKET_PLAYS, "pr"):
             cfg = self._trusted_config(cfg)
         self.cfg = cfg
         self.repo = Repo(cfg)
@@ -180,21 +182,30 @@ class Gate:
                 c.status = "fail"
                 c.details.append(f"depends_on not done: {', '.join(pending)}")
 
+    def roles(self) -> tuple[str, ...]:
+        """Ticket plays whose write sets apply: one, or all of them for a whole ticket PR."""
+        return PR_ROLES if self.play == "pr" else (self.play,)
+
     def allowed(self) -> tuple[list[str], set[str]]:
         """(glob patterns, exact paths) the current play may change."""
         cfg, t = self.cfg, self.ticket
         paths = cfg.section("paths")
         globs = list(cfg.section("scope").get("always_allowed", []))
-        # A play may write only its own evidence: test/review must not rewrite the build's proof.
-        exact: set[str] = {f"{paths['evidence']}/{t.id}.{self.play}.json"} if t and self.play in EVIDENCE_PLAYS else set()
+        exact: set[str] = set()
+        if not t:
+            return globs, exact
         tests = cfg.section("tests")
-        if self.play == "build" and t:
-            exact |= set(t.files)
-            globs += t.shared
-        elif self.play == "test" and t:
-            globs += tests.get("integration_globs", [])
-        elif self.play == "review" and t:
-            exact.add(f"{paths['reviews']}/{t.id}.md")
+        for play in self.roles():
+            # A play may write only its own evidence: test/review must not rewrite the build's proof.
+            if play in EVIDENCE_PLAYS:
+                exact.add(f"{paths['evidence']}/{t.id}.{play}.json")
+            if play == "build":
+                exact |= set(t.files)
+                globs += t.shared
+            elif play == "test":
+                globs += tests.get("integration_globs", [])
+            elif play == "review":
+                exact.add(f"{paths['reviews']}/{t.id}.md")
         return globs, exact
 
     def check_scope(self, c: Check) -> None:
@@ -208,12 +219,13 @@ class Gate:
         for f in self.changed():
             if f in exact or any(_glob(f, g) for g in globs):
                 continue
-            if self.play == "build" and tests.get("unit_beside", True) and _is_test_beside(f, t.files, tests.get("globs", [])):
+            if ("build" in self.roles() and tests.get("unit_beside", True)
+                    and _is_test_beside(f, t.files, tests.get("globs", []))):
                 continue
             if f == self.cfg.rel(t.path) and (move := _status_change(self.cfg, self.since or self.base, f)):
                 # Only the status may change, and only along moves this play's role may make
                 # (a test agent cannot mark its own ticket done).
-                if tickets.reachable(*move, self.play):
+                if tickets.reachable(*move, self.roles()):
                     continue
                 moves.append(f"{f}: status {move[0]} -> {move[1]} is not a move the {self.play} play may make")
             bad.append(f)
@@ -312,11 +324,12 @@ class Gate:
             self.testcases.append(TestCase(name, st, source))
         return n
 
-    def ac_matrix(self) -> dict:
-        if not self.ticket:
+    def ac_matrix(self, ticket: Ticket | None = None) -> dict:
+        ticket = ticket or self.ticket
+        if not ticket:
             return {}
         out = {}
-        for tag in self.ticket.ac_tags():
+        for tag in ticket.ac_tags():
             pat = re.compile(re.escape(tag) + r"(?!\d)")
             hits = [tc for tc in self.testcases if pat.search(tc.name)]
             st = ("missing" if not hits else "failed" if any(h.status == "failed" for h in hits)
@@ -325,22 +338,36 @@ class Gate:
         return out
 
     def check_ac_coverage(self, c: Check) -> None:
-        if not self.ticket:
-            c.status, c.summary = "skip", "no ticket"
+        # A ticket play proves its own AC. Without a ticket (gate ci) every shipped ticket's
+        # AC must still be proven, so a later change that deletes or breaks those tests fails.
+        shipped = [t for _, t in sorted(self.repo.tickets.items()) if t.status in ("in_review", "done")]
+        targets = [self.ticket] if self.ticket else shipped
+        if not targets:
+            c.status, c.summary = "skip", "no ticket in review or done"
             return
         if not any(self.junit_used.values()):
             c.status = "fail"
             c.summary = "no test command wrote JUnit ({junit}); AC coverage cannot be proven"
             return
-        matrix = self.ac_matrix()
+        matrix: dict = {}
+        for t in targets:
+            matrix.update(self.ac_matrix(t))
         bad = {k: v for k, v in matrix.items() if v["status"] != "passed"}
-        c.details = [f"{k}: {v['status']}" for k, v in matrix.items()]
+        c.details = [f"{k}: {v['status']}" for k, v in matrix.items() if self.ticket or v["status"] != "passed"]
         if bad:
             c.status = "fail"
             c.summary = (f"{len(bad)}/{len(matrix)} AC without a passing test. Name tests with the tag, e.g. "
                          f"it('{next(iter(bad))} ...')")
         else:
-            c.summary = f"all {len(matrix)} AC proven by passing tests"
+            c.summary = f"all {len(matrix)} AC of {len(targets)} ticket(s) proven by passing tests"
+        if self.play == "test" and self.ticket:
+            # The test play exists to prove AC through the real stack; unit proof alone is the build's.
+            real = [tc for tc in self.testcases if tc.source != "unit" and tc.status == "passed"
+                    and AC_TAG_RE.search(tc.name) and self.ticket.id in tc.name]
+            if not real:
+                c.status = "fail"
+                c.summary = (f"no passing integration/e2e test carries a {self.ticket.id}/AC-n tag; "
+                             "the test play must prove AC through the real stack")
 
     def check_test_quality(self, c: Check) -> None:
         tests = self.cfg.section("tests")
@@ -492,12 +519,17 @@ class Gate:
             return
         p = self.cfg.path("reviews") / f"{self.ticket.id}.md"
         if not p.is_file():
+            if self.play == "pr" and self.ticket.status != "done":
+                c.status, c.summary = "skip", "not reviewed yet (ticket is not done)"
+                return
             c.status, c.summary = "fail", f"missing {self.cfg.rel(p)}"
             return
         issues = lint.lint_review_file(self.repo, p)
         c.details = [str(i) for i in issues]
         data, _ = fm.load(p)
         ev_problems = _evidence_problems(self.cfg, self.ticket, str(data.get("commit", "")))
+        if data.get("verdict") == "approve" and not ev_problems:
+            ev_problems = _changed_after_review(self.cfg, self.ticket, str(data.get("commit", "")))
         c.details += ev_problems
         if data.get("verdict") == "approve" and ev_problems:
             c.status, c.summary = "fail", "approve without passing evidence for the reviewed commit"
@@ -586,6 +618,20 @@ def _evidence_problems(cfg: Config, t: Ticket, commit: str) -> list[str]:
         out.append(f"review is for {commit[:12] or '(none)'}, but the latest evidence is for {latest[:12]}; "
                    "review the commit that was proven last")
     return out
+
+
+def _changed_after_review(cfg: Config, t: Ticket, commit: str) -> list[str]:
+    """An approval covers the reviewed commit. Afterwards only the review itself, the
+    ticket's evidence and its status may change; anything else was never reviewed."""
+    try:
+        changed = gitutil.changed_since(cfg.root, commit)
+    except gitutil.GitError:
+        return [f"reviewed commit {commit[:12]} is not in this repository's history"]
+    ev = cfg.data["paths"]["evidence"]
+    ok = {f"{cfg.data['paths']['reviews']}/{t.id}.md", *(f"{ev}/{t.id}.{p}.json" for p in EVIDENCE_PLAYS)}
+    rel = cfg.rel(t.path)
+    late = [f for f in changed if f not in ok and not (f == rel and _status_change(cfg, commit, f))]
+    return [f"changed after the reviewed commit {commit[:12]}: {f}" for f in late]
 
 
 def _same_commit(ref: str, full: str) -> bool:
