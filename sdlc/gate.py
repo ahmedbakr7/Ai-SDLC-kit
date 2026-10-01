@@ -527,6 +527,15 @@ class Gate:
             json_ct = app.get("app_404_content_type", "application/json")
             for r in routes:
                 url = base_url + _sample_path(r.attrs.get("sample") or r.attrs.get("raw_path", r.path))
+                if r.method not in ("GET", "HEAD") and app.get("mutating_probe", "request") == "options":
+                    # Ask the router which methods it serves instead of sending a write.
+                    st, allow = _options(url)
+                    if st is not None and 200 <= st < 300 and r.method in allow:
+                        ok += 1
+                    else:
+                        problems.append(f"{r.key}: OPTIONS answered {st} with Allow: {', '.join(sorted(allow)) or '-'} "
+                                        f"-> the router does not serve {r.method} here")
+                    continue
                 st, ctype, body = _http(url, r.method)
                 if st is None:
                     problems.append(f"{r.key}: no response ({body})")
@@ -829,6 +838,18 @@ def _tail(p: Path, n: int) -> list[str]:
 
 def _sample_path(p: str) -> str:
     return re.sub(r"\{[^}]*\}", "sdlc-smoke-0", p)
+
+
+def _options(url: str) -> tuple[int | None, set[str]]:
+    req = urllib.request.Request(url, method="OPTIONS")
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            st, allow = r.status, r.headers.get("Allow", "")
+    except urllib.error.HTTPError as e:
+        st, allow = e.code, e.headers.get("Allow", "")
+    except Exception:
+        return None, set()
+    return st, {m.strip().upper() for m in allow.split(",") if m.strip()}
 
 
 def _http(url: str, method: str) -> tuple[int | None, str, str]:

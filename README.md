@@ -28,7 +28,7 @@ the model and into one command:
 | `ac-coverage` | an acceptance criterion has no passing test tagged `T-001-03/AC-2` in the JUnit output; in `gate ci`, for every ticket in review or done; in `gate test`, no integration/e2e test proves any of the ticket's AC |
 | `ac-red` | with the ticket's production files reverted to the base branch, every tagged test of some AC still passes: the test does not depend on the work (`expect(true)`, re-testing old behaviour) |
 | `test-quality` | tests are skipped/focused or assert on source text instead of behaviour |
-| `smoke` | the started app does not serve every contract route and page |
+| `smoke` | the started app does not serve every contract route and page (`app.mutating_probe = "options"` checks writes via the `Allow` header instead of sending them; the `nextjs` profile sets it) |
 | `skills` | a vendored third-party skill drifted from its pinned commit and hash |
 | `review-file` | a review misses an AC row, approves a commit other than the latest proven one, or code changed after the reviewed commit |
 

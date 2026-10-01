@@ -36,3 +36,5 @@ always_allowed = ["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "**/__snap
 
 [app]
 ready_path = "/"
+# Route handlers answer OPTIONS with an Allow header: probe writes without writing.
+mutating_probe = "options"

@@ -67,6 +67,23 @@ class GateCatches(unittest.TestCase):
         self.assertEqual(c["status"], "fail", c)
         self.assertEqual(c["details"], ["page in code but not in CONTRACTS: /admin (routes.command)"])
 
+    def test_options_probe_requires_the_method_in_allow(self) -> None:
+        # mutating_probe = "options" never sends the write; a router that cannot say it
+        # serves DELETE (here: no OPTIONS support at all) fails instead of passing.
+        self.p.write("tools/surface.py", "import runpy\nrunpy.run_path('tools/routes.py')\n"
+                     "print('DELETE /api/orders/{id}/returns')\n")
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace('command = "python tools/routes.py"',
+                     'command = "python tools/surface.py"').replace('ready_path = "/"',
+                                                                   'ready_path = "/"\nmutating_probe = "options"'))
+        self.p.write("arch/CONTRACTS.md", self.p.read("arch/CONTRACTS.md").replace(
+            "GET /api/orders/{id}/returns  owner=T-042-01  sample=/api/orders/ord_1/returns",
+            "GET /api/orders/{id}/returns  owner=T-042-01  sample=/api/orders/ord_1/returns\n"
+            "DELETE /api/orders/{id}/returns  owner=T-042-01  sample=/api/orders/ord_1/returns"))
+        c = self.gate("ci", "smoke", ticket=None)["smoke"]
+        self.assertEqual(c["status"], "fail")
+        self.assertIn("DELETE /api/orders/{}/returns: OPTIONS answered 501 with Allow: - "
+                      "-> the router does not serve DELETE here", c["details"])
+
     def test_client_calls_a_path_no_contract_serves(self) -> None:
         self.p.write("app/static/app.js", 'export const load = (id) => fetch(`/v1/orders/${id}/returns`);\n')
         with open(self.p.root / "sdlc.toml", "a", encoding="utf-8") as f:

@@ -60,6 +60,10 @@ DEFAULTS: dict[str, Any] = {
         # 404 counts as missing only when the body is not this content type
         # (an app-level JSON 404 is a real handler answering).
         "app_404_content_type": "application/json",
+        # How POST/PUT/PATCH/DELETE routes are probed: "request" sends the method (POST/PUT/
+        # PATCH with body {}), which may write data; "options" sends OPTIONS and requires the
+        # method in the Allow header (Next.js route handlers answer OPTIONS this way).
+        "mutating_probe": "request",
     },
     "routes": {
         "extractor": "",       # nextjs-app | command
