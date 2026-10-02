@@ -34,6 +34,8 @@ globs = ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx", "e2e/
 integration_globs = ["e2e/**", "tests/**", "**/*.int.test.ts", "**/*.int.test.tsx"]
 forbid = [
   { regex = '''readFileSync\([^)]*["'`][^"'`]*\b(?:src|app)/''', message = "test reads source text instead of exercising behaviour" },
+  # helpers that wrap readFileSync: read("src/app/tokens.css")
+  { regex = '''\bread(?!FileSync)\w*\(\s*["'`](?:\./)?(?:src|app)/''', message = "test reads source text instead of exercising behaviour" },
   { regex = '\.toMatch\(\s*/[^/]*(?:className|class=)', message = "test asserts on markup strings; assert on rendered behaviour" },
 ]
 

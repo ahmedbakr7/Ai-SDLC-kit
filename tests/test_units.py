@@ -80,6 +80,42 @@ class V0Contracts(unittest.TestCase):
             self.assertEqual([r.key for r in c.routes], ["GET /v1/me"])
 
 
+class NextjsTestForbid(unittest.TestCase):
+    """The nextjs profile's banned test patterns, on shapes found in a real product."""
+
+    def flagged(self, src: str) -> bool:
+        import re
+        import tomllib
+
+        prof = tomllib.loads((helpers.KIT / "profiles" / "nextjs.toml").read_text(encoding="utf-8"))
+        return any(re.search(r["regex"], src, re.M) for r in prof["tests"]["forbid"])
+
+    def test_source_reads_are_flagged(self) -> None:
+        for src in ('const panel = readFileSync(join(root, "src/components/join-panel.tsx"), "utf8");',
+                    'const page = readFileSync(\n  join(root, "src/app/join/[token]/page.tsx"),\n  "utf8",\n);',
+                    # Hangout pilot: a helper wrapping readFileSync hid two whole test files.
+                    'const tokens = read("src/app/tokens.css");',
+                    "const layout = readSource('./src/app/layout.tsx');"):
+            with self.subTest(src=src):
+                self.assertTrue(self.flagged(src))
+
+    def test_one_source_read_is_one_finding(self) -> None:
+        import re
+        import tomllib
+
+        prof = tomllib.loads((helpers.KIT / "profiles" / "nextjs.toml").read_text(encoding="utf-8"))
+        src = 'const s = readFileSync("src/app/page.tsx", "utf8");'
+        self.assertEqual(sum(bool(re.search(r["regex"], src)) for r in prof["tests"]["forbid"]), 1)
+
+    def test_behaviour_tests_and_fixture_reads_pass(self) -> None:
+        for src in ('const sql = readFileSync(resolve(process.cwd(), "drizzle/0001_init.sql"), "utf8");',
+                    'render(<JoinPanel planId="p1" />);',
+                    'const res = await fetch("/api/v1/plans");',
+                    'const data = readJson("fixtures/plan.json");'):
+            with self.subTest(src=src):
+                self.assertFalse(self.flagged(src))
+
+
 class NextjsRoutes(unittest.TestCase):
     def test_app_router_extraction(self) -> None:
         with tempfile.TemporaryDirectory() as d:
