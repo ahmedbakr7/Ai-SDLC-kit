@@ -136,3 +136,18 @@ def migrate_acs_text(text: str, where: str = "") -> tuple[str, int]:
                 in_block = False
         out.append(line)
     return nl.join(out), changed
+
+
+def mark_legacy_text(text: str) -> str:
+    """Add `legacy: v0` after `status: done` in a ticket's frontmatter (no-op if present)."""
+    import re
+
+    nl = "\r\n" if "\r\n" in text else "\n"
+    head, sep, rest = text.partition(nl + "---")
+    lines = head.split(nl)
+    if any(ln.startswith("legacy:") for ln in lines):
+        return text
+    for i, ln in enumerate(lines):
+        if re.fullmatch(r"status:[ \t]*done[ \t]*", ln):
+            return nl.join(lines[:i + 1] + ["legacy: v0"] + lines[i + 1:]) + sep + rest
+    return text

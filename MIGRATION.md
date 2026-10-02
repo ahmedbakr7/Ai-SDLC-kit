@@ -7,8 +7,10 @@ will fail checks it used to "pass". That is the point: each failure is a real ga
 
 1. Bump the pin (`git -C .sdlc checkout <v1 tag>`), then `.sdlc/bin/sdlc init --profile <stack>`.
    Existing files are kept; review the new `sdlc.toml`, CI workflow and adapters.
-2. `.sdlc/bin/sdlc migrate` numbers acceptance criteria (`AC-1: ...`). Then rename
-   tests so each AC's test carries its tag (`T-001-03/AC-1`).
+2. `.sdlc/bin/sdlc migrate` numbers acceptance criteria (`AC-1: ...`) and marks every
+   done ticket without a v1 review `legacy: v0`: shipped work is exempt from the v1
+   review and size rules (nothing else). Then rename tests so each AC's test carries
+   its tag (`T-001-03/AC-1`). A branch with only the migrate output is a lead PR.
 3. `.sdlc/bin/sdlc doctor` until clean: real lint, typecheck that includes test files,
    unit with `{junit}`, build, start, route extractor.
 4. `.sdlc/bin/sdlc lint`: fix ticket errors (oversized tickets, missing requirements,

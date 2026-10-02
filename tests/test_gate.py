@@ -318,6 +318,24 @@ class GateCatches(unittest.TestCase):
         self.code, self.out = self.p.sdlc("gate", "pr", "--base", "main")
         self.assertIn("gate pr: ticket T-042-01", self.out)
 
+    def test_migrate_pr_that_marks_legacy_moves_no_ticket(self) -> None:
+        # The v0 ticket shipped without a v1 review: migrate numbers its AC and marks it legacy.
+        import re
+
+        from helpers import git
+
+        rel = "tickets/T-042-01-returns-api.md"
+        self.p.write(rel, re.sub(r'"AC-\d+: ', '"', self.p.read(rel)))
+        (self.p.root / "reviews" / "T-042-01.md").unlink()
+        self.p.commit("a v0 ticket shipped without a v1 review")
+        git(self.p.root, "checkout", "-q", "-b", "lead/migrate")
+        code, out = self.p.sdlc("migrate")
+        self.assertIn("marked legacy: v0", out)
+        self.p.commit("sdlc migrate")
+        self.code, self.out = self.p.sdlc("gate", "pr", "--base", "main")
+        self.assertIn("gate pr: no ticket moves on this branch; judging it as a lead PR", self.out)
+        self.assertEqual(self.code, 0, self.out)
+
     def test_lead_pr_with_only_lead_artifacts_passes(self) -> None:
         from helpers import git
 

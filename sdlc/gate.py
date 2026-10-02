@@ -790,11 +790,12 @@ def pr_tickets(cfg: Config, base: str) -> list[str]:
         m = re.search(r"(?:^|/)(T-\d+-\d+)[^/]*$", f)
         if m and any(f.startswith(d.rstrip("/") + "/") for d in dirs):
             if f.startswith(p["tickets"].rstrip("/") + "/") and (cfg.root / f).is_file():
-                # `sdlc migrate` numbering the AC is a lead change, not a move of the ticket.
+                # `sdlc migrate` (numbering the AC, marking legacy: v0) is a lead change, not a move.
                 mb = mb or gitutil.merge_base(cfg.root, base)
                 old = (gitutil.show(cfg.root, mb, "./" + f) or "").replace("\r\n", "\n")
                 new = (cfg.root / f).read_bytes().decode("utf-8", "replace").replace("\r\n", "\n")
-                if old and old != new and tickets.migrate_acs_text(old, f)[0] == new:
+                numbered = tickets.migrate_acs_text(old, f)[0] if old else ""
+                if old and old != new and new in (numbered, tickets.mark_legacy_text(numbered)):
                     continue
             ids.add(m.group(1))
     live = ("in_progress", "in_review", "done")
