@@ -592,6 +592,11 @@ class Gate:
                 c.details = _tail(log, 40)
                 return
             problems, ok = [], 0
+            if code and not routes:
+                # Probing nothing is not a pass: the routes the app serves sit at paths the
+                # contract does not declare (wrong prefix, renamed resource).
+                problems.append(f"the app serves {len(code)} route(s), none at a CONTRACTS path, "
+                                "so no route was probed")
             missing_status = set(app.get("missing_status", [405]))
             json_ct = app.get("app_404_content_type", "application/json")
             for r in routes:
@@ -622,7 +627,9 @@ class Gate:
                     ok += 1
             c.details = problems
             if problems:
-                c.status, c.summary = "fail", f"{len(problems)} of {len(routes) + len(pages)} probe(s) failed"
+                probes = len(routes) + len(pages)
+                c.status, c.summary = "fail", (f"{len(problems)} of {probes} probe(s) failed" if probes
+                                               else "no contract route or page was probed")
             else:
                 c.summary = f"app booted; {ok} route/page probe(s) answered"
         finally:

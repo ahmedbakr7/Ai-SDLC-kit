@@ -107,6 +107,16 @@ class GateCatches(unittest.TestCase):
         self.assertEqual(c["status"], "fail")
         self.assertIn("page /orders/{id}", "\n".join(c["details"]))
 
+    def test_smoke_fails_when_no_built_route_is_at_a_contract_path(self) -> None:
+        # Hangout pilot: CONTRACTS said /v1/..., the app served /api/v1/... and declared no
+        # pages, so smoke probed nothing and passed ("0 route/page probe(s) answered").
+        self.p.write("app/server.py", self.p.read("app/server.py").replace(
+            '"/api/orders/{id}/returns"', '"/api/v1/orders/{id}/returns"'))
+        c = self.gate("ci", "smoke", ticket=None)["smoke"]
+        self.assertEqual(c["status"], "fail", c)
+        self.assertIn("the app serves 1 route(s), none at a CONTRACTS path, so no route was probed",
+                      c["details"])
+
     def test_smoke_passes_once_built(self) -> None:
         self.apply_solution()
         c = self.gate("build", "smoke")["smoke"]
