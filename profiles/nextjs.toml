@@ -7,7 +7,9 @@ typecheck = "npx --no-install tsc --noEmit -p tsconfig.json"
 unit = "npx --no-install vitest run --reporter=default --reporter=junit --outputFile.junit={junit}"
 build = "npx --no-install next build"
 start = "npx --no-install next start -p {port}"
-duplication = "npx --no-install jscpd --min-lines 12 --threshold 2 --gitignore --exitCode 1 src"
+# Production code only: test setup repeats by design and drowned the signal (68% of clones in
+# the Hangout pilot). An existing codebase starts --threshold at today's level and lowers it.
+duplication = "npx --no-install jscpd --min-lines 12 --threshold 2 --gitignore --ignore \"**/*.test.*,**/*.spec.*\" --exitCode 1 src"
 
 [routes]
 extractor = "nextjs-app"

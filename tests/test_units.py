@@ -90,6 +90,18 @@ class NextjsTestForbid(unittest.TestCase):
         prof = tomllib.loads((helpers.KIT / "profiles" / "nextjs.toml").read_text(encoding="utf-8"))
         return any(re.search(r["regex"], src, re.M) for r in prof["tests"]["forbid"])
 
+    def test_duplication_scans_production_code_only(self) -> None:
+        import shlex
+        import tomllib
+
+        prof = tomllib.loads((helpers.KIT / "profiles" / "nextjs.toml").read_text(encoding="utf-8"))
+        words = shlex.split(prof["commands"]["duplication"])
+        ignored = words[words.index("--ignore") + 1].split(",")
+        for g in prof["tests"]["globs"]:
+            if g.startswith("**/*."):  # unit test files live beside the code jscpd scans
+                with self.subTest(glob=g):
+                    self.assertTrue(any(paths.match(g.replace("**/*.", "src/x."), i) for i in ignored), g)
+
     def test_source_reads_are_flagged(self) -> None:
         for src in ('const panel = readFileSync(join(root, "src/components/join-panel.tsx"), "utf8");',
                     'const page = readFileSync(\n  join(root, "src/app/join/[token]/page.tsx"),\n  "utf8",\n);',

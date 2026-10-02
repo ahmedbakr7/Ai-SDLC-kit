@@ -34,6 +34,9 @@ pass without checking anything:
 - a route extractor is configured (`nextjs-app`, which also reports pages, or `command` printing
   `METHOD /path` lines and, optionally, `PAGE /path` lines for server-rendered pages).
 
+An existing codebase over the duplication threshold: set `--threshold` in `commands.duplication`
+to today's level and lower it as clones are removed, so new copies fail from the first PR.
+
 Commit, then mark the `gate` job required in branch protection.
 
 ## 3. Run the pipeline
