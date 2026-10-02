@@ -101,6 +101,21 @@ class GateCatches(unittest.TestCase):
         self.assertEqual(c["status"], "fail")
         self.assertIn("client calls /v1/orders/{}/returns at app/static/app.js:1", "\n".join(c["details"]))
 
+    def test_client_calls_a_contract_path_no_built_route_serves(self) -> None:
+        # Hangout pilot: the UI fetched /v1/... as CONTRACTS said, but the handlers were served
+        # at /api/v1/...; the client check compared UI calls with CONTRACTS only, so it was silent.
+        self.p.write("app/static/app.js", 'export const load = (id) => fetch(`/api/orders/${id}/returns`);\n')
+        with open(self.p.root / "sdlc.toml", "a", encoding="utf-8") as f:
+            f.write('\n[client]\npatterns = [\'\'\'fetch\\(\\s*[`"\'](?P<path>/[^`"\'\\s?#]*)\'\'\']\n'
+                    'globs = ["app/static/**"]\nprefix = "/"\n')
+        c = self.gate("ci", "contracts", ticket=None)["contracts"]
+        self.assertEqual(c["status"], "pass", c)  # declared and built: the call is served
+        self.p.write("app/server.py", self.p.read("app/server.py").replace(
+            '"/api/orders/{id}/returns"', '"/api/v1/orders/{id}/returns"'))
+        c = self.gate("ci", "contracts", ticket=None)["contracts"]
+        self.assertIn("client calls /api/orders/{}/returns at app/static/app.js:1; CONTRACTS declares it, "
+                      "but no built route serves it", c["details"])
+
     def test_smoke_fails_when_a_contract_page_is_not_served(self) -> None:
         # T-042-02 is in progress, so its page must answer; the page is not built yet.
         c = self.gate("build", "smoke")["smoke"]

@@ -327,9 +327,13 @@ class Gate:
                 if k not in code and self.play in ("build", "test", "ci"):
                     details.append(f"{self.ticket.id} owns {k} but no handler exists")
         paths = {r.path for r in contracts.routes}
-        stray = [(f, ln, p) for f, ln, p in extract.client_calls(self.cfg) if not extract.path_matches(p, paths)]
-        for f, ln, p in stray:
-            details.append(f"client calls {p} at {f}:{ln}, which no contract route serves")
+        built = {k.split(" ", 1)[1] for k in code}
+        for f, ln, p in extract.client_calls(self.cfg):
+            if not extract.path_matches(p, paths):
+                details.append(f"client calls {p} at {f}:{ln}, which no contract route serves")
+            elif not extract.path_matches(p, built):
+                # Matching the contract is not enough: the call fails unless a route serves it.
+                details.append(f"client calls {p} at {f}:{ln}; CONTRACTS declares it, but no built route serves it")
         unimpl = sorted(declared - set(code))
         c.details = details
         if details:
