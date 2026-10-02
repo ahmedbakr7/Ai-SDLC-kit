@@ -8,8 +8,9 @@ unit = "npx --no-install vitest run --reporter=default --reporter=junit --output
 build = "npx --no-install next build"
 start = "npx --no-install next start -p {port}"
 # Production code only: test setup repeats by design and drowned the signal (68% of clones in
-# the Hangout pilot). An existing codebase starts --threshold at today's level and lowers it.
-duplication = "npx --no-install jscpd --min-lines 12 --threshold 2 --gitignore --ignore \"**/*.test.*,**/*.spec.*\" --exitCode 1 src"
+# the Hangout pilot). Exit status follows --threshold (no --exitCode: that fails on any clone).
+# An existing codebase starts --threshold at today's level and lowers it.
+duplication = "npx --no-install jscpd --min-lines 12 --threshold 2 --gitignore --ignore \"**/*.test.*,**/*.spec.*\" src"
 
 [routes]
 extractor = "nextjs-app"

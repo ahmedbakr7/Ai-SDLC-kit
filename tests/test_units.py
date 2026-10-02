@@ -96,6 +96,9 @@ class NextjsTestForbid(unittest.TestCase):
 
         prof = tomllib.loads((helpers.KIT / "profiles" / "nextjs.toml").read_text(encoding="utf-8"))
         words = shlex.split(prof["commands"]["duplication"])
+        # Hangout pilot: --exitCode 1 fails on any clone at all, so --threshold never decided.
+        self.assertNotIn("--exitCode", words)
+        self.assertIn("--threshold", words)
         ignored = words[words.index("--ignore") + 1].split(",")
         for g in prof["tests"]["globs"]:
             if g.startswith("**/*."):  # unit test files live beside the code jscpd scans
