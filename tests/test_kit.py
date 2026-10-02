@@ -37,6 +37,16 @@ class KitConsistency(unittest.TestCase):
             for t in tpls:
                 self.assertTrue((KIT / t).is_file(), t)
 
+    def test_shell_launchers_are_committed_executable(self) -> None:
+        # Authored on Windows, bin/sdlc was committed 100644: `.sdlc/bin/sdlc` (and the
+        # shipped CI workflow) failed with "Permission denied" on Linux and macOS.
+        from helpers import git
+
+        for rel in ("bin/sdlc", "scripts/update-kit.sh"):
+            with self.subTest(file=rel):
+                mode = git(KIT, "ls-files", "-s", "--", rel).split()[0]
+                self.assertEqual(mode, "100755", f"{rel}: git update-index --chmod=+x {rel}")
+
     def test_docs_only_mention_real_subcommands(self) -> None:
         sub = set(cli.build_parser()._subparsers._group_actions[0].choices)
         for md in [*KIT.glob("*.md"), *KIT.glob("adapters/*.md"), *KIT.glob("skills/**/*.md"),
