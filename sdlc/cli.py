@@ -251,10 +251,15 @@ def _unresolvable(root: Path, cmd: str) -> str:
         return ""
     prog, rest = words[0], words[1:]
     if prog in JS_RUNNERS or (prog in ("pnpm", "yarn") and rest[:1] == ["exec"]):
-        tool = next((w for w in rest if w != "exec" and not w.startswith("-")), "")
+        spec = next((w for w in rest if w != "exec" and not w.startswith("-")), "")
+        # jscpd@4.3.0 -> jscpd, @scope/tool@1.2 -> tool (the binary npx runs)
+        tool = re.sub(r"(?<=.)@[^/@]*$", "", spec).rsplit("/", 1)[-1]
+        if prog == "npx" and ({"-y", "--yes"} & set(rest)):
+            return ""  # npx downloads the pinned package when it is not installed
         if tool and not any((root / "node_modules" / ".bin" / (tool + ext)).exists() for ext in ("", ".cmd")):
             return f"{tool} is not installed (no node_modules/.bin/{tool}); run your package manager's install"
         return ""
+    rest = [w for w in rest if not w.startswith("-")]  # npm run --silent lint
     if prog in ("npm", "pnpm", "yarn") and rest:
         script = rest[1] if rest[0] == "run" and len(rest) > 1 else rest[0]
         if rest[0] == "run" or script in ("test", "start"):

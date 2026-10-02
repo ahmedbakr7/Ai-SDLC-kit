@@ -106,5 +106,23 @@ class KitConsistency(unittest.TestCase):
                 self.assertEqual(cli.main(["--root", d, "doctor"]), 0, out.getvalue())
 
 
+    def test_doctor_resolves_npm_flags_and_npx_downloads(self) -> None:
+        # Hangout pilot: `npm run --silent lint` was read as script "--silent", and
+        # `npx --yes jscpd@4.3.0` as a binary named "jscpd@4.3.0" that had to be installed.
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "package.json").write_text('{"scripts": {"lint": "tsc"}}')
+            self.assertEqual(cli._unresolvable(root, "npm run --silent lint"), "")
+            self.assertEqual(cli._unresolvable(root, "npm --silent run lint"), "")
+            self.assertIn("no script 'fmt'", cli._unresolvable(root, "npm run --silent fmt"))
+            self.assertEqual(cli._unresolvable(root, "npx --yes jscpd@4.3.0 src"), "")
+            self.assertEqual(cli._unresolvable(root, "npx -y @scope/tool@1.2.0 src"), "")
+            # Without --yes, npx needs the local install, looked up by package name.
+            self.assertIn("jscpd is not installed (no node_modules/.bin/jscpd)",
+                          cli._unresolvable(root, "npx --no-install jscpd@4.3.0 src"))
+            (root / "node_modules" / ".bin").mkdir(parents=True)
+            (root / "node_modules" / ".bin" / "jscpd").write_text("")
+            self.assertEqual(cli._unresolvable(root, "npx --no-install jscpd@4.3.0 src"), "")
+
 if __name__ == "__main__":
     unittest.main()
