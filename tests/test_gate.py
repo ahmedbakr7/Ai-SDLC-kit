@@ -295,6 +295,29 @@ class GateCatches(unittest.TestCase):
         self.assertEqual(self.code, 0, self.out)
         self.assertIn("WARNING 1 file(s) changed without a ticket, so no ticket traces them: app/server.py", self.out)
 
+    def test_migrate_pr_moves_no_ticket(self) -> None:
+        # Hangout pilot: `sdlc migrate` (MIGRATION.md step 2) numbers the AC of every done
+        # ticket, and gate pr read that branch as moving 30 tickets, so it could never pass.
+        import re
+
+        from helpers import git
+
+        rel = "tickets/T-042-01-returns-api.md"
+        self.p.write(rel, re.sub(r'"AC-\d+: ', '"', self.p.read(rel)))
+        self.p.commit("a v0 ticket: AC not numbered")
+        git(self.p.root, "checkout", "-q", "-b", "lead/migrate")
+        code, out = self.p.sdlc("migrate")
+        self.assertEqual(code, 0, out)
+        self.p.commit("sdlc migrate")
+        self.code, self.out = self.p.sdlc("gate", "pr", "--base", "main")
+        self.assertIn("gate pr: no ticket moves on this branch; judging it as a lead PR", self.out)
+        self.assertEqual(self.code, 0, self.out)
+        # Anything beyond the numbering is a real edit of a done ticket.
+        self.p.write(rel, self.p.read(rel).replace("empty returns list", "empty list"))
+        self.p.commit("reword an AC")
+        self.code, self.out = self.p.sdlc("gate", "pr", "--base", "main")
+        self.assertIn("gate pr: ticket T-042-01", self.out)
+
     def test_lead_pr_with_only_lead_artifacts_passes(self) -> None:
         from helpers import git
 

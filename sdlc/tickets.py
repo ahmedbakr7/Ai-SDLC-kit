@@ -96,12 +96,21 @@ def ready_queue(repo: Repo) -> list[Ticket]:
 
 def migrate_acs(path) -> int:
     """Number legacy acceptance criteria in place: '- text' -> '- "AC-n: text"'. Returns count changed."""
-    import json
-    import re
     from pathlib import Path
 
     p = Path(path)
     text = p.read_bytes().decode("utf-8")  # keep CRLF: read_text would translate it
+    new, changed = migrate_acs_text(text, str(p))
+    if changed:
+        p.write_text(new, encoding="utf-8", newline="")
+    return changed
+
+
+def migrate_acs_text(text: str, where: str = "") -> tuple[str, int]:
+    """migrate_acs on a ticket's text: (numbered text, count changed)."""
+    import json
+    import re
+
     nl = "\r\n" if "\r\n" in text else "\n"
     lines = text.replace("\r\n", "\n").split("\n")
     out, in_block, n, changed = [], False, 0, 0
@@ -117,7 +126,7 @@ def migrate_acs(path) -> int:
             if m:
                 n += 1
                 raw = m.group(2).strip()
-                val = fm._scalar(raw, str(p), i + 1) if raw else ""
+                val = fm._scalar(raw, where, i + 1) if raw else ""
                 if not re.match(r"^AC-\d+:\s", str(val)):
                     val = f"AC-{n}: {val}"
                     changed += 1
@@ -126,6 +135,4 @@ def migrate_acs(path) -> int:
             if line and not line[0].isspace():
                 in_block = False
         out.append(line)
-    if changed:
-        p.write_text(nl.join(out), encoding="utf-8", newline="")
-    return changed
+    return nl.join(out), changed
