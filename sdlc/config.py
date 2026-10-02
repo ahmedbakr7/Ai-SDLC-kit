@@ -88,6 +88,9 @@ DEFAULTS: dict[str, Any] = {
         "globs": [],                       # files that count as tests (for scope + quality)
         "unit_beside": True,               # build may add tests beside listed files
         "integration_globs": [],           # test play write set
+        # Suites whose tagged tests prove a ticket through the real stack (the test play).
+        # [] = the lead accepts unit-only proof; doctor fails if none of these is configured.
+        "real_stack": ["integration", "e2e"],
         "forbid": [],                      # [{regex, message}] patterns banned in tests
     },
     "scope": {

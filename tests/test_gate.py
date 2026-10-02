@@ -439,13 +439,35 @@ class GateCatches(unittest.TestCase):
             'integration = "python tools/junit.py --start tests --out {junit}"', 'integration = ""'))
         self.assertEqual(self.gate("review", "review-file")["review-file"]["status"], "fail")
 
-    def test_approval_without_a_test_play_when_there_is_no_real_stack_suite(self) -> None:
+    def test_approval_without_a_test_play_only_when_the_lead_accepts_unit_proof(self) -> None:
+        # No real-stack suite is not a free pass: the lead must say so (tests.real_stack = []).
         self.lead_config('integration = "python tools/junit.py --start tests --out {junit}"', 'integration = ""')
         build = self.build_and_commit()
         review = (FIXTURES_DIR / "solutions" / "review-T-042-02" / "reviews" / "T-042-02.md").read_text(encoding="utf-8")
         self.p.write("reviews/T-042-02.md", review.replace("{commit}", build))
         c = self.gate("review", "review-file")["review-file"]
+        self.assertEqual(c["status"], "fail", c)
+        self.assertIn("no real-stack suite is configured (tests.real_stack: integration, e2e)", "\n".join(c["details"]))
+
+    def test_approval_without_a_test_play_when_the_lead_sets_real_stack_empty(self) -> None:
+        self.lead_config('integration = "python tools/junit.py --start tests --out {junit}"', 'integration = ""')
+        self.lead_config("[tests]\n", "[tests]\nreal_stack = []\n")
+        build = self.build_and_commit()
+        review = (FIXTURES_DIR / "solutions" / "review-T-042-02" / "reviews" / "T-042-02.md").read_text(encoding="utf-8")
+        self.p.write("reviews/T-042-02.md", review.replace("{commit}", build))
+        c = self.gate("review", "review-file")["review-file"]
         self.assertEqual(c["status"], "pass", c)
+
+    def test_only_the_suites_in_real_stack_prove_the_test_play(self) -> None:
+        # Hangout pilot: vitest "integration" tests called route handlers in-process under
+        # jsdom, never over HTTP, yet counted as real-stack proof. The nextjs profile names e2e.
+        self.lead_config("[tests]\n", '[tests]\nreal_stack = ["e2e"]\n')
+        self.build_and_commit()
+        self.apply_solution("test-T-042-02")
+        self.p.commit("test T-042-02")
+        c = self.gate("test", "unit", "integration", "ac-coverage")["ac-coverage"]
+        self.assertEqual(c["status"], "fail", c)
+        self.assertIn("no passing e2e test carries a T-042-02/AC-n tag", c["summary"])
 
     def test_lead_may_mark_a_ticket_test_none(self) -> None:
         ticket = "tickets/T-042-02-order-page.md"

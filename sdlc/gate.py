@@ -435,26 +435,29 @@ class Gate:
                          f"it('{next(iter(bad))} ...')")
         else:
             c.summary = f"all {len(matrix)} AC of {len(targets)} ticket(s) proven by passing tests"
-        if self.play == "test" and self.ticket:
+        suites = real_stack_suites(self.cfg)
+        names = "/".join(suites)
+        if self.play == "test" and self.ticket and suites:
             # The test play exists to prove AC through the real stack; unit proof alone is the build's.
             if not self._real_stack_proof(self.ticket.id):
                 c.status = "fail"
-                c.summary = (f"no passing integration/e2e test carries a {self.ticket.id}/AC-n tag; "
+                c.summary = (f"no passing {names} test carries a {self.ticket.id}/AC-n tag; "
                              "the test play must prove AC through the real stack")
-        elif not self.ticket and any(self.cfg.commands.get(k) for k in ("integration", "e2e")):
+        elif not self.ticket and suites:
             # Approval needs test evidence, but evidence is a file the ticket PR wrote. CI
             # re-proves what it claims: every done ticket has a passing real-stack test.
             unproven = [t.id for t in targets
                         if t.status == "done" and t.test_play and not self._real_stack_proof(t.id)]
             if unproven:
                 c.status = "fail"
-                c.details += [f"{tid}: done, but no passing integration/e2e test carries its tag" for tid in unproven]
+                c.details += [f"{tid}: done, but no passing {names} test carries its tag" for tid in unproven]
                 c.summary = (f"{len(unproven)} done ticket(s) without real-stack proof: {', '.join(unproven)}; "
                              "run their test play")
 
     def _real_stack_proof(self, tid: str) -> bool:
         tag = re.compile(re.escape(tid) + r"/AC-\d")
-        return any(tc.source != "unit" and tc.status == "passed" and tag.search(tc.name) for tc in self.testcases)
+        suites = real_stack_suites(self.cfg)
+        return any(tc.source in suites and tc.status == "passed" and tag.search(tc.name) for tc in self.testcases)
 
     def check_ac_red(self, c: Check) -> None:
         """Each AC needs a tagged test that fails without the ticket's code. The unit command
@@ -782,6 +785,11 @@ def lead_write_set(cfg: Config) -> list[str]:
     return out + list(cfg.section("scope").get("lead_allowed", []))
 
 
+def real_stack_suites(cfg: Config) -> list[str]:
+    """Test suites whose tagged tests prove a ticket through the real stack (tests.real_stack)."""
+    return [s for s in cfg.section("tests").get("real_stack", ["integration", "e2e"]) if s in ("integration", "e2e")]
+
+
 def pr_tickets(cfg: Config, base: str) -> list[str]:
     """Tickets a branch moves: in progress or later, with their ticket, evidence or review
     file changed against the base. `gate pr` without an id judges the one it finds."""
@@ -839,7 +847,12 @@ def _evidence_problems(cfg: Config, t: Ticket, commit: str) -> list[str]:
     # Unit tests run on stubs; the test play is the only proof through the real stack, so a
     # product that has one cannot skip it (gate test fails without a tagged integration test).
     # A lead may mark a ticket `test: none` (lint refuses it for tickets serving routes/pages).
-    real_stack = [k for k in ("integration", "e2e") if cfg.commands.get(k)] if t.test_play else []
+    suites = real_stack_suites(cfg) if t.test_play else []
+    real_stack = [k for k in suites if cfg.commands.get(k)]
+    if suites and not real_stack:
+        out.append(f"no real-stack suite is configured (tests.real_stack: {', '.join(suites)}): nothing can prove "
+                   f"{t.id} through the real stack; configure one, or the lead sets tests.real_stack = [] "
+                   "to accept unit-only proof")
     for play in EVIDENCE_PLAYS:
         p = cfg.path("evidence") / f"{t.id}.{play}.json"
         if not p.is_file():

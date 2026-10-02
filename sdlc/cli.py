@@ -308,6 +308,13 @@ def cmd_doctor(args) -> int:
         missing = _unresolvable(cfg.root, cfg.commands[name])
         if missing:
             probs.append(f"commands.{name}: {missing}; the check would fail (or never run) as configured")
+    from .gate import real_stack_suites
+
+    suites = real_stack_suites(cfg)
+    if suites and not any(cfg.commands.get(k) for k in suites):
+        probs.append(f"no real-stack suite: tests.real_stack is {', '.join(suites)}, but "
+                     f"commands.{'/'.join(suites)} is not set; routes and pages are never proven over the "
+                     "real stack. Configure one, or set tests.real_stack = [] to accept unit-only proof")
     if "contracts" in required and not cfg.section("routes").get("extractor"):
         probs.append("routes.extractor is not set; contract drift cannot be checked")
     if not cfg.section("tests").get("globs"):

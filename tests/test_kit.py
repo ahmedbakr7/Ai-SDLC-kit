@@ -103,6 +103,16 @@ class KitConsistency(unittest.TestCase):
                 (root / "node_modules" / ".bin" / tool).write_text("")
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
+                self.assertNotEqual(cli.main(["--root", d, "doctor"]), 0)
+            # Unit tests on stubs never prove a route: the nextjs profile wants e2e over HTTP.
+            self.assertIn("no real-stack suite: tests.real_stack is e2e, but commands.e2e is not set",
+                          out.getvalue())
+            toml = (root / "sdlc.toml").read_text().replace(
+                "[commands]\n", '[commands]\ne2e = "npx --no-install playwright test --reporter=junit {junit}"\n', 1)
+            (root / "sdlc.toml").write_text(toml)
+            (root / "node_modules" / ".bin" / "playwright").write_text("")
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
                 self.assertEqual(cli.main(["--root", d, "doctor"]), 0, out.getvalue())
 
 
