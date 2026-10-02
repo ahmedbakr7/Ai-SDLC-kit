@@ -12,8 +12,9 @@ will fail checks it used to "pass". That is the point: each failure is a real ga
 3. `.sdlc/bin/sdlc doctor` until clean: real lint, typecheck that includes test files,
    unit with `{junit}`, build, start, route extractor.
 4. `.sdlc/bin/sdlc lint`: fix ticket errors (oversized tickets, missing requirements,
-   unresolvable `contracts:`). Contracts may stay as `### METHOD /path` headings; the
-   parser reads those as routes.
+   unresolvable `contracts:`). Contracts may stay as `### METHOD /path` headings and a
+   `## Tables` markdown table with `` `table_name` `` in its first column; the parser reads
+   those as routes and tables.
 5. `.sdlc/bin/sdlc routes` and `.sdlc/bin/sdlc gate ci`: every FAIL is a defect the old
    process let through. Fix them through new tickets, not by editing old ones.
 6. Move third-party skills to `skills/vendor/` with `sdlc skills add`, and delete

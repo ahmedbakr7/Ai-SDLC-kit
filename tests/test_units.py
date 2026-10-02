@@ -61,6 +61,25 @@ class Globs(unittest.TestCase):
         self.assertFalse(extract.path_matches("/v1/plans", {"/api/v1/plans"}))
 
 
+class V0Contracts(unittest.TestCase):
+    def test_tables_section_markdown_table_declares_tables(self) -> None:
+        # Hangout pilot: v0 CONTRACTS declare tables as a '## Tables' markdown table; only a
+        # ```tables block was read, so every Drizzle table was reported as undeclared.
+        from sdlc.artifacts import parse_contracts
+
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "sdlc.toml").write_text("version = 1\n")
+            f = root / "CONTRACTS.md"
+            f.write_text("# CONTRACTS\n\n### GET /v1/me\n\n| Field | Type |\n|---|---|\n| `email` | text |\n\n"
+                         "## Tables\n\n| Table | Columns |\n|---|---|\n| `accounts` | id, email |\n"
+                         "| `plan_steps` | id |\n\nNo delete route.\n\n## External\n\n| Call | Request |\n"
+                         "|---|---|\n| `places` | POST |\n\n```tables\nevents_log\n```\n")
+            c = parse_contracts(f, config.load(root))
+            self.assertEqual(sorted(c.tables), ["accounts", "events_log", "plan_steps"])
+            self.assertEqual([r.key for r in c.routes], ["GET /v1/me"])
+
+
 class NextjsRoutes(unittest.TestCase):
     def test_app_router_extraction(self) -> None:
         with tempfile.TemporaryDirectory() as d:

@@ -18,6 +18,8 @@ AC_TAG_RE = re.compile(r"(T-\d{3}-\d{2,3})/(AC-\d+)")
 METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")
 ROUTE_LINE_RE = re.compile(rf"^({'|'.join(METHODS)})\s+(/\S*)(.*)$")
 FENCE_RE = re.compile(r"^```(routes|pages|tables|events)\s*$")
+# v0 CONTRACTS: under a '## Tables' heading, a markdown table row whose first cell is `name`
+V0_TABLE_ROW_RE = re.compile(r"^\|\s*`([A-Za-z0-9_]+)`\s*\|")
 
 STATUSES = ("draft", "ready", "in_progress", "in_review", "done", "blocked")
 TYPES = ("backend", "frontend", "fullstack", "contract", "test", "ops", "chore")
@@ -281,14 +283,18 @@ def parse_contracts(path: Path, cfg: Config) -> Contracts:
     if not path.is_file():
         return c
     kind = None
+    in_tables = False  # inside a v0 '## Tables' section
     for i, line in enumerate(path.read_text(encoding="utf-8").replace("\r\n", "\n").split("\n"), 1):
         if kind is None:
             m = FENCE_RE.match(line.strip())
             if m:
                 kind = m.group(1)
                 continue
+            if in_tables and (tm := V0_TABLE_ROW_RE.match(line.strip())):
+                c.tables.append(tm.group(1))
             if line.startswith("#"):
                 h = line.lstrip("#").strip()
+                in_tables = h.lower() == "tables"
                 c.headings.append(h)
                 rm = ROUTE_LINE_RE.match(h)
                 if rm and line.startswith(("## ", "### ", "#### ")):
