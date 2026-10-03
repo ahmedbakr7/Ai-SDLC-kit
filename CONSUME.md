@@ -64,16 +64,18 @@ Commit, then mark the `gate` job required in branch protection.
 | build | any agent, unattended | `sdlc run build $(sdlc next) --agent <name>` |
 | test | any agent | `sdlc run test T-001-03 --agent <name>` |
 | review | a **different** agent | `sdlc run review T-001-03 --agent <other>` |
-| merge | human | on the ticket branch: `sdlc status T-001-03 done --as merge`, commit, push; CI runs `sdlc gate pr`; then merge the PR |
+| merge | human | on the ticket branch: `sdlc status T-001-03 done --as merge`, commit, push; open the PR; CI runs `sdlc gate pr`; merge on green |
 
 `sdlc run` refuses a dirty tree, unmet dependencies, and a reviewer that made any
 build or test commit on the ticket. Every runner commit carries `Sdlc-Agent:` and
 `Sdlc-Play:` trailers. Agent output goes to `.sdlc-run/logs/agent-<play>-<id>-<n>.log`.
 The runner stops without committing if the agent switched branches or rewrote history.
 
-`done` is set on the ticket branch, so the PR that merges the code also carries the
-status and CI checks the approval with `sdlc gate pr`. Setting `done` on the base
-branch after merging also works, but then no CI run covers the status change.
+Review happens before the PR. `done` is set on the ticket branch, so the PR that merges
+the code also carries the status and CI checks the approval with `sdlc gate pr`, which
+fails on a ticket that is not `done`. A PR therefore arrives reviewed and merges on green.
+PR-level review bots (configured by the product, not the kit) comment on that PR; resolve
+their blocking findings before merging.
 
 Without `sdlc run` (agent in an IDE): `sdlc status T-001-03 in_progress --as build`,
 give the agent `sdlc prompt build T-001-03`, have it iterate on `sdlc gate build

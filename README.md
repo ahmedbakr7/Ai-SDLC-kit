@@ -30,7 +30,7 @@ the model and into one command:
 | `test-quality` | tests are skipped/focused or assert on source text instead of behaviour |
 | `smoke` | the started app does not serve every contract route and page (`app.mutating_probe = "options"` checks writes via the `Allow` header instead of sending them; the `nextjs` profile sets it) |
 | `skills` | a vendored third-party skill drifted from its pinned commit and hash |
-| `review-file` | a review misses an AC row, approves a commit other than the latest proven one, or code changed after the reviewed commit |
+| `review-file` | a review misses an AC row, approves a commit other than the latest proven one, or code changed after the reviewed commit; on a PR, the ticket is not yet reviewed and `done` |
 
 Every full gate run writes JSON evidence (`--only` runs are partial and never count).
 Ticket plays are judged by the base branch's `sdlc.toml`, so an agent cannot reconfigure
@@ -47,7 +47,7 @@ it never trusts committed evidence on its own.
 | `sdlc next` | the next ticket whose dependencies are done |
 | `sdlc prompt build T-001-03` | the exact, complete prompt for a play: rules, skill, ticket, cited requirements and contracts, write set, definition of done |
 | `sdlc gate build T-001-03` | run every check for the play; write evidence |
-| `sdlc gate pr [T-001-03]` | CI: judge a ticket's whole branch (write sets, status moves, the approval covers what merges); without an id it finds the ticket the branch moves, or reports code changed without one |
+| `sdlc gate pr [T-001-03]` | CI: judge a ticket's whole branch (write sets, status moves, the ticket is reviewed and `done`, the approval covers what merges); without an id it finds the ticket the branch moves, or reports code changed without one |
 | `sdlc run build T-001-03 --agent X` | branch → status → prompt → agent → commit → gate → retry with the failures → evidence → `in_review` |
 | `sdlc status T-001-03 done --as merge` | move through the state machine; `done` requires an approval of the latest proven commit with nothing changed since |
 | `sdlc skills add superpowers/test-driven-development` | vendor a proven skill, pinned by commit + content hash |
