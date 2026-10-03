@@ -778,7 +778,7 @@ class Gate:
         data, _ = fm.load(p)
         ev_problems = _evidence_problems(self.cfg, self.ticket, str(data.get("commit", "")))
         if data.get("verdict") == "approve" and not ev_problems:
-            ev_problems = _changed_after_review(self.cfg, self.ticket, str(data.get("commit", "")))
+            ev_problems = _changed_after_review(self.cfg, self.ticket, str(data.get("commit", "")), self.base)
         c.details += ev_problems
         if data.get("verdict") == "approve" and ev_problems:
             c.status, c.summary = "fail", "approve without passing evidence for the reviewed commit"
@@ -946,13 +946,22 @@ def _evidence_problems(cfg: Config, t: Ticket, commit: str) -> list[str]:
     return out
 
 
-def _changed_after_review(cfg: Config, t: Ticket, commit: str) -> list[str]:
+def _changed_after_review(cfg: Config, t: Ticket, commit: str, base: str | None = None) -> list[str]:
     """An approval covers the reviewed commit. Afterwards only the review itself, the
-    ticket's evidence and its status may change; anything else was never reviewed."""
+    ticket's evidence and its status may change; anything else was never reviewed.
+    Only what would merge counts: committed files this branch changes against its base.
+    Untracked files (an `npm install` lockfile in CI) and files that came in from the base
+    branch after the review are not part of the change."""
     try:
-        changed = gitutil.changed_since(cfg.root, commit)
+        changed = gitutil.committed_between(cfg.root, commit)
     except gitutil.GitError:
         return [f"reviewed commit {commit[:12]} is not in this repository's history"]
+    try:
+        mb = gitutil.merge_base(cfg.root, base or cfg.section("vcs").get("base", "main"))
+        ours = set(gitutil.committed_between(cfg.root, mb))
+        changed = [f for f in changed if f in ours]
+    except gitutil.GitError:
+        pass  # no base to compare with: every committed change after the review counts
     ev = cfg.data["paths"]["evidence"]
     ok = {f"{cfg.data['paths']['reviews']}/{t.id}.md", *(f"{ev}/{t.id}.{p}.json" for p in EVIDENCE_PLAYS)}
     rel = cfg.rel(t.path)

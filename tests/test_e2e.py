@@ -76,6 +76,31 @@ class Conveyor(unittest.TestCase):
         self.assertIn("changed after the reviewed commit", out)
         self.assertIn("app/pages.py", out)
 
+    def test_approval_ignores_what_does_not_merge(self) -> None:
+        # Hangout #59: CI's `npm install` left an untracked package-lock.json, and the PR gate
+        # called the approved ticket "changed after the reviewed commit". Files that came in
+        # from main after the review are not this PR's change either.
+        p = self.p
+        # Lockfiles are always in scope, as in the node profiles; the approval check is the subject.
+        p.write("sdlc.toml", p.read("sdlc.toml") + '\n[scope]\nalways_allowed = ["package-lock.json"]\n')
+        p.commit("lead: lockfiles in scope")
+        self.assertEqual(p.sdlc("run", "build", "T-042-02", "--agent", "fake")[0], 0)
+        self.assertEqual(p.sdlc("run", "test", "T-042-02", "--agent", "fake")[0], 0)
+        self.assertEqual(p.sdlc("run", "review", "T-042-02", "--agent", "fake-reviewer")[0], 0)
+        branch = git(p.root, "rev-parse", "--abbrev-ref", "HEAD").strip()
+        git(p.root, "checkout", "-q", "main")
+        p.write("docs/elsewhere.md", "a lead change on main after the review\n")
+        p.commit("main moves on")
+        git(p.root, "checkout", "-q", branch)
+        git(p.root, "merge", "-q", "--no-edit", "main")
+        code, out = p.sdlc("status", "T-042-02", "done", "--as", "merge")
+        self.assertEqual(code, 0, out)
+        p.commit("merge: T-042-02 done")
+        p.write("package-lock.json", "{}\n")  # untracked, as `npm install` leaves it in CI
+        code, out = p.sdlc("gate", "pr", "T-042-02", "--base", "main")
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("changed after the reviewed commit", out)
+
     def test_an_agent_with_build_or_test_commits_cannot_review(self) -> None:
         p = self.p
         self.assertEqual(p.sdlc("run", "build", "T-042-02", "--agent", "fake")[0], 0)

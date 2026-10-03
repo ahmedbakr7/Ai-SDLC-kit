@@ -59,6 +59,12 @@ def show(root: Path, ref: str, path: str) -> str | None:
     return r.stdout if r.returncode == 0 else None
 
 
+def committed_between(root: Path, a: str, b: str = "HEAD") -> list[str]:
+    """Files whose committed content differs between `a` and `b` (untracked files excluded)."""
+    out = git(root, "diff", "--name-only", "--no-renames", "--relative", a, b).splitlines()
+    return sorted(n.strip() for n in out if n.strip())
+
+
 def changed_since(root: Path, ref: str) -> list[str]:
     """Files changed after commit `ref` (committed or not)."""
     names = set(git(root, "diff", "--name-only", "--no-renames", "--relative", ref).splitlines())
