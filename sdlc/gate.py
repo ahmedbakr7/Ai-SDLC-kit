@@ -763,10 +763,14 @@ class Gate:
                 c.status, c.summary = "fail", "review needs a ticket"
             return
         p = self.cfg.path("reviews") / f"{self.ticket.id}.md"
+        if self.play == "pr" and self.ticket.status != "done":
+            # Review happens before the PR: a PR carries a reviewed, done ticket, so it arrives
+            # complete and merges on green instead of iterating in review threads.
+            c.status = "fail"
+            c.summary = (f"{self.ticket.id} is {self.ticket.status}: open the PR after review "
+                         f"(an approving {self.cfg.rel(p)}, then `sdlc status {self.ticket.id} done --as merge`)")
+            return
         if not p.is_file():
-            if self.play == "pr" and self.ticket.status != "done":
-                c.status, c.summary = "skip", "not reviewed yet (ticket is not done)"
-                return
             c.status, c.summary = "fail", f"missing {self.cfg.rel(p)}"
             return
         issues = lint.lint_review_file(self.repo, p)

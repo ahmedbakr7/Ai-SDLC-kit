@@ -368,7 +368,7 @@ class GateCatches(unittest.TestCase):
         self.build_and_commit()
         self.code, self.out = self.p.sdlc("gate", "pr", "--base", "main")
         self.assertIn("gate pr: ticket T-042-02", self.out)
-        self.assertEqual(self.code, 0, self.out)
+        self.assertNotIn("moves 2 tickets", self.out)
         # A second ticket's file on the same branch: one PR, one ticket.
         t = self.p.read("tickets/T-042-01-returns-api.md")
         self.p.write("tickets/T-042-01-returns-api.md", t.replace("status: done", "status: in_review"))
@@ -376,6 +376,15 @@ class GateCatches(unittest.TestCase):
         self.code, self.out = self.p.sdlc("gate", "pr", "--base", "main")
         self.assertNotEqual(self.code, 0)
         self.assertIn("moves 2 tickets (T-042-01, T-042-02)", self.out)
+
+    def test_pr_needs_a_reviewed_done_ticket(self) -> None:
+        # Hangout: review ran on the open PR, so a PR sat waiting on review threads. Review now
+        # happens before the PR, and the PR gate refuses a ticket that is not done.
+        self.build_and_commit()
+        self.code, self.out = self.p.sdlc("gate", "pr", "--base", "main")
+        self.assertNotEqual(self.code, 0, self.out)
+        self.assertIn("T-042-02 is in_review: open the PR after review (an approving reviews/T-042-02.md, "
+                      "then `sdlc status T-042-02 done --as merge`)", self.out)
 
     def build_and_commit(self) -> str:
         """The reference build, gated and committed the way the runner does it. Returns the proven commit."""
