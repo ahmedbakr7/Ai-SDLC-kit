@@ -101,6 +101,20 @@ class Conveyor(unittest.TestCase):
         self.assertEqual(code, 0, out)
         self.assertNotIn("changed after the reviewed commit", out)
 
+    def test_a_look_alike_of_the_review_file_is_a_change(self) -> None:
+        # CodeRabbit on kit #8: paths were whitespace-stripped, so "reviews/T-042-02.md "
+        # passed as the review file both scope and the approval check allow after review.
+        p = self.p
+        self.assertEqual(p.sdlc("run", "build", "T-042-02", "--agent", "fake")[0], 0)
+        self.assertEqual(p.sdlc("run", "test", "T-042-02", "--agent", "fake")[0], 0)
+        self.assertEqual(p.sdlc("run", "review", "T-042-02", "--agent", "fake-reviewer")[0], 0)
+        p.write("reviews/T-042-02.md ", "not reviewed\n")
+        p.commit("a file named like the review")
+        code, out = p.sdlc("status", "T-042-02", "done", "--as", "merge")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("changed after the reviewed commit", out)
+        self.assertIn("reviews/T-042-02.md ", out)
+
     def test_an_agent_with_build_or_test_commits_cannot_review(self) -> None:
         p = self.p
         self.assertEqual(p.sdlc("run", "build", "T-042-02", "--agent", "fake")[0], 0)
