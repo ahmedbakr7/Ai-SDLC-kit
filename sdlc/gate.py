@@ -139,7 +139,10 @@ class Gate:
                     # Files merged in from the base branch since the earlier play are not this
                     # play's change: keep only what still differs from the base.
                     ours = set(gitutil.changed_files(self.cfg.root, self.base))
-                    changed = [f for f in changed if f in ours]
+                    new = set(gitutil.untracked(self.cfg.root))
+                    # A file both sides edited counts only if this branch's own change to it moved.
+                    changed = [f for f in changed if f in ours and (
+                        f in new or not gitutil.same_branch_change(self.cfg.root, self.base, self.since, f))]
                 except gitutil.GitError:
                     pass
                 self._changed = changed
@@ -965,9 +968,10 @@ def _changed_after_review(cfg: Config, t: Ticket, commit: str, base: str | None 
     except gitutil.GitError:
         return [f"reviewed commit {commit[:12]} is not in this repository's history"]
     try:
-        mb = gitutil.merge_base(cfg.root, base or cfg.section("vcs").get("base", "main"))
-        ours = set(gitutil.committed_between(cfg.root, mb))
-        changed = [f for f in changed if f in ours]
+        b = base or cfg.section("vcs").get("base", "main")
+        ours = set(gitutil.committed_between(cfg.root, gitutil.merge_base(cfg.root, b)))
+        changed = [f for f in changed
+                   if f in ours and not gitutil.same_branch_change(cfg.root, b, commit, f, "HEAD")]
     except gitutil.GitError:
         pass  # no base to compare with: every committed change after the review counts
     ev = cfg.data["paths"]["evidence"]

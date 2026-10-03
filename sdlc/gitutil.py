@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import subprocess
+import tempfile
 from pathlib import Path
 
 
@@ -31,9 +32,9 @@ def is_dirty(root: Path) -> bool:
     return bool(git(root, "status", "--porcelain", check=False).strip())
 
 
-def merge_base(root: Path, base: str) -> str:
-    for ref in (base, f"origin/{base}"):
-        out = git(root, "merge-base", "HEAD", ref, check=False).strip()
+def merge_base(root: Path, base: str, ref: str = "HEAD") -> str:
+    for b in (base, f"origin/{base}"):
+        out = git(root, "merge-base", ref, b, check=False).strip()
         if out:
             return out
     raise GitError(f"cannot find merge base with {base!r} (fetch it, or pass --base)")
@@ -70,8 +71,47 @@ def committed_between(root: Path, a: str, b: str = "HEAD") -> list[str]:
     return sorted(_paths(git(root, "diff", "--name-only", "-z", "--no-renames", "--relative", a, b)))
 
 
+def untracked(root: Path) -> list[str]:
+    return _paths(git(root, "ls-files", "--others", "--exclude-standard", "-z"))
+
+
 def changed_since(root: Path, ref: str) -> list[str]:
     """Files changed after commit `ref` (committed or not)."""
     names = set(_paths(git(root, "diff", "--name-only", "-z", "--no-renames", "--relative", ref)))
-    names |= set(_paths(git(root, "ls-files", "--others", "--exclude-standard", "-z")))
+    names |= set(untracked(root))
     return sorted(names)
+
+
+def same_branch_change(root: Path, base: str, then: str, path: str, now: str | None = None) -> bool:
+    """`path` at `now` (the working tree when None) is exactly the file at commit `then` with
+    the base branch's later changes merged in: replaying main's change from the old merge
+    base to the new one onto `then`'s version merges cleanly and gives the same blob.
+    Location-exact, so moving a reviewed line counts. False when no base merge happened in
+    between, when the file is missing on a side, or when the replay conflicts."""
+    mb_then = merge_base(root, base, then)
+    mb_now = merge_base(root, base, now or "HEAD")
+    if mb_then == mb_now:
+        return False
+    ours, old, theirs = (show_bytes(root, ref, "./" + path) for ref in (then, mb_then, mb_now))
+    if ours is None or old is None or theirs is None:
+        return False
+    if now is None:
+        # The blob the working-tree file would be stored as (git's own filters, such as autocrlf).
+        if not (root / path).is_file():
+            return False
+        current = git(root, "hash-object", "--", path).strip()
+    else:
+        current = git(root, "rev-parse", "--verify", "-q", f"{now}:./{path}", check=False).strip()
+        if not current:
+            return False
+    with tempfile.TemporaryDirectory() as d:
+        names = []
+        for name, data in (("ours", ours), ("old", old), ("theirs", theirs)):
+            (Path(d) / name).write_bytes(data)
+            names.append(str(Path(d) / name))
+        r = subprocess.run(["git", "merge-file", "-p", *names], cwd=root, capture_output=True)
+    if r.returncode != 0:
+        return False
+    merged = subprocess.run(["git", "hash-object", "--no-filters", "--stdin"], cwd=root,
+                            input=r.stdout, capture_output=True)
+    return merged.returncode == 0 and merged.stdout.decode().strip() == current
