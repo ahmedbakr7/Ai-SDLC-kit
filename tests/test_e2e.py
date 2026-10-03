@@ -148,6 +148,23 @@ class Conveyor(unittest.TestCase):
         code, out = p.sdlc("gate", "pr", "T-042-02", "--base", "main")
         self.assertEqual(code, 0, out)
 
+    def test_a_baseline_grown_after_review_voids_the_approval(self) -> None:
+        # CodeRabbit on kit #9: the approval allows a later baseline change because a prune only
+        # makes the gates stricter; an added entry hides a failure the review never saw.
+        p = self.p
+        p.write("sdlc-baseline.json", json.dumps({"version": 1, "checks": {"contracts": ["known"]}}) + "\n")
+        p.commit("lead: baseline")
+        self.assertEqual(p.sdlc("run", "build", "T-042-02", "--agent", "fake")[0], 0)
+        self.assertEqual(p.sdlc("run", "test", "T-042-02", "--agent", "fake")[0], 0)
+        self.assertEqual(p.sdlc("run", "review", "T-042-02", "--agent", "fake-reviewer")[0], 0)
+        p.write("sdlc-baseline.json",
+                json.dumps({"version": 1, "checks": {"contracts": ["known", "hidden"]}}) + "\n")
+        p.commit("baseline a new failure")
+        code, out = p.sdlc("status", "T-042-02", "done", "--as", "merge")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("changed after the reviewed commit", out)
+        self.assertIn("sdlc-baseline.json", out)
+
     def test_a_look_alike_of_the_review_file_is_a_change(self) -> None:
         # CodeRabbit on kit #8: paths were whitespace-stripped, so "reviews/T-042-02.md "
         # passed as the review file both scope and the approval check allow after review.

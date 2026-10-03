@@ -971,10 +971,14 @@ def _changed_after_review(cfg: Config, t: Ticket, commit: str, base: str | None 
     except gitutil.GitError:
         pass  # no base to compare with: every committed change after the review counts
     ev = cfg.data["paths"]["evidence"]
-    # The baseline only shrinks (`immutable`), so a prune after the review, such as one merged
-    # in from the base branch, makes the gates stricter and cannot void the approval.
-    ok = {f"{cfg.data['paths']['reviews']}/{t.id}.md", *(f"{ev}/{t.id}.{p}.json" for p in EVIDENCE_PLAYS),
-          cfg.rel(baseline.path(cfg.root, cfg.data["paths"]))}
+    ok = {f"{cfg.data['paths']['reviews']}/{t.id}.md", *(f"{ev}/{t.id}.{p}.json" for p in EVIDENCE_PLAYS)}
+    # A prune after the review, such as one merged in from the base branch, makes the gates
+    # stricter and cannot void the approval; an added entry hides a failure it never saw.
+    bl = baseline.path(cfg.root, cfg.data["paths"])
+    reviewed = gitutil.show(cfg.root, commit, "./" + cfg.rel(bl))
+    if reviewed is not None and bl.is_file() and not baseline.grown(
+            baseline.parse(reviewed), baseline.parse(bl.read_text(encoding="utf-8"))):
+        ok.add(cfg.rel(bl))
     rel = cfg.rel(t.path)
     late = [f for f in changed if f not in ok and not (f == rel and _status_change(cfg, commit, f))]
     return [f"changed after the reviewed commit {commit[:12]}: {f}" for f in late]
