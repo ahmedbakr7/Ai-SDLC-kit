@@ -17,6 +17,12 @@ def git(root: Path, *args: str, check: bool = True) -> str:
     return r.stdout
 
 
+def _paths(out: str) -> list[str]:
+    """Pathnames from NUL-delimited git output, verbatim: "a.md " is not "a.md", and
+    non-ASCII names are not quoted."""
+    return [n for n in out.split("\0") if n]
+
+
 def head(root: Path) -> str:
     return git(root, "rev-parse", "HEAD", check=False).strip() or "(no commits)"
 
@@ -38,9 +44,9 @@ def changed_files(root: Path, base: str) -> list[str]:
     mb = merge_base(root, base)
     # --relative / ls-files: paths relative to the product root, so a product nested
     # in a monorepo only sees (and is only judged on) its own files.
-    names = set(git(root, "diff", "--name-only", "--no-renames", "--relative", mb).split("\n"))
-    names |= set(git(root, "ls-files", "--others", "--exclude-standard").split("\n"))
-    return sorted(n.strip() for n in names if n.strip())
+    names = set(_paths(git(root, "diff", "--name-only", "-z", "--no-renames", "--relative", mb)))
+    names |= set(_paths(git(root, "ls-files", "--others", "--exclude-standard", "-z")))
+    return sorted(names)
 
 
 def is_ancestor(root: Path, older: str, newer: str) -> bool:
@@ -59,8 +65,13 @@ def show(root: Path, ref: str, path: str) -> str | None:
     return r.stdout if r.returncode == 0 else None
 
 
+def committed_between(root: Path, a: str, b: str = "HEAD") -> list[str]:
+    """Files whose committed content differs between `a` and `b` (untracked files excluded)."""
+    return sorted(_paths(git(root, "diff", "--name-only", "-z", "--no-renames", "--relative", a, b)))
+
+
 def changed_since(root: Path, ref: str) -> list[str]:
     """Files changed after commit `ref` (committed or not)."""
-    names = set(git(root, "diff", "--name-only", "--no-renames", "--relative", ref).splitlines())
-    names |= set(git(root, "ls-files", "--others", "--exclude-standard").splitlines())
-    return sorted(n.strip() for n in names if n.strip())
+    names = set(_paths(git(root, "diff", "--name-only", "-z", "--no-renames", "--relative", ref)))
+    names |= set(_paths(git(root, "ls-files", "--others", "--exclude-standard", "-z")))
+    return sorted(names)
