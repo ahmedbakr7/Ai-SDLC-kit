@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Callable
 
-from . import config, extract, fm, gitutil, lint, paths, tickets
+from . import baseline, config, extract, fm, gitutil, lint, paths, tickets
 from .artifacts import Repo, Ticket, normalize_path
 from .config import Config
 
@@ -53,6 +53,7 @@ class Check:
     details: list[str] = field(default_factory=list)
     ms: int = 0
     log: str = ""
+    known: list[str] = field(default_factory=list)  # baselined failures this run still has
 
 
 @dataclass
@@ -64,7 +65,8 @@ class TestCase:
 
 class Gate:
     def __init__(self, cfg: Config, play: str, ticket_id: str | None, base: str | None,
-                 only: list[str] | None = None, verbose: bool = False, since: str | None = None):
+                 only: list[str] | None = None, verbose: bool = False, since: str | None = None,
+                 ignore_baseline: bool = False):
         recover(cfg.root)  # before anything reads the tree
         self.base = base or cfg.section("vcs").get("base", "main")
         self.base_given = base is not None
@@ -91,6 +93,10 @@ class Gate:
         if since is None and self.ticket and play in ("test", "review"):
             since = _evidence_commit(cfg, self.ticket.id, ("build",) if play == "test" else EVIDENCE_PLAYS)
         self.since = since
+        # The branch's baseline; `immutable` proves it only shrinks against the base branch's.
+        bl = baseline.path(cfg.root, cfg.data["paths"])
+        self.baseline_rel = cfg.rel(bl)
+        self.baseline = {} if ignore_baseline or not bl.is_file() else baseline.parse(bl.read_text(encoding="utf-8"))
 
     # -- plumbing ---------------------------------------------------------
     def _trusted_config(self, cfg: Config) -> Config:
@@ -149,6 +155,7 @@ class Gate:
             else:
                 c.status, c.summary = "fail", f"unknown check {name!r}"
             c.ms = int((time.monotonic() - t0) * 1000)
+            self._apply_baseline(c)
             self.checks.append(c)
             if on_check:
                 on_check(c)
@@ -165,11 +172,48 @@ class Gate:
             "checks": [asdict(c) for c in self.checks],
             "ac": self.ac_matrix() if self.ticket else {},
             "config_note": self.config_note,
+            "baseline": self.baseline_rel if self.baseline else "",
         }
         if self.only:
             ev["partial"] = True  # a subset of the play's checks proves nothing about the play
         self.write_evidence(ev)
         return ev
+
+    def findings(self, c: Check) -> list[str]:
+        """Stable keys for what failed in `c` (sdlc-baseline.json entries)."""
+        if c.name in ("lint", "typecheck"):
+            log = self.cfg.root / c.log if c.log else None
+            keys = baseline.tool_findings(log.read_text(encoding="utf-8", errors="replace")) if log and log.is_file() else []
+        elif c.name in JUNIT_CHECKS:
+            keys = [tc.name for tc in self.testcases if tc.source == c.name and tc.status == "failed"]
+        elif c.name in COMMAND_CHECKS:
+            keys = []
+        else:
+            keys = baseline.detail_findings(c.details)
+        return keys or [baseline.whole(c.name)]
+
+    def _apply_baseline(self, c: Check) -> None:
+        """A check fails only on failures sdlc-baseline.json does not list. On the full scan
+        (gate ci), entries that stopped failing fail it too, so the baseline only shrinks."""
+        known = self.baseline.get(c.name, [])
+        if not known or c.name not in baseline.BASELINE_CHECKS or c.status == "skip":
+            return
+        now = self.findings(c) if c.status == "fail" else []
+        new, stale = baseline.compare(known, now)
+        if new:
+            c.status = "fail"
+            c.summary = f"{len(new)} new failure(s) not in {self.baseline_rel}; {c.summary}"
+            c.details = [f"new: {k}" for k in new] + c.details
+            return
+        if c.status == "fail":
+            c.status, c.known = "pass", now
+            c.summary = f"BASELINED: {len(now)} known failure(s) from {self.baseline_rel}, none new ({c.summary})"
+            c.details = [f"known: {k}" for k in now]
+        if stale and self.play == "ci" and not self.only:
+            c.status = "fail"
+            c.summary = (f"{len(stale)} baselined failure(s) no longer fail; run `sdlc baseline --prune` and "
+                         f"commit {self.baseline_rel} (it only shrinks)")
+            c.details = [f"fixed: {k}" for k in stale] + c.details
 
     def write_evidence(self, ev: dict) -> Path:
         name = f"{self.ticket.id}.{self.play}.json" if self.ticket else f"{self.play}.json"
@@ -209,7 +253,7 @@ class Gate:
         cfg, t = self.cfg, self.ticket
         paths = cfg.section("paths")
         globs = list(cfg.section("scope").get("always_allowed", []))
-        exact: set[str] = set()
+        exact: set[str] = {self.baseline_rel}  # any play may prune it; `immutable` refuses growth
         if not t:
             if self.play == "pr":
                 globs += lead_write_set(cfg)
@@ -679,11 +723,27 @@ class Gate:
                     what = "removed" if ac not in new_acs else "reworded"
                     problems.append(f"{rel}: {ac} {what}, but none of its requirements "
                                     f"({', '.join(cited) or 'none'}) changed in {spec or 'its source_spec'}")
+        problems += self._baseline_growth(mb, changed)
         c.details = problems
         if problems:
             c.status, c.summary = "fail", f"{len(problems)} immutable artifact(s) changed"
         else:
-            c.summary = "no accepted ADR edited, no AC weakened"
+            c.summary = "no accepted ADR edited, no AC weakened, baseline not grown"
+
+    def _baseline_growth(self, mb: str, changed: set[str]) -> list[str]:
+        """sdlc-baseline.json only shrinks: a change may drop entries, never add one, or a
+        branch could baseline its own new failure. Only the lead creates it, once."""
+        rel = self.baseline_rel
+        if rel not in changed:
+            return []
+        f = self.cfg.root / rel
+        branch = baseline.parse(f.read_text(encoding="utf-8")) if f.is_file() else {}
+        before = gitutil.show(self.cfg.root, mb, "./" + rel)
+        if before is None:
+            if self.ticket:
+                return [f"{rel}: created by a ticket; only the lead adds the baseline (`sdlc baseline` in a lead PR)"]
+            return []
+        return [f"{rel}: may only shrink, but adds {e}" for e in baseline.grown(baseline.parse(before), branch)]
 
     def check_skills(self, c: Check) -> None:
         from . import skills
@@ -781,7 +841,8 @@ def lead_write_set(cfg: Config) -> list[str]:
 
     p = cfg.data["paths"]
     out = [f"{p[k]}/**" for k in ("intent", "design", "arch", "decisions", "tickets", "ops", "skills")]
-    out += [p["contracts"], p["skills_lock"], config.CONFIG_NAME, "AGENTS.md", *adapters.files(cfg)]
+    out += [p["contracts"], p["skills_lock"], p.get("baseline", "sdlc-baseline.json"), config.CONFIG_NAME,
+            "AGENTS.md", *adapters.files(cfg)]
     return out + list(cfg.section("scope").get("lead_allowed", []))
 
 

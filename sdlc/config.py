@@ -29,6 +29,7 @@ DEFAULTS: dict[str, Any] = {
         "ops": "ops",
         "skills": "skills",
         "skills_lock": "skills.lock.json",
+        "baseline": "sdlc-baseline.json",   # known failures a red base branch started with
     },
     # Shell commands. Placeholders: {junit} (JUnit XML output path), {port}, {base_url}.
     "commands": {},

@@ -44,6 +44,13 @@ pass without checking anything:
 An existing codebase over the duplication threshold: set `--threshold` in `commands.duplication`
 to today's level and lower it as clones are removed, so new copies fail from the first PR.
 
+An existing codebase whose main is already red: run `sdlc baseline` and commit
+`sdlc-baseline.json` in a lead PR. Every gate then fails only on failures it does not list
+(type errors keyed `file: code`, failing tests by name, other findings without line
+numbers). The file only shrinks: `immutable` refuses added entries, a ticket may not create
+it, and `gate ci` fails until fixed entries are removed with `sdlc baseline --prune`. Scope,
+immutable, review-file, skills and ac-red are never baselined.
+
 Commit, then mark the `gate` job required in branch protection.
 
 ## 3. Run the pipeline
