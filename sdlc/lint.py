@@ -165,7 +165,14 @@ def lint_ticket(repo: Repo, t: Ticket, reqs: dict) -> list[Issue]:
                 "real-stack proof from the test play")
     if t.status == "blocked" and not str(d.get("blocked_by", "")).strip():
         err("status blocked needs a non-empty blocked_by")
-    if t.status == "done":
+    legacy = d.get("legacy")
+    if legacy is not None:
+        if str(legacy) != "v0":
+            err(f"legacy must be v0, got {legacy!r}")
+        elif t.status != "done":
+            err("legacy: v0 is only for a ticket that shipped (status: done) under kit v0")
+    shipped_v0 = legacy is not None and str(legacy) == "v0" and t.status == "done"
+    if t.status == "done" and not shipped_v0:
         # `sdlc status ... done` enforces this; a hand-edited status must not skip it.
         try:
             rv = repo.review_for(t.id)
@@ -190,7 +197,7 @@ def lint_ticket(repo: Repo, t: Ticket, reqs: dict) -> list[Issue]:
             err(f"files: entry must be a repo-relative posix path ({f})")
     if len(set(files)) != len(files):
         err("files: has duplicates")
-    if len(files) > MAX_FILES:
+    if len(files) > MAX_FILES and not shipped_v0:
         err(f"{len(files)} files > {MAX_FILES}; split the ticket")
 
     acs = t.acs
@@ -206,7 +213,7 @@ def lint_ticket(repo: Repo, t: Ticket, reqs: dict) -> list[Issue]:
         seen.add(ac)
         if len(text) < 12:
             err(f"{ac} is too short to be testable: {text!r}")
-    if len(acs) > MAX_ACS:
+    if len(acs) > MAX_ACS and not shipped_v0:
         err(f"{len(acs)} acceptance criteria > {MAX_ACS}; split the ticket")
 
     if not t.requirements and t.type not in ("chore", "ops"):

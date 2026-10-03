@@ -8,7 +8,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from . import __version__, adapters, config, lint, prompt, skills, tickets, trace
+from . import __version__, adapters, config, fm, lint, prompt, skills, tickets, trace
 from .artifacts import Repo
 
 EXIT_FAIL = 1
@@ -156,11 +156,23 @@ def cmd_adapters(args) -> int:
 def cmd_migrate(args) -> int:
     cfg = _cfg(args)
     total = 0
-    for t in Repo(cfg).tickets.values():
+    repo = Repo(cfg)
+    for t in repo.tickets.values():
         n = tickets.migrate_acs(t.path)
         if n:
             print(f"{cfg.rel(t.path)}: numbered {n} acceptance criteria")
         total += n
+        # Shipped under v0 (no v1 review): exempt from the v1 review and size rules only.
+        try:
+            reviewed = repo.review_for(t.id) is not None
+        except fm.ParseError:
+            reviewed = True  # a malformed v1 review is lint's to report, not a v0 ticket
+        if t.status == "done" and not reviewed:
+            text = t.path.read_bytes().decode("utf-8")
+            marked = tickets.mark_legacy_text(text)
+            if marked != text:
+                t.path.write_text(marked, encoding="utf-8", newline="")
+                print(f"{cfg.rel(t.path)}: marked legacy: v0 (shipped without a v1 review)")
     print(f"{total} acceptance criteria numbered. Tests must now carry tags like T-001-01/AC-1.")
     return 0
 
@@ -296,6 +308,13 @@ def cmd_doctor(args) -> int:
         missing = _unresolvable(cfg.root, cfg.commands[name])
         if missing:
             probs.append(f"commands.{name}: {missing}; the check would fail (or never run) as configured")
+    from .gate import real_stack_suites
+
+    suites = real_stack_suites(cfg)
+    if suites and not any(cfg.commands.get(k) for k in suites):
+        probs.append(f"no real-stack suite: tests.real_stack is {', '.join(suites)}, but "
+                     f"commands.{'/'.join(suites)} is not set; routes and pages are never proven over the "
+                     "real stack. Configure one, or set tests.real_stack = [] to accept unit-only proof")
     if "contracts" in required and not cfg.section("routes").get("extractor"):
         probs.append("routes.extractor is not set; contract drift cannot be checked")
     if not cfg.section("tests").get("globs"):

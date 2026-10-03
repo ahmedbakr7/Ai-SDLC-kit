@@ -90,6 +90,21 @@ class NextjsTestForbid(unittest.TestCase):
         prof = tomllib.loads((helpers.KIT / "profiles" / "nextjs.toml").read_text(encoding="utf-8"))
         return any(re.search(r["regex"], src, re.M) for r in prof["tests"]["forbid"])
 
+    def test_duplication_scans_production_code_only(self) -> None:
+        import shlex
+        import tomllib
+
+        prof = tomllib.loads((helpers.KIT / "profiles" / "nextjs.toml").read_text(encoding="utf-8"))
+        words = shlex.split(prof["commands"]["duplication"])
+        # Hangout pilot: --exitCode 1 fails on any clone at all, so --threshold never decided.
+        self.assertNotIn("--exitCode", words)
+        self.assertIn("--threshold", words)
+        ignored = words[words.index("--ignore") + 1].split(",")
+        for g in prof["tests"]["globs"]:
+            if g.startswith("**/*."):  # unit test files live beside the code jscpd scans
+                with self.subTest(glob=g):
+                    self.assertTrue(any(paths.match(g.replace("**/*.", "src/x."), i) for i in ignored), g)
+
     def test_source_reads_are_flagged(self) -> None:
         for src in ('const panel = readFileSync(join(root, "src/components/join-panel.tsx"), "utf8");',
                     'const page = readFileSync(\n  join(root, "src/app/join/[token]/page.tsx"),\n  "utf8",\n);',
@@ -147,6 +162,54 @@ class Lint(unittest.TestCase):
     def test_example_is_clean(self) -> None:
         issues = lint_repo(Repo(config.load(helpers.EXAMPLE)))
         self.assertEqual([str(i) for i in issues], [])
+
+    def test_legacy_v0_ticket_skips_v1_review_and_size_rules_only(self) -> None:
+        # Hangout pilot: 30 tickets shipped under kit v0 (reviews/pr-N.md) failed lint for
+        # lacking a v1 review and for v1 size limits. `legacy: v0` exempts exactly those.
+        p = helpers.ProductRepo()
+        try:
+            rel = "tickets/T-042-01-returns-api.md"
+            (p.root / "reviews" / "T-042-01.md").unlink()
+            extra = "".join(f'  - "AC-{n}: the order list answers case {n} as documented"\n' for n in range(5, 10))
+            lines = p.read(rel).split("\n")
+            i = max(k for k, ln in enumerate(lines) if ln.startswith('  - "AC-'))
+            lines[i + 1:i + 1] = extra.rstrip("\n").split("\n")
+            p.write(rel, "\n".join(lines))
+            msgs = "\n".join(str(i) for i in lint_repo(Repo(config.load(p.root))))
+            self.assertIn("status done needs reviews/T-042-01.md", msgs)
+            self.assertIn("acceptance criteria > 8", msgs)
+            p.write(rel, p.read(rel).replace("status: done\n", "status: done\nlegacy: v0\n", 1))
+            msgs = "\n".join(str(i) for i in lint_repo(Repo(config.load(p.root))))
+            self.assertNotIn("T-042-01", msgs)
+            # Only shipped tickets, and only the v0 marker.
+            p.write(rel, p.read(rel).replace("status: done\n", "status: ready\n", 1))
+            msgs = "\n".join(str(i) for i in lint_repo(Repo(config.load(p.root))))
+            self.assertIn("legacy: v0 is only for a ticket that shipped (status: done) under kit v0", msgs)
+            p.write(rel, p.read(rel).replace("status: ready\nlegacy: v0", "status: done\nlegacy: yes", 1))
+            msgs = "\n".join(str(i) for i in lint_repo(Repo(config.load(p.root))))
+            self.assertIn("legacy must be v0, got 'yes'", msgs)
+        finally:
+            p.close()
+
+    def test_migrate_marks_done_tickets_without_a_v1_review_legacy(self) -> None:
+        from sdlc import cli
+
+        p = helpers.ProductRepo()
+        try:
+            (p.root / "reviews" / "T-042-01.md").unlink()
+            import contextlib
+            import io
+
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(cli.main(["--root", str(p.root), "migrate"]), 0)
+            self.assertIn("tickets/T-042-01-returns-api.md: marked legacy: v0", out.getvalue())
+            self.assertIn("status: done\nlegacy: v0\n", p.read("tickets/T-042-01-returns-api.md"))
+            self.assertNotIn("legacy", p.read("tickets/T-042-02-order-page.md"))  # not done
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                cli.main(["--root", str(p.root), "migrate"])  # idempotent
+            self.assertNotIn("marked", out.getvalue())
+        finally:
+            p.close()
 
     def test_ticket_errors(self) -> None:
         p = helpers.ProductRepo()

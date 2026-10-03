@@ -31,8 +31,14 @@ pass without checking anything:
 - every required command is set (`lint`, `typecheck`, `unit`, `build`, `start`);
 - test commands write JUnit to `{junit}` (vitest: `--reporter=junit --outputFile.junit={junit}`,
   jest: `jest-junit`, pytest: `--junitxml={junit}`, Playwright: `PLAYWRIGHT_JUNIT_OUTPUT_NAME={junit}` with the `junit` reporter);
+- a real-stack suite runs (`tests.real_stack`: integration or e2e; nextjs: e2e, because Vitest
+  integration tests call handlers in-process), or the lead sets `tests.real_stack = []` to accept
+  unit-only proof;
 - a route extractor is configured (`nextjs-app`, which also reports pages, or `command` printing
   `METHOD /path` lines and, optionally, `PAGE /path` lines for server-rendered pages).
+
+An existing codebase over the duplication threshold: set `--threshold` in `commands.duplication`
+to today's level and lower it as clones are removed, so new copies fail from the first PR.
 
 Commit, then mark the `gate` job required in branch protection.
 

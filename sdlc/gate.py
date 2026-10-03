@@ -327,9 +327,13 @@ class Gate:
                 if k not in code and self.play in ("build", "test", "ci"):
                     details.append(f"{self.ticket.id} owns {k} but no handler exists")
         paths = {r.path for r in contracts.routes}
-        stray = [(f, ln, p) for f, ln, p in extract.client_calls(self.cfg) if not extract.path_matches(p, paths)]
-        for f, ln, p in stray:
-            details.append(f"client calls {p} at {f}:{ln}, which no contract route serves")
+        built = {k.split(" ", 1)[1] for k in code}
+        for f, ln, p in extract.client_calls(self.cfg):
+            if not extract.path_matches(p, paths):
+                details.append(f"client calls {p} at {f}:{ln}, which no contract route serves")
+            elif not extract.path_matches(p, built):
+                # Matching the contract is not enough: the call fails unless a route serves it.
+                details.append(f"client calls {p} at {f}:{ln}; CONTRACTS declares it, but no built route serves it")
         unimpl = sorted(declared - set(code))
         c.details = details
         if details:
@@ -431,26 +435,29 @@ class Gate:
                          f"it('{next(iter(bad))} ...')")
         else:
             c.summary = f"all {len(matrix)} AC of {len(targets)} ticket(s) proven by passing tests"
-        if self.play == "test" and self.ticket:
+        suites = real_stack_suites(self.cfg)
+        names = "/".join(suites)
+        if self.play == "test" and self.ticket and suites:
             # The test play exists to prove AC through the real stack; unit proof alone is the build's.
             if not self._real_stack_proof(self.ticket.id):
                 c.status = "fail"
-                c.summary = (f"no passing integration/e2e test carries a {self.ticket.id}/AC-n tag; "
+                c.summary = (f"no passing {names} test carries a {self.ticket.id}/AC-n tag; "
                              "the test play must prove AC through the real stack")
-        elif not self.ticket and any(self.cfg.commands.get(k) for k in ("integration", "e2e")):
+        elif not self.ticket and suites:
             # Approval needs test evidence, but evidence is a file the ticket PR wrote. CI
             # re-proves what it claims: every done ticket has a passing real-stack test.
             unproven = [t.id for t in targets
                         if t.status == "done" and t.test_play and not self._real_stack_proof(t.id)]
             if unproven:
                 c.status = "fail"
-                c.details += [f"{tid}: done, but no passing integration/e2e test carries its tag" for tid in unproven]
+                c.details += [f"{tid}: done, but no passing {names} test carries its tag" for tid in unproven]
                 c.summary = (f"{len(unproven)} done ticket(s) without real-stack proof: {', '.join(unproven)}; "
                              "run their test play")
 
     def _real_stack_proof(self, tid: str) -> bool:
         tag = re.compile(re.escape(tid) + r"/AC-\d")
-        return any(tc.source != "unit" and tc.status == "passed" and tag.search(tc.name) for tc in self.testcases)
+        suites = real_stack_suites(self.cfg)
+        return any(tc.source in suites and tc.status == "passed" and tag.search(tc.name) for tc in self.testcases)
 
     def check_ac_red(self, c: Check) -> None:
         """Each AC needs a tagged test that fails without the ticket's code. The unit command
@@ -778,6 +785,11 @@ def lead_write_set(cfg: Config) -> list[str]:
     return out + list(cfg.section("scope").get("lead_allowed", []))
 
 
+def real_stack_suites(cfg: Config) -> list[str]:
+    """Test suites whose tagged tests prove a ticket through the real stack (tests.real_stack)."""
+    return [s for s in cfg.section("tests").get("real_stack", ["integration", "e2e"]) if s in ("integration", "e2e")]
+
+
 def pr_tickets(cfg: Config, base: str) -> list[str]:
     """Tickets a branch moves: in progress or later, with their ticket, evidence or review
     file changed against the base. `gate pr` without an id judges the one it finds."""
@@ -790,11 +802,12 @@ def pr_tickets(cfg: Config, base: str) -> list[str]:
         m = re.search(r"(?:^|/)(T-\d+-\d+)[^/]*$", f)
         if m and any(f.startswith(d.rstrip("/") + "/") for d in dirs):
             if f.startswith(p["tickets"].rstrip("/") + "/") and (cfg.root / f).is_file():
-                # `sdlc migrate` numbering the AC is a lead change, not a move of the ticket.
+                # `sdlc migrate` (numbering the AC, marking legacy: v0) is a lead change, not a move.
                 mb = mb or gitutil.merge_base(cfg.root, base)
                 old = (gitutil.show(cfg.root, mb, "./" + f) or "").replace("\r\n", "\n")
                 new = (cfg.root / f).read_bytes().decode("utf-8", "replace").replace("\r\n", "\n")
-                if old and old != new and tickets.migrate_acs_text(old, f)[0] == new:
+                numbered = tickets.migrate_acs_text(old, f)[0] if old else ""
+                if old and old != new and new in (numbered, tickets.mark_legacy_text(numbered)):
                     continue
             ids.add(m.group(1))
     live = ("in_progress", "in_review", "done")
@@ -834,7 +847,12 @@ def _evidence_problems(cfg: Config, t: Ticket, commit: str) -> list[str]:
     # Unit tests run on stubs; the test play is the only proof through the real stack, so a
     # product that has one cannot skip it (gate test fails without a tagged integration test).
     # A lead may mark a ticket `test: none` (lint refuses it for tickets serving routes/pages).
-    real_stack = [k for k in ("integration", "e2e") if cfg.commands.get(k)] if t.test_play else []
+    suites = real_stack_suites(cfg) if t.test_play else []
+    real_stack = [k for k in suites if cfg.commands.get(k)]
+    if suites and not real_stack:
+        out.append(f"no real-stack suite is configured (tests.real_stack: {', '.join(suites)}): nothing can prove "
+                   f"{t.id} through the real stack; configure one, or the lead sets tests.real_stack = [] "
+                   "to accept unit-only proof")
     for play in EVIDENCE_PLAYS:
         p = cfg.path("evidence") / f"{t.id}.{play}.json"
         if not p.is_file():

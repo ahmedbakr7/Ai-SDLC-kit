@@ -25,7 +25,7 @@ the model and into one command:
 | `immutable` | an accepted ADR was edited, or an acceptance criterion was weakened without its spec |
 | `contracts` | the code exposes a route, page or table (`[tables] patterns`, Drizzle in the `nextjs` profile) CONTRACTS does not declare, or UI code calls a path no route serves |
 | `lint` `typecheck` `unit` `integration` `e2e` `build` | the product's real command exits non-zero, **is not configured**, or **ran zero tests** |
-| `ac-coverage` | an acceptance criterion has no passing test tagged `T-001-03/AC-2` in the JUnit output; in `gate ci`, for every ticket in review or done; in `gate test`, no integration/e2e test proves any of the ticket's AC |
+| `ac-coverage` | an acceptance criterion has no passing test tagged `T-001-03/AC-2` in the JUnit output; in `gate ci`, for every ticket in review or done; in `gate test`, no test from a `tests.real_stack` suite (nextjs: e2e) proves any of the ticket's AC |
 | `ac-red` | with the ticket's production files reverted to the base branch, every tagged test of some AC still passes: the test does not depend on the work (`expect(true)`, re-testing old behaviour) |
 | `test-quality` | tests are skipped/focused or assert on source text instead of behaviour |
 | `smoke` | the started app does not serve every contract route and page (`app.mutating_probe = "options"` checks writes via the `Allow` header instead of sending them; the `nextjs` profile sets it) |

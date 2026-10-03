@@ -101,6 +101,21 @@ class GateCatches(unittest.TestCase):
         self.assertEqual(c["status"], "fail")
         self.assertIn("client calls /v1/orders/{}/returns at app/static/app.js:1", "\n".join(c["details"]))
 
+    def test_client_calls_a_contract_path_no_built_route_serves(self) -> None:
+        # Hangout pilot: the UI fetched /v1/... as CONTRACTS said, but the handlers were served
+        # at /api/v1/...; the client check compared UI calls with CONTRACTS only, so it was silent.
+        self.p.write("app/static/app.js", 'export const load = (id) => fetch(`/api/orders/${id}/returns`);\n')
+        with open(self.p.root / "sdlc.toml", "a", encoding="utf-8") as f:
+            f.write('\n[client]\npatterns = [\'\'\'fetch\\(\\s*[`"\'](?P<path>/[^`"\'\\s?#]*)\'\'\']\n'
+                    'globs = ["app/static/**"]\nprefix = "/"\n')
+        c = self.gate("ci", "contracts", ticket=None)["contracts"]
+        self.assertEqual(c["status"], "pass", c)  # declared and built: the call is served
+        self.p.write("app/server.py", self.p.read("app/server.py").replace(
+            '"/api/orders/{id}/returns"', '"/api/v1/orders/{id}/returns"'))
+        c = self.gate("ci", "contracts", ticket=None)["contracts"]
+        self.assertIn("client calls /api/orders/{}/returns at app/static/app.js:1; CONTRACTS declares it, "
+                      "but no built route serves it", c["details"])
+
     def test_smoke_fails_when_a_contract_page_is_not_served(self) -> None:
         # T-042-02 is in progress, so its page must answer; the page is not built yet.
         c = self.gate("build", "smoke")["smoke"]
@@ -318,6 +333,24 @@ class GateCatches(unittest.TestCase):
         self.code, self.out = self.p.sdlc("gate", "pr", "--base", "main")
         self.assertIn("gate pr: ticket T-042-01", self.out)
 
+    def test_migrate_pr_that_marks_legacy_moves_no_ticket(self) -> None:
+        # The v0 ticket shipped without a v1 review: migrate numbers its AC and marks it legacy.
+        import re
+
+        from helpers import git
+
+        rel = "tickets/T-042-01-returns-api.md"
+        self.p.write(rel, re.sub(r'"AC-\d+: ', '"', self.p.read(rel)))
+        (self.p.root / "reviews" / "T-042-01.md").unlink()
+        self.p.commit("a v0 ticket shipped without a v1 review")
+        git(self.p.root, "checkout", "-q", "-b", "lead/migrate")
+        code, out = self.p.sdlc("migrate")
+        self.assertIn("marked legacy: v0", out)
+        self.p.commit("sdlc migrate")
+        self.code, self.out = self.p.sdlc("gate", "pr", "--base", "main")
+        self.assertIn("gate pr: no ticket moves on this branch; judging it as a lead PR", self.out)
+        self.assertEqual(self.code, 0, self.out)
+
     def test_lead_pr_with_only_lead_artifacts_passes(self) -> None:
         from helpers import git
 
@@ -406,13 +439,35 @@ class GateCatches(unittest.TestCase):
             'integration = "python tools/junit.py --start tests --out {junit}"', 'integration = ""'))
         self.assertEqual(self.gate("review", "review-file")["review-file"]["status"], "fail")
 
-    def test_approval_without_a_test_play_when_there_is_no_real_stack_suite(self) -> None:
+    def test_approval_without_a_test_play_only_when_the_lead_accepts_unit_proof(self) -> None:
+        # No real-stack suite is not a free pass: the lead must say so (tests.real_stack = []).
         self.lead_config('integration = "python tools/junit.py --start tests --out {junit}"', 'integration = ""')
         build = self.build_and_commit()
         review = (FIXTURES_DIR / "solutions" / "review-T-042-02" / "reviews" / "T-042-02.md").read_text(encoding="utf-8")
         self.p.write("reviews/T-042-02.md", review.replace("{commit}", build))
         c = self.gate("review", "review-file")["review-file"]
+        self.assertEqual(c["status"], "fail", c)
+        self.assertIn("no real-stack suite is configured (tests.real_stack: integration, e2e)", "\n".join(c["details"]))
+
+    def test_approval_without_a_test_play_when_the_lead_sets_real_stack_empty(self) -> None:
+        self.lead_config('integration = "python tools/junit.py --start tests --out {junit}"', 'integration = ""')
+        self.lead_config("[tests]\n", "[tests]\nreal_stack = []\n")
+        build = self.build_and_commit()
+        review = (FIXTURES_DIR / "solutions" / "review-T-042-02" / "reviews" / "T-042-02.md").read_text(encoding="utf-8")
+        self.p.write("reviews/T-042-02.md", review.replace("{commit}", build))
+        c = self.gate("review", "review-file")["review-file"]
         self.assertEqual(c["status"], "pass", c)
+
+    def test_only_the_suites_in_real_stack_prove_the_test_play(self) -> None:
+        # Hangout pilot: vitest "integration" tests called route handlers in-process under
+        # jsdom, never over HTTP, yet counted as real-stack proof. The nextjs profile names e2e.
+        self.lead_config("[tests]\n", '[tests]\nreal_stack = ["e2e"]\n')
+        self.build_and_commit()
+        self.apply_solution("test-T-042-02")
+        self.p.commit("test T-042-02")
+        c = self.gate("test", "unit", "integration", "ac-coverage")["ac-coverage"]
+        self.assertEqual(c["status"], "fail", c)
+        self.assertIn("no passing e2e test carries a T-042-02/AC-n tag", c["summary"])
 
     def test_lead_may_mark_a_ticket_test_none(self) -> None:
         ticket = "tickets/T-042-02-order-page.md"
