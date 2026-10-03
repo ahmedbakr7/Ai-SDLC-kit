@@ -56,6 +56,8 @@ class KitConsistency(unittest.TestCase):
         self.assertIn("submodules: true", wf)
         # upload-artifact v4 skips dot-folders unless told otherwise: .sdlc-run/ was never uploaded.
         self.assertIn("include-hidden-files: true", wf)
+        self.assertIn("if: ${{ !cancelled() }}", wf)
+        self.assertIn("github.event_name == 'pull_request' && !cancelled()", wf)
 
     def test_docs_only_mention_real_subcommands(self) -> None:
         sub = set(cli.build_parser()._subparsers._group_actions[0].choices)
