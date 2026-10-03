@@ -162,6 +162,24 @@ class Conveyor(unittest.TestCase):
         self.assertIn("changed after the reviewed commit", out)
         self.assertIn("app/server.py", out)
 
+    def test_approval_does_not_cover_an_approved_line_moved_after_a_base_merge(self) -> None:
+        # CodeRabbit on kit #10: a patch id ignores line numbers, so after a base merge the
+        # reviewed added line, moved elsewhere in the file, compared equal and kept the approval.
+        p = self.p
+        self.assertEqual(p.sdlc("run", "build", "T-042-02", "--agent", "fake")[0], 0)
+        self.assertEqual(p.sdlc("run", "test", "T-042-02", "--agent", "fake")[0], 0)
+        self.assertEqual(p.sdlc("run", "review", "T-042-02", "--agent", "fake-reviewer")[0], 0)
+        self._main_edits_the_end_of_server_py()
+        api = '    ("api", "GET", "/api/orders/{id}/returns", get_returns),\n'
+        page = '    ("page", "GET", "/orders/{id}", get_order_page),\n'
+        text = p.read("app/server.py")
+        self.assertIn(api + page, text)
+        p.write("app/server.py", text.replace(api + page, page + api))
+        p.commit("move the approved route line")
+        code, out = p.sdlc("status", "T-042-02", "done", "--as", "merge")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("app/server.py", out)
+
     def test_a_baseline_prune_after_review_keeps_the_approval(self) -> None:
         # Hangout #59: the ticket pruned its own baseline entry, main pruned another after the
         # review, and merging main voided the approval. A baseline only shrinks, so a later
