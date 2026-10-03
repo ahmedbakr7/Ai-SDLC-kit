@@ -31,9 +31,9 @@ def is_dirty(root: Path) -> bool:
     return bool(git(root, "status", "--porcelain", check=False).strip())
 
 
-def merge_base(root: Path, base: str) -> str:
-    for ref in (base, f"origin/{base}"):
-        out = git(root, "merge-base", "HEAD", ref, check=False).strip()
+def merge_base(root: Path, base: str, ref: str = "HEAD") -> str:
+    for b in (base, f"origin/{base}"):
+        out = git(root, "merge-base", ref, b, check=False).strip()
         if out:
             return out
     raise GitError(f"cannot find merge base with {base!r} (fetch it, or pass --base)")
@@ -70,8 +70,36 @@ def committed_between(root: Path, a: str, b: str = "HEAD") -> list[str]:
     return sorted(_paths(git(root, "diff", "--name-only", "-z", "--no-renames", "--relative", a, b)))
 
 
+def untracked(root: Path) -> list[str]:
+    return _paths(git(root, "ls-files", "--others", "--exclude-standard", "-z"))
+
+
 def changed_since(root: Path, ref: str) -> list[str]:
     """Files changed after commit `ref` (committed or not)."""
     names = set(_paths(git(root, "diff", "--name-only", "-z", "--no-renames", "--relative", ref)))
-    names |= set(_paths(git(root, "ls-files", "--others", "--exclude-standard", "-z")))
+    names |= set(untracked(root))
     return sorted(names)
+
+
+def branch_patch(root: Path, mb: str, path: str, ref: str | None = None) -> str:
+    """What the branch changes in `path` against merge base `mb`, at `ref` (the working tree
+    when None), as a patch id: line numbers and context are ignored, so the same change
+    reads the same after the base branch edited another part of the file."""
+    diff = git(root, "diff", "-U0", "--no-renames", "--no-ext-diff", "--binary", "--relative", mb,
+               *([ref] if ref else []), "--", path)
+    if not diff:
+        return ""
+    r = subprocess.run(["git", "patch-id", "--stable"], cwd=root, input=diff, capture_output=True,
+                       text=True, encoding="utf-8", errors="replace")
+    return r.stdout.split(" ", 1)[0] if r.returncode == 0 else diff
+
+
+def same_branch_change(root: Path, base: str, then: str, path: str, now: str | None = None) -> bool:
+    """`path` carries the same branch change at `now` (the working tree when None) as at
+    commit `then`, measured against each one's merge base with `base`: whatever else changed
+    in it came in from the base branch. False when no base merge happened in between."""
+    mb_then = merge_base(root, base, then)
+    mb_now = merge_base(root, base, now or "HEAD")
+    if mb_then == mb_now:
+        return False
+    return branch_patch(root, mb_then, path, then) == branch_patch(root, mb_now, path, now)

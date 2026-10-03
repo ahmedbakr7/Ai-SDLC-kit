@@ -118,6 +118,50 @@ class Conveyor(unittest.TestCase):
         self.assertEqual(code, 0, out)
         self.assertNotIn("docs/elsewhere.md", out)
 
+    def _main_edits_the_end_of_server_py(self) -> None:
+        # main changes another hunk of a file the build also changed
+        p = self.p
+        branch = git(p.root, "rev-parse", "--abbrev-ref", "HEAD").strip()
+        git(p.root, "checkout", "-q", "main")
+        p.write("app/server.py", p.read("app/server.py") + "# a lead note at the end\n")
+        p.commit("main edits server.py")
+        git(p.root, "checkout", "-q", branch)
+        git(p.root, "merge", "-q", "--no-edit", "main")
+
+    def test_test_play_scope_ignores_main_s_hunk_of_a_shared_file(self) -> None:
+        # CodeRabbit on Hangout #61: the base-branch filter compared paths, so main's edit to
+        # another hunk of a file the build changed still counted as the test play's change.
+        p = self.p
+        self.assertEqual(p.sdlc("run", "build", "T-042-02", "--agent", "fake")[0], 0)
+        self._main_edits_the_end_of_server_py()
+        code, out = p.sdlc("gate", "test", "T-042-02", "--only", "scope", "--base", "main")
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("app/server.py", out)
+
+    def test_approval_ignores_main_s_hunk_of_a_shared_file(self) -> None:
+        p = self.p
+        self.assertEqual(p.sdlc("run", "build", "T-042-02", "--agent", "fake")[0], 0)
+        self.assertEqual(p.sdlc("run", "test", "T-042-02", "--agent", "fake")[0], 0)
+        self.assertEqual(p.sdlc("run", "review", "T-042-02", "--agent", "fake-reviewer")[0], 0)
+        self._main_edits_the_end_of_server_py()
+        code, out = p.sdlc("status", "T-042-02", "done", "--as", "merge")
+        self.assertEqual(code, 0, out)
+
+    def test_approval_does_not_cover_a_branch_edit_to_a_file_main_also_changed(self) -> None:
+        # The reference: the branch's own change to that file after the review still counts.
+        p = self.p
+        self.assertEqual(p.sdlc("run", "build", "T-042-02", "--agent", "fake")[0], 0)
+        self.assertEqual(p.sdlc("run", "test", "T-042-02", "--agent", "fake")[0], 0)
+        self.assertEqual(p.sdlc("run", "review", "T-042-02", "--agent", "fake-reviewer")[0], 0)
+        self._main_edits_the_end_of_server_py()
+        p.write("app/server.py", p.read("app/server.py").replace("from app import pages, returns",
+                                                                  "from app import pages, returns  # late"))
+        p.commit("late branch edit")
+        code, out = p.sdlc("status", "T-042-02", "done", "--as", "merge")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("changed after the reviewed commit", out)
+        self.assertIn("app/server.py", out)
+
     def test_a_baseline_prune_after_review_keeps_the_approval(self) -> None:
         # Hangout #59: the ticket pruned its own baseline entry, main pruned another after the
         # review, and merging main voided the approval. A baseline only shrinks, so a later
