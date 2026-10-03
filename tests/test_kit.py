@@ -47,6 +47,18 @@ class KitConsistency(unittest.TestCase):
                 mode = git(KIT, "ls-files", "-s", "--", rel).split()[0]
                 self.assertEqual(mode, "100755", f"{rel}: git update-index --chmod=+x {rel}")
 
+    def test_ci_workflow_can_clone_a_private_kit_without_leaking_the_token(self) -> None:
+        # Hangout pilot: github.token reads only the product repo, so checkout of a private
+        # .sdlc submodule failed with "repository not found" and the gate never ran.
+        wf = (KIT / "adapters" / "github" / "sdlc.yml").read_text(encoding="utf-8")
+        self.assertIn("token: ${{ secrets.SDLC_KIT_TOKEN || github.token }}", wf)
+        self.assertIn("persist-credentials: false", wf)
+        self.assertIn("submodules: true", wf)
+        # upload-artifact v4 skips dot-folders unless told otherwise: .sdlc-run/ was never uploaded.
+        self.assertIn("include-hidden-files: true", wf)
+        self.assertIn("if: ${{ !cancelled() }}", wf)
+        self.assertIn("github.event_name == 'pull_request' && !cancelled()", wf)
+
     def test_docs_only_mention_real_subcommands(self) -> None:
         sub = set(cli.build_parser()._subparsers._group_actions[0].choices)
         for md in [*KIT.glob("*.md"), *KIT.glob("adapters/*.md"), *KIT.glob("skills/**/*.md"),

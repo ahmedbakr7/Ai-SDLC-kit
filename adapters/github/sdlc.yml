@@ -16,6 +16,10 @@ jobs:
         with:
           submodules: true
           fetch-depth: 0          # the gate diffs against the base branch
+          # A private kit repo cannot be cloned with github.token (it reads this repo only).
+          # Add a SDLC_KIT_TOKEN secret: fine-grained token, Contents read on this repo and the kit.
+          token: ${{ secrets.SDLC_KIT_TOKEN || github.token }}
+          persist-credentials: false   # keep the token out of .git/config for later steps
 
       - uses: actions/setup-python@v5
         with:
@@ -33,6 +37,7 @@ jobs:
         run: .sdlc/bin/sdlc gate ci --base origin/${{ github.base_ref || 'main' }}
 
       - name: Trace (requirements -> tickets -> proven AC)
+        if: ${{ !cancelled() }}   # still report the trace when gate ci is red
         run: .sdlc/bin/sdlc trace
 
       # Every PR is a ticket PR or a lead PR. `gate pr` finds the one ticket the branch moves
@@ -43,7 +48,7 @@ jobs:
       # CONTRACTS, tickets, ADRs, sdlc.toml, scope.lead_allowed) are reported, and fail
       # only with scope.lead_code = "fail".
       - name: PR gate (the ticket this PR moves, or lead scope)
-        if: github.event_name == 'pull_request'
+        if: ${{ github.event_name == 'pull_request' && !cancelled() }}
         run: .sdlc/bin/sdlc gate pr --base origin/${{ github.base_ref }}
 
       - uses: actions/upload-artifact@v4
@@ -51,3 +56,4 @@ jobs:
         with:
           name: sdlc-run
           path: .sdlc-run/
+          include-hidden-files: true   # v4 skips dot-folders by default: the evidence was never uploaded
