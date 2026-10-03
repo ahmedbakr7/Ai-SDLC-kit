@@ -23,6 +23,10 @@ CLAUDE.md GEMINI.md .cursor/rules/ .github/copilot-instructions.md .claude/comma
 
 On Windows use `.sdlc\bin\sdlc.cmd`. Put `.sdlc/bin` on PATH to type `sdlc`.
 
+If the kit repo is private, CI cannot clone `.sdlc` with the default token ("repository not
+found" in checkout). Create a fine-grained token with Contents read on the product and the kit,
+and add it as the product secret `SDLC_KIT_TOKEN`; the installed workflow uses it.
+
 ## 2. Make the gate real
 
 Edit `sdlc.toml` until `sdlc doctor` passes. Doctor fails when a required check could

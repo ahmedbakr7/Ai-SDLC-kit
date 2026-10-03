@@ -16,6 +16,10 @@ jobs:
         with:
           submodules: true
           fetch-depth: 0          # the gate diffs against the base branch
+          # A private kit repo cannot be cloned with github.token (it reads this repo only).
+          # Add a SDLC_KIT_TOKEN secret: fine-grained token, Contents read on this repo and the kit.
+          token: ${{ secrets.SDLC_KIT_TOKEN || github.token }}
+          persist-credentials: false   # keep the token out of .git/config for later steps
 
       - uses: actions/setup-python@v5
         with:
