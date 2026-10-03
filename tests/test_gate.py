@@ -635,5 +635,106 @@ class GateCatches(unittest.TestCase):
         self.assertEqual(self.code, 0, self.out)
 
 
+
+class Baseline(unittest.TestCase):
+    """Hangout pilot: a product adopting the kit with a red main could not pass any ticket
+    gate, because every gate also runs the repo-wide checks. sdlc-baseline.json carries the
+    failures main already has; anything new still fails, and the baseline only shrinks."""
+
+    DRIFT = ('("api", "GET", "/api/orders/{id}/returns", get_returns),',
+             '("api", "GET", "/api/orders/{id}/returns", get_returns),\n    ("api", "DELETE", "/api/orders/{id}", get_returns),')
+    DRIFT2 = ('("api", "GET", "/api/orders/{id}/returns", get_returns),',
+              '("api", "GET", "/api/orders/{id}/returns", get_returns),\n    ("api", "PUT", "/api/orders/{id}", get_returns),')
+
+    def setUp(self) -> None:
+        self.p = ProductRepo()
+
+    def tearDown(self) -> None:
+        self.p.close()
+
+    def contracts(self) -> dict:
+        code, out = self.p.sdlc("gate", "ci", "--only", "contracts")
+        ev = json.loads(self.p.read(".sdlc-run/ci.json"))
+        return {c["name"]: c for c in ev["checks"]}["contracts"]
+
+    def red_main_with_baseline(self) -> None:
+        self.p.write("app/server.py", self.p.read("app/server.py").replace(*self.DRIFT))
+        self.p.commit("main is red: a route CONTRACTS does not declare")
+        code, out = self.p.sdlc("baseline")
+        self.assertEqual(code, 0, out)
+        self.assertIn("1 known failure(s) in 1 check(s)", out)
+        self.p.commit("lead: baseline")
+
+    def test_known_failures_pass_and_new_ones_fail(self) -> None:
+        self.assertEqual(self.contracts()["status"], "pass")
+        self.p.write("app/server.py", self.p.read("app/server.py").replace(*self.DRIFT))
+        self.assertEqual(self.contracts()["status"], "fail")  # no baseline: red
+        self.p.commit("main is red")
+        self.p.sdlc("baseline")
+        self.p.commit("lead: baseline")
+        c = self.contracts()
+        self.assertEqual(c["status"], "pass", c)
+        self.assertIn("BASELINED: 1 known failure(s)", c["summary"])
+        self.p.write("app/server.py", self.p.read("app/server.py").replace(*self.DRIFT2))
+        c = self.contracts()
+        self.assertEqual(c["status"], "fail", c)
+        self.assertEqual(c["details"][0], "new: route in code but not in CONTRACTS: PUT /api/orders/{} (routes.command)")
+
+    def test_fixed_failures_must_be_pruned(self) -> None:
+        self.red_main_with_baseline()
+        self.p.write("app/server.py", self.p.read("app/server.py").replace(self.DRIFT[1], self.DRIFT[0]))
+        code, out = self.p.sdlc("gate", "ci")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("1 baselined failure(s) no longer fail; run `sdlc baseline --prune`", out)
+        code, out = self.p.sdlc("baseline", "--prune")
+        self.assertIn("pruned 1 entry that no longer fail", out)
+        code, out = self.p.sdlc("gate", "ci")
+        self.assertEqual(code, 0, out)
+
+    def test_baseline_only_shrinks(self) -> None:
+        from helpers import git
+
+        self.red_main_with_baseline()
+        git(self.p.root, "checkout", "-q", "-b", "lead/hide-more")
+        data = json.loads(self.p.read("sdlc-baseline.json"))
+        data["checks"]["contracts"].append("route in code but not in CONTRACTS: PUT /api/orders/{} (routes.command)")
+        self.p.write("sdlc-baseline.json", json.dumps(data))
+        self.p.commit("hide a new failure")
+        code, out = self.p.sdlc("gate", "ci", "--only", "immutable", "--base", "main")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("sdlc-baseline.json: may only shrink, but adds contracts: route in code but not in "
+                      "CONTRACTS: PUT /api/orders/{} (routes.command)", out)
+
+    def test_a_ticket_cannot_create_the_baseline(self) -> None:
+        from helpers import git
+
+        code, out = self.p.sdlc("status", "T-042-02", "in_progress", "--as", "build")
+        self.p.commit("start T-042-02")
+        git(self.p.root, "checkout", "-q", "-b", "build/T-042-02")
+        self.p.write("sdlc-baseline.json", '{"version": 1, "checks": {"contracts": ["anything"]}}')
+        self.p.commit("sneak a baseline in")
+        code, out = self.p.sdlc("gate", "build", "T-042-02", "--only", "immutable", "--base", "main")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("created by a ticket; only the lead adds the baseline", out)
+
+    def test_failing_tests_are_baselined_by_name(self) -> None:
+        def add_failing(cls: str, test: str) -> None:
+            self.p.write("app/test_returns.py", self.p.read("app/test_returns.py") +
+                         f"\n\nclass {cls}(unittest.TestCase):\n    def {test}(self) -> None:\n        self.fail('x')\n")
+
+        add_failing("Known", "test_known_broken")
+        self.p.commit("main is red: a failing unit test")
+        self.assertEqual(self.p.sdlc("baseline")[0], 0)
+        self.assertIn("test_known_broken", self.p.read("sdlc-baseline.json"))
+        self.p.commit("lead: baseline")
+        code, out = self.p.sdlc("gate", "ci", "--only", "unit")
+        self.assertEqual(code, 0, out)
+        self.assertIn("BASELINED: 1 known failure(s)", out)
+        add_failing("AlsoBroken", "test_new_break")
+        code, out = self.p.sdlc("gate", "ci", "--only", "unit")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("1 new failure(s) not in sdlc-baseline.json", out)
+        self.assertIn("test_new_break", out)
+
 if __name__ == "__main__":
     unittest.main()

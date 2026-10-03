@@ -18,7 +18,10 @@ will fail checks it used to "pass". That is the point: each failure is a real ga
    `## Tables` markdown table with `` `table_name` `` in its first column; the parser reads
    those as routes and tables.
 5. `.sdlc/bin/sdlc routes` and `.sdlc/bin/sdlc gate ci`: every FAIL is a defect the old
-   process let through. Fix them through new tickets, not by editing old ones.
+   process let through. Fix them through new tickets, not by editing old ones. While main
+   is red no ticket gate can pass, so record today's failures first: `sdlc baseline` in a
+   lead PR (`sdlc-baseline.json`). Gates then fail only on new failures; each fix runs
+   `sdlc baseline --prune`, and `gate ci` fails until fixed entries are pruned.
 6. Move third-party skills to `skills/vendor/` with `sdlc skills add`, and delete
    copies in auto-loaded folders (`.agents/skills`, `.grok/skills`, `.claude/skills`).
 

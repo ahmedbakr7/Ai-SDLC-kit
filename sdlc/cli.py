@@ -177,6 +177,39 @@ def cmd_migrate(args) -> int:
     return 0
 
 
+def cmd_baseline(args) -> int:
+    """Record the failures a red base branch already has (sdlc-baseline.json), or with
+    --prune drop the ones that stopped failing. It never adds to an existing baseline."""
+    from collections import Counter
+
+    from . import baseline
+    from .gate import Gate
+
+    cfg = _cfg(args)
+    p = baseline.path(cfg.root, cfg.data["paths"])
+    if p.exists() and not args.prune:
+        print(f"{cfg.rel(p)} exists and may only shrink: use `sdlc baseline --prune`", file=sys.stderr)
+        return EXIT_FAIL
+    if args.prune and not p.exists():
+        print(f"no {cfg.rel(p)} to prune", file=sys.stderr)
+        return EXIT_FAIL
+    g = Gate(cfg, "ci", None, args.base, ignore_baseline=True)
+    g.run(on_check=lambda c: print(f"{c.status.upper():4}  {c.name}", flush=True))
+    now = {c.name: g.findings(c) for c in g.checks if c.name in baseline.BASELINE_CHECKS and c.status == "fail"}
+    if args.prune:
+        old = baseline.parse(p.read_text(encoding="utf-8"))
+        kept = {n: sorted((Counter(v) & Counter(now.get(n, []))).elements()) for n, v in old.items()}
+        removed = sum(len(v) for v in old.values()) - sum(len(v) for v in kept.values())
+        p.write_text(baseline.dump(kept), encoding="utf-8", newline="\n")
+        print(f"{cfg.rel(p)}: pruned {removed} entr{'y' if removed == 1 else 'ies'} that no longer fail")
+        return 0
+    p.write_text(baseline.dump(now), encoding="utf-8", newline="\n")
+    total = sum(len(v) for v in now.values())
+    print(f"{cfg.rel(p)}: {total} known failure(s) in {len(now)} check(s). Commit it in a lead PR; "
+          "from then on gates fail only on new failures, and it may only shrink.")
+    return 0
+
+
 def cmd_routes(args) -> int:
     from . import extract
 
@@ -418,6 +451,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sp.add_parser("migrate", help="upgrade legacy tickets (number acceptance criteria)")
     p.set_defaults(fn=cmd_migrate)
+
+    p = sp.add_parser("baseline", help="record a red base branch's known failures (or --prune fixed ones)")
+    p.add_argument("--prune", action="store_true", help="drop entries that no longer fail; never adds")
+    p.add_argument("--base", help="base branch (default: vcs.base)")
+    p.set_defaults(fn=cmd_baseline)
 
     p = sp.add_parser("routes", help="compare routes in code with CONTRACTS")
     p.set_defaults(fn=cmd_routes)

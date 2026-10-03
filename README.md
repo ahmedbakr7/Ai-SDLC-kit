@@ -54,6 +54,7 @@ it never trusts committed evidence on its own.
 | `sdlc adapters sync` | regenerate CLAUDE.md, GEMINI.md, Cursor rules, Copilot instructions, slash commands |
 | `sdlc routes` | list routes: declared and built, built but undeclared, declared but not built |
 | `sdlc migrate` | upgrade v0.x tickets (number acceptance criteria) |
+| `sdlc baseline [--prune]` | record the failures a red base branch already has; gates then fail only on new ones, and the file only shrinks |
 
 Stdlib-only Python ≥ 3.11. Works with any agent CLI that can take a prompt
 (Claude Code, Codex, Gemini CLI, Grok, Cursor agent, Aider, ...): agents only edit

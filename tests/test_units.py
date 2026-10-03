@@ -131,6 +131,39 @@ class NextjsTestForbid(unittest.TestCase):
                 self.assertFalse(self.flagged(src))
 
 
+class BaselineKeys(unittest.TestCase):
+    """Baseline keys must survive edits that only move a known failure to another line."""
+
+    def test_tool_findings_ignore_line_numbers(self) -> None:
+        from sdlc import baseline
+
+        before = ("src/a.test.ts(108,94): error TS1501: This regular expression flag is only available...\n"
+                  "src/db/schema.test.ts(141,47): error TS2345: Argument of type 'PgEnum'...\n"
+                  "app/x.py:12: error: Incompatible types  [arg-type]\n"
+                  "app/y.py:3:1: F401 'os' imported but unused\n")
+        after = before.replace("(108,94)", "(120,9)").replace("(141,47)", "(150,47)").replace(":12:", ":40:")
+        self.assertEqual(baseline.tool_findings(before), baseline.tool_findings(after))
+        self.assertEqual(baseline.tool_findings(before), ["src/a.test.ts: TS1501", "src/db/schema.test.ts: TS2345",
+                                                          "app/x.py: arg-type", "app/y.py: F401"])
+
+    def test_detail_findings_ignore_line_numbers(self) -> None:
+        from sdlc import baseline
+
+        self.assertEqual(
+            baseline.detail_findings(["src/components/a.test.tsx:184: test reads source text instead of exercising behaviour",
+                                      "client calls /v1/me at src/components/account-gate.tsx:178; CONTRACTS declares it",
+                                      "WARN  tickets/T-1.md: risk: high ticket has no accepted_by"]),
+            ["src/components/a.test.tsx: test reads source text instead of exercising behaviour",
+             "client calls /v1/me at src/components/account-gate.tsx; CONTRACTS declares it"])
+
+    def test_compare_counts_repeats(self) -> None:
+        from sdlc import baseline
+
+        known = ["f.ts: TS2345", "f.ts: TS2345"]
+        self.assertEqual(baseline.compare(known, ["f.ts: TS2345"] * 3), (["f.ts: TS2345"], []))
+        self.assertEqual(baseline.compare(known, ["f.ts: TS2345"]), ([], ["f.ts: TS2345"]))
+
+
 class NextjsRoutes(unittest.TestCase):
     def test_app_router_extraction(self) -> None:
         with tempfile.TemporaryDirectory() as d:
