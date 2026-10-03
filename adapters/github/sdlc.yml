@@ -55,3 +55,4 @@ jobs:
         with:
           name: sdlc-run
           path: .sdlc-run/
+          include-hidden-files: true   # v4 skips dot-folders by default: the evidence was never uploaded
