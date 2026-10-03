@@ -1,8 +1,9 @@
 """Known failures a product adopted the kit with (sdlc-baseline.json), so a red base branch
 does not block every ticket. A gate fails only on failures the baseline does not list; the
 baseline may only shrink (`immutable`), and `gate ci` asks for entries that stopped failing
-to be pruned. Process checks (scope, immutable, review-file, skills, ac-red) are never
-baselined: they judge the change itself, not the code it starts from."""
+to be pruned. `sdlc trace` reads it too: shipped tickets adopted without proof are known
+trace problems, not a red CI forever. Process checks (scope, immutable, review-file, skills,
+ac-red) are never baselined: they judge the change itself, not the code it starts from."""
 from __future__ import annotations
 
 import json
@@ -12,7 +13,7 @@ from pathlib import Path
 
 # Checks whose failures describe the code base, so a known one may be carried.
 BASELINE_CHECKS = ("artifacts", "contracts", "lint", "typecheck", "unit", "integration", "e2e",
-                   "ac-coverage", "test-quality", "duplication", "build", "smoke")
+                   "ac-coverage", "test-quality", "duplication", "build", "smoke", "trace")
 
 # tsc: src/a.ts(12,3): error TS2345: ...
 _TSC = re.compile(r"^(?P<file>[^\s(][^(]*)\(\d+,\d+\): error (?P<code>TS\d+)")

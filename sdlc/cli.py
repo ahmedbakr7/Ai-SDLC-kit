@@ -32,16 +32,28 @@ def cmd_lint(args) -> int:
 
 
 def cmd_trace(args) -> int:
+    from . import baseline
+
     cfg = _cfg(args)
     m = trace.matrix(Repo(cfg))
     probs = trace.problems(m)
+    # Problems sdlc-baseline.json lists are known debt; new ones fail, and so do entries that
+    # stopped failing (prune them), so the baseline only shrinks.
+    bl = baseline.path(cfg.root, cfg.data["paths"])
+    known = baseline.parse(bl.read_text(encoding="utf-8")).get("trace", []) if bl.is_file() else []
+    new, stale = baseline.compare(known, probs)
     if args.json:
-        print(json.dumps({"matrix": m, "problems": probs}, indent=2))
+        print(json.dumps({"matrix": m, "problems": new, "known": sorted(set(probs) - set(new)),
+                          "fixed": stale}, indent=2))
     else:
         print(trace.render(m))
-        for p in probs:
+        for p in new:
             print(f"ERROR {p}")
-    return EXIT_FAIL if probs else 0
+        for p in stale:
+            print(f"ERROR fixed, still in {cfg.rel(bl)}: {p}; run `sdlc baseline --prune`")
+        if known and not new and not stale:
+            print(f"BASELINED: {len(probs)} known trace problem(s) from {cfg.rel(bl)}, none new")
+    return EXIT_FAIL if new or stale else 0
 
 
 def cmd_next(args) -> int:
@@ -196,6 +208,8 @@ def cmd_baseline(args) -> int:
     g = Gate(cfg, "ci", None, args.base, ignore_baseline=True)
     g.run(on_check=lambda c: print(f"{c.status.upper():4}  {c.name}", flush=True))
     now = {c.name: g.findings(c) for c in g.checks if c.name in baseline.BASELINE_CHECKS and c.status == "fail"}
+    if probs := trace.problems(trace.matrix(Repo(cfg))):
+        now["trace"] = probs
     if args.prune:
         old = baseline.parse(p.read_text(encoding="utf-8"))
         kept = {n: sorted((Counter(v) & Counter(now.get(n, []))).elements()) for n, v in old.items()}
