@@ -736,5 +736,49 @@ class Baseline(unittest.TestCase):
         self.assertIn("1 new failure(s) not in sdlc-baseline.json", out)
         self.assertIn("test_new_break", out)
 
+    def test_trace_problems_are_baselined(self) -> None:
+        # Hangout: 30 shipped v0 tickets have no build evidence, so `sdlc trace` (a CI step)
+        # failed every run even with every gate check baselined.
+        evidence = self.p.read("evidence/T-042-01.build.json")
+        (self.p.root / "evidence/T-042-01.build.json").unlink()
+        self.p.commit("main is red: a done ticket without evidence")
+        code, out = self.p.sdlc("trace")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("ERROR T-042-01: done without passing build evidence", out)
+        self.assertEqual(self.p.sdlc("baseline")[0], 0)
+        self.assertIn("T-042-01: done without passing build evidence", self.p.read("sdlc-baseline.json"))
+        self.p.commit("lead: baseline")
+        code, out = self.p.sdlc("trace")
+        self.assertEqual(code, 0, out)
+        self.assertIn("known trace problem(s) from sdlc-baseline.json, none new", out)
+        # A ticket shipped after the baseline must still be proven.
+        ticket = self.p.read("tickets/T-042-02-order-page.md")
+        self.p.write("tickets/T-042-02-order-page.md", ticket.replace("status: ready", "status: done"))
+        code, out = self.p.sdlc("trace")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("ERROR T-042-02: done without passing build evidence", out)
+        self.p.write("tickets/T-042-02-order-page.md", ticket)
+        # Proving the old ticket leaves stale entries: trace asks for a prune, then passes.
+        self.p.write("evidence/T-042-01.build.json", evidence)
+        code, out = self.p.sdlc("trace")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("ERROR fixed, still in sdlc-baseline.json: T-042-01: done without passing build evidence", out)
+        self.p.sdlc("baseline", "--prune")
+        self.assertNotIn("trace", json.loads(self.p.read("sdlc-baseline.json"))["checks"])
+        self.assertEqual(self.p.sdlc("trace")[0], 0)
+
+    def test_trace_baseline_only_shrinks(self) -> None:
+        from helpers import git
+
+        self.red_main_with_baseline()
+        git(self.p.root, "checkout", "-q", "-b", "lead/hide-trace")
+        data = json.loads(self.p.read("sdlc-baseline.json"))
+        data["checks"]["trace"] = ["T-042-02: done without passing build evidence"]
+        self.p.write("sdlc-baseline.json", json.dumps(data))
+        self.p.commit("hide a trace problem")
+        code, out = self.p.sdlc("gate", "ci", "--only", "immutable", "--base", "main")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("may only shrink, but adds trace: T-042-02: done without passing build evidence", out)
+
 if __name__ == "__main__":
     unittest.main()
