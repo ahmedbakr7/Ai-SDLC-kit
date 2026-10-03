@@ -134,7 +134,15 @@ class Gate:
     def changed(self) -> list[str]:
         if self._changed is None:
             if self.since:
-                self._changed = gitutil.changed_since(self.cfg.root, self.since)
+                changed = gitutil.changed_since(self.cfg.root, self.since)
+                try:
+                    # Files merged in from the base branch since the earlier play are not this
+                    # play's change: keep only what still differs from the base.
+                    ours = set(gitutil.changed_files(self.cfg.root, self.base))
+                    changed = [f for f in changed if f in ours]
+                except gitutil.GitError:
+                    pass
+                self._changed = changed
             else:
                 self._changed = gitutil.changed_files(self.cfg.root, self.base)
         return self._changed
@@ -964,6 +972,13 @@ def _changed_after_review(cfg: Config, t: Ticket, commit: str, base: str | None 
         pass  # no base to compare with: every committed change after the review counts
     ev = cfg.data["paths"]["evidence"]
     ok = {f"{cfg.data['paths']['reviews']}/{t.id}.md", *(f"{ev}/{t.id}.{p}.json" for p in EVIDENCE_PLAYS)}
+    # A prune after the review, such as one merged in from the base branch, makes the gates
+    # stricter and cannot void the approval; an added entry hides a failure it never saw.
+    bl = baseline.path(cfg.root, cfg.data["paths"])
+    reviewed = gitutil.show(cfg.root, commit, "./" + cfg.rel(bl))
+    if reviewed is not None and bl.is_file() and not baseline.grown(
+            baseline.parse(reviewed), baseline.parse(bl.read_text(encoding="utf-8"))):
+        ok.add(cfg.rel(bl))
     rel = cfg.rel(t.path)
     late = [f for f in changed if f not in ok and not (f == rel and _status_change(cfg, commit, f))]
     return [f"changed after the reviewed commit {commit[:12]}: {f}" for f in late]

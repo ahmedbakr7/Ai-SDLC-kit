@@ -1,6 +1,7 @@
 """End to end: drive a (fake) agent through build -> review -> merge with the gate in the loop."""
 import json
 import os
+import subprocess
 import unittest
 
 from helpers import ProductRepo, git
@@ -100,6 +101,69 @@ class Conveyor(unittest.TestCase):
         code, out = p.sdlc("gate", "pr", "T-042-02", "--base", "main")
         self.assertEqual(code, 0, out)
         self.assertNotIn("changed after the reviewed commit", out)
+
+    def test_test_play_scope_ignores_files_merged_from_main(self) -> None:
+        # Hangout #59: re-running the test gate after merging main reported main's new
+        # tickets as "outside test write set"; they are not the test play's change.
+        p = self.p
+        self.assertEqual(p.sdlc("run", "build", "T-042-02", "--agent", "fake")[0], 0)
+        branch = git(p.root, "rev-parse", "--abbrev-ref", "HEAD").strip()
+        git(p.root, "checkout", "-q", "main")
+        p.write("docs/elsewhere.md", "a lead change on main after the build\n")
+        p.commit("main moves on")
+        git(p.root, "checkout", "-q", branch)
+        git(p.root, "merge", "-q", "--no-edit", "main")
+        # Run directly (an IDE agent, or a re-gate), so the gate finds the build commit itself.
+        code, out = p.sdlc("gate", "test", "T-042-02", "--only", "scope", "--base", "main")
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("docs/elsewhere.md", out)
+
+    def test_a_baseline_prune_after_review_keeps_the_approval(self) -> None:
+        # Hangout #59: the ticket pruned its own baseline entry, main pruned another after the
+        # review, and merging main voided the approval. A baseline only shrinks, so a later
+        # prune makes the gates stricter and cannot void it.
+        p = self.p
+
+        def baseline(*entries: str) -> None:
+            p.write("sdlc-baseline.json", json.dumps({"version": 1, "checks": {"contracts": list(entries)}}) + "\n")
+
+        baseline("fixed by the ticket", "fixed on main")
+        p.commit("lead: baseline")
+        self.assertEqual(p.sdlc("run", "build", "T-042-02", "--agent", "fake")[0], 0)
+        baseline("fixed on main")
+        p.commit("prune what the ticket fixed")
+        self.assertEqual(p.sdlc("run", "test", "T-042-02", "--agent", "fake")[0], 0)
+        self.assertEqual(p.sdlc("run", "review", "T-042-02", "--agent", "fake-reviewer")[0], 0)
+        branch = git(p.root, "rev-parse", "--abbrev-ref", "HEAD").strip()
+        git(p.root, "checkout", "-q", "main")
+        baseline("fixed by the ticket")
+        p.commit("main prunes what it fixed")
+        git(p.root, "checkout", "-q", branch)
+        subprocess.run(["git", "merge", "-q", "--no-edit", "main"], cwd=p.root, capture_output=True)  # conflicts
+        baseline()  # both prunes: the conflict resolves to the intersection
+        p.commit("merge main")
+        code, out = p.sdlc("status", "T-042-02", "done", "--as", "merge")
+        self.assertEqual(code, 0, out)
+        p.commit("merge: T-042-02 done")
+        code, out = p.sdlc("gate", "pr", "T-042-02", "--base", "main")
+        self.assertEqual(code, 0, out)
+
+    def test_a_baseline_grown_after_review_voids_the_approval(self) -> None:
+        # CodeRabbit on kit #9: the approval allows a later baseline change because a prune only
+        # makes the gates stricter; an added entry hides a failure the review never saw.
+        p = self.p
+        p.write("sdlc-baseline.json", json.dumps({"version": 1, "checks": {"contracts": ["known"]}}) + "\n")
+        p.commit("lead: baseline")
+        self.assertEqual(p.sdlc("run", "build", "T-042-02", "--agent", "fake")[0], 0)
+        self.assertEqual(p.sdlc("run", "test", "T-042-02", "--agent", "fake")[0], 0)
+        self.assertEqual(p.sdlc("run", "review", "T-042-02", "--agent", "fake-reviewer")[0], 0)
+        p.write("sdlc-baseline.json",
+                json.dumps({"version": 1, "checks": {"contracts": ["known", "hidden"]}}) + "\n")
+        p.commit("baseline a new failure")
+        code, out = p.sdlc("status", "T-042-02", "done", "--as", "merge")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("changed after the reviewed commit", out)
+        self.assertIn("sdlc-baseline.json", out)
 
     def test_a_look_alike_of_the_review_file_is_a_change(self) -> None:
         # CodeRabbit on kit #8: paths were whitespace-stripped, so "reviews/T-042-02.md "
