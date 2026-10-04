@@ -210,10 +210,11 @@ def cmd_approval(args) -> int:
     from .gate import Gate, pr_tickets
 
     branch_cfg = _cfg(args)
-    if not args.base and approval.mode(branch_cfg) == "forge" and approval.pr_number(args.pr):
-        # A comment event carries no base: the PR says which branch it targets.
+    if not args.base and approval.pr_number(args.pr) and os.environ.get("GITHUB_REPOSITORY"):
+        # A comment event carries no base: the PR says which branch it targets. The branch's
+        # sdlc.toml is the PR's to write, so it decides neither this lookup nor where the token goes.
         try:
-            target = (approval.forge_client(branch_cfg).get(f"/pulls/{approval.pr_number(args.pr)}") or {})
+            target = (approval.forge_client(None).get(f"/pulls/{approval.pr_number(args.pr)}") or {})
             ref = (target.get("base") or {}).get("ref", "")
             args.base = f"origin/{ref}" if ref else None
         except Exception:

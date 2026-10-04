@@ -2,10 +2,12 @@
 # cover the head for every role its lane needs? Installed by `sdlc init` as
 # .github/workflows/sdlc-approval.yml. Mark the "sdlc/approval" commit status required.
 #
-# Its own workflow, so a review event never skips (and so passes) the gate job. It runs on
-# pull_request_target and review/comment events: the workflow definition, the checkout and the
-# kit all come from the base branch, so a PR cannot rewrite or replace the judge. The PR head
-# is fetched into a separate worktree and only read; nothing from it runs.
+# Its own workflow, so a review event never skips (and so passes) the gate job. On
+# pull_request_target and comment events GitHub runs this file from the base (default) branch;
+# on pull_request_review events it runs the PR's copy, which a same-repository PR can edit (see
+# CONSUME.md: a status from Actions proves nothing against write access). As written, the
+# checkout and the kit come from the base branch and the PR head is fetched into a separate
+# worktree and only read; nothing from it runs.
 name: sdlc-approval
 
 on:
@@ -39,14 +41,22 @@ jobs:
         env:
           PR: ${{ github.event.pull_request.number || github.event.issue.number }}
           GH_TOKEN: ${{ github.token }}
+        # Git over HTTPS takes the token as basic auth (x-access-token), as actions/checkout does.
         run: |
-          git -c "http.extraheader=AUTHORIZATION: bearer $GH_TOKEN" fetch origin "pull/$PR/head:pr-head"
-          git -c "http.extraheader=AUTHORIZATION: bearer $GH_TOKEN" fetch origin "refs/notes/sdlc:refs/notes/sdlc" || true
+          AUTH="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git -c "http.extraheader=$AUTH" fetch origin "pull/$PR/head:pr-head"
+          git -c "http.extraheader=$AUTH" fetch origin "refs/notes/sdlc:refs/notes/sdlc" || true
           git worktree add ../pr-head pr-head
       - name: Approval (covers the head, from the right identities)
         env:
           GITHUB_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number || github.event.issue.number }}
+          GH_TOKEN: ${{ github.token }}
           BASE: ${{ github.event.pull_request.base.ref }}
-        # A comment event names no base branch: sdlc reads it from the PR when --base is empty.
-        run: .sdlc/bin/sdlc --root ../pr-head approval --pr "$PR" ${BASE:+--base "origin/$BASE"} --publish-status
+        # A comment event names no base branch: ask the GitHub API, never the PR's own files.
+        run: |
+          if [ -z "$BASE" ]; then
+            BASE=$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json baseRefName --jq .baseRefName)
+          fi
+          [ -n "$BASE" ] || { echo "sdlc-approval: cannot resolve the base branch of PR $PR"; exit 1; }
+          .sdlc/bin/sdlc --root ../pr-head approval --pr "$PR" --base "origin/$BASE" --publish-status

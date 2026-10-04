@@ -118,13 +118,17 @@ class GitHub:
         return self._req("POST", path, data)
 
 
-def forge_client(cfg: Config) -> GitHub:
-    a = cfg.section("approval")
+def forge_client(cfg: Config | None) -> GitHub:
+    """A client carrying the forge token. The API host comes from the environment only
+    (GITHUB_API_URL, which Actions sets), never from an sdlc.toml: a branch's sdlc.toml is
+    the PR's to write and must not decide where the token goes. `cfg` None: the repository too
+    comes from the environment, for the lookup made before the base branch is known."""
+    a = cfg.section("approval") if cfg is not None else {}
     repo = str(a.get("repo") or os.environ.get("GITHUB_REPOSITORY", ""))
     if not repo:
         raise SystemExit("approval: set [approval] repo = \"owner/name\" or GITHUB_REPOSITORY")
     token = os.environ.get("SDLC_FORGE_TOKEN") or os.environ.get("GITHUB_TOKEN", "")
-    return GitHub(repo, token, str(a.get("api", "https://api.github.com")))
+    return GitHub(repo, token, os.environ.get("GITHUB_API_URL") or "https://api.github.com")
 
 
 def pr_number(given: int | None = None) -> int | None:

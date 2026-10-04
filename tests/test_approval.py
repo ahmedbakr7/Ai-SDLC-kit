@@ -389,9 +389,39 @@ class ReviewFindings(Base):
 
     def test_a_comment_event_reads_the_base_branch_from_the_pr(self) -> None:
         git(self.p.root, "update-ref", "refs/remotes/origin/main", "main")
+        import os
+        from unittest import mock
+
         self.record("rev", self.head)
-        code, out = self.p.sdlc("approval", "--pr", "7")  # no --base: an issue_comment event has none
+        with mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "owner/product"}):
+            code, out = self.p.sdlc("approval", "--pr", "7")  # no --base: an issue_comment event has none
         self.assertEqual(code, 0, out)
+
+    def test_a_pr_cannot_point_the_token_at_its_own_api(self) -> None:
+        # The PR's own sdlc.toml is untrusted: no client carrying the token may be built from it,
+        # including the one that looks up the base branch when a comment event names none.
+        git(self.p.root, "update-ref", "refs/remotes/origin/main", "main")
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace(
+            'repo = "owner/product"', 'repo = "owner/product"\napi = "https://attacker.invalid"'))
+        self.p.commit("try to redirect the token")
+        self.record("rev", git(self.p.root, "rev-parse", "HEAD").strip())
+        import os
+        from unittest import mock
+
+        seen = []
+        approval.forge_client = lambda cfg: seen.append(self._client(cfg).api) or self.fake
+        with mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "owner/product"}):
+            self.p.sdlc("approval", "--pr", "7", "--publish-status")
+        self.assertTrue(seen)
+        self.assertNotIn("https://attacker.invalid", seen)
+
+    def test_the_base_lookup_uses_only_the_runner_environment(self) -> None:
+        import os
+        from unittest import mock
+
+        with mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "o/r", "GITHUB_API_URL": "https://ghe.example/api/v3"}):
+            c = self._client(None)
+        self.assertEqual((c.repo, c.api), ("o/r", "https://ghe.example/api/v3"))
 
     def test_the_result_is_posted_on_the_pr_head(self) -> None:
         self.record("rev", self.head)
@@ -671,6 +701,12 @@ class Tooling(Base):
         self.assertIn("ref: ${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}", wf)
         self.assertIn(".sdlc/bin/sdlc --root ../pr-head approval", wf)
         self.assertIn("--publish-status", wf)
+        # The base is resolved from the event or the GitHub API, never from the PR's sdlc.toml.
+        self.assertIn('--base "origin/$BASE"', wf)
+        self.assertNotIn("${BASE:+", wf)
+        # Git over HTTPS rejects a bearer token; it takes basic auth with x-access-token.
+        self.assertNotIn("bearer", wf)
+        self.assertIn("x-access-token:%s", wf)
         self.assertIn("types: [opened, synchronize, reopened, edited]", wf)  # retargeting re-judges
         self.assertIn("statuses: write", wf)
         # The gate lives in its own workflow, so a review event can never skip (= pass) it.
