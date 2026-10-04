@@ -37,8 +37,9 @@ every check, AC -> test mapping) in your prompt. Read the diff yourself:
 7. **Scope and amendments.** The build gate's `scope` details list files outside the
    ticket's areas. Accept each one that belongs in this change by naming it under
    `## Out of area` with why; anything else is a blocking finding. Read every new line
-   in the ticket's `## Amendments`: a `strengthen` that is really weaker, or a `split`
-   that drops behaviour, is blocking. In the mechanical lane, judge the transform list:
+   in the ticket's `## Amendments` and name each `strengthen`, `split` and `widen`
+   target under `## Amendments` in the review: a `strengthen` that is really weaker,
+   or a `split` that drops behaviour, is blocking. In the mechanical lane, judge the transform list:
    a literal applied to a value and its test alike (`"404" -> "200"`) passes the suite
    while changing behaviour.
 8. **Write** `reviews/<id>.md` from the template at the end of this skill
@@ -70,5 +71,6 @@ commit: <commit from evidence>
 |---|---|---|
 ## Findings
 ## Out of area
+## Amendments
 ## Checklist
 ```

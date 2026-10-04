@@ -29,7 +29,15 @@ play requires = request_changes.>
 <Each file the gate flagged as outside the ticket's areas, with why it belongs in this change.
 An approval that misses one is invalid. Delete this section when the gate flagged none.>
 
-- `path/or/glob` <why>
+- `path/or/glob` <why> (a bare `**` accepts nothing: name the files)
+
+## Amendments
+
+<Each new `strengthen`, `split` and `widen` line in the ticket's ## Amendments, by its target, with your
+judgement: a strengthen that is weaker, or a split that drops behaviour, is a blocking finding. Delete this
+section when the ticket has none.>
+
+- `AC-n` <stronger because ...>
 
 ## Checklist
 
