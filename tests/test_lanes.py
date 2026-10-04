@@ -450,6 +450,46 @@ class ReviewFindings(unittest.TestCase):
         self.assertIn("arch/CONTRACTS.md changed outside every declared key (conventions or prose): review the raw diff",
                       d["details"])
 
+    def test_prose_under_a_heading_no_key_owns_is_reported(self) -> None:
+        # Re-review N1: such a section was stored, matched no key, and was dropped from the diff.
+        git(self.p.root, "checkout", "-q", "main")
+        c = self.p.read("arch/CONTRACTS.md")
+        self.p.write("arch/CONTRACTS.md", c.replace("## Pages", "### /api conventions\n\nErrors use one envelope.\n\n## Pages"))
+        self.p.commit("lead: conventions section")
+        self.mech("  - rename STATES -> RETURN_STATES")
+        rename(self.p)
+        self.p.write("arch/CONTRACTS.md", self.p.read("arch/CONTRACTS.md").replace("one envelope", "two envelopes"))
+        d = self.check("build", "T-042-03", "contract-diff")["contract-diff"]
+        self.assertNotIn("unchanged", d["summary"])
+        self.assertIn("arch/CONTRACTS.md changed outside every declared key (conventions or prose): review the raw diff",
+                      d["details"])
+
+    def test_a_committed_line_ending_change_is_residue_whatever_the_checkout_filters(self) -> None:
+        # Re-review N2: eol=lf turned a committed CRLF blob back into LF before hashing.
+        import subprocess
+
+        self.p.write(".gitattributes", "*.py text eol=lf\n")
+        self.p.commit("eol rules")
+        self.mech("  - rename STATES -> RETURN_STATES")
+        rename(self.p)
+        self.p.commit("rename")
+        crlf = (self.p.root / "app" / "server.py").read_bytes().replace(b"\n", b"\r\n")
+        sha = subprocess.run(["git", "hash-object", "-w", "--no-filters", "--stdin"], cwd=self.p.root, input=crlf,
+                             capture_output=True, check=True).stdout.decode().strip()
+        git(self.p.root, "update-index", "--cacheinfo", f"100644,{sha},app/server.py")
+        git(self.p.root, "commit", "-q", "-m", "a CRLF blob")
+        (self.p.root / "app" / "server.py").write_bytes(crlf)
+        self.assertEqual(self.ev_lane(), "standard")
+        self.assertTrue(any(d.startswith("residue: app/server.py:") for d in self.ev["checks"][0]["details"]))
+
+    def test_ci_workflows_and_the_kit_pin_are_hard(self) -> None:
+        # Re-review N4: these were out-of-area flags a reviewer glob could accept.
+        self.start_t2()
+        self.p.write(".github/workflows/sdlc.yml", "name: trimmed\n")
+        c = self.check("build", "T-042-02", "scope")["scope"]
+        self.assertEqual(c["status"], "fail")
+        self.assertIn("outside build write set: .github/workflows/sdlc.yml", c["details"])
+
     def test_no_merge_base_fails_the_lane(self) -> None:
         self.mech("  - rename STATES -> RETURN_STATES")
         rename(self.p)

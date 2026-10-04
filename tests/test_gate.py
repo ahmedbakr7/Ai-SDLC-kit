@@ -597,7 +597,8 @@ class GateCatches(unittest.TestCase):
         proven = self.run_test_play()
         review = (FIXTURES_DIR / "solutions" / "review-T-042-02" / "reviews" / "T-042-02.md").read_text(encoding="utf-8")
         review = review.replace("{commit}", proven)
-        self.p.write("reviews/T-042-02.md", review + "\n## Out of area\n\n- `**` everything is fine\n")
+        self.p.write("reviews/T-042-02.md", review + "\n## Out of area\n\n- `**` everything is fine\n"
+                     "- `**/?*` and this too\n- `*.py` and this\n")
         c = self.gate("review", "review-file")["review-file"]
         self.assertEqual(c["status"], "fail", c)
         details = "\n".join(c["details"])

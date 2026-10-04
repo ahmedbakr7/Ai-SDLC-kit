@@ -107,7 +107,9 @@ class Gate:
                 raise SystemExit(f"--lane must be one of {', '.join(lanes.LANES)}, got {lane!r}")
             try:
                 self.mb = gitutil.merge_base(cfg.root, self.base)
-                branch = gitutil.changed_files(cfg.root, self.base)
+                # Committed blobs too: checkout filters can make a committed change look clean.
+                branch = sorted(set(gitutil.changed_files(cfg.root, self.base))
+                                | set(gitutil.committed_between(cfg.root, self.mb)))
             except gitutil.GitError:
                 branch = []
             if self.mb:
@@ -637,7 +639,7 @@ class Gate:
             gone = _dropped(old[k], new[k])
             details.append(f"narrowed (breaking): {k}: dropped {' '.join(gone[:8])}" if gone else f"changed: {k}")
         details += [f"removed (breaking): {k}" for k in removed]
-        prose = before.rest != after.rest
+        prose = _contract_prose(before) != _contract_prose(after)
         if prose:
             details.append(f"{rel} changed outside every declared key (conventions or prose): review the raw diff")
         uncited = [k for k in added + modified + removed if _contract_ref(k) not in cited]
@@ -1244,7 +1246,8 @@ def lead_write_set(cfg: Config) -> list[str]:
     p = cfg.data["paths"]
     out = [f"{p[k]}/**" for k in ("intent", "design", "arch", "decisions", "tickets", "ops", "skills")]
     out += [p["contracts"], p["skills_lock"], p.get("baseline", "sdlc-baseline.json"), config.CONFIG_NAME,
-            "AGENTS.md", *adapters.files(cfg)]
+            "AGENTS.md", *adapters.files(cfg),
+            ".sdlc", ".sdlc/**", ".github/workflows/**"]  # the kit pin and CI that runs the gate
     return out + list(cfg.section("scope").get("lead_allowed", []))
 
 
@@ -1392,7 +1395,10 @@ def _review_entries(body: str, heading: str) -> list[str]:
         if not b:
             continue
         ticks = re.findall(r"`([^`]+)`", b.group(1))
-        out += [e for e in (ticks or b.group(1).split()[:1]) if e.strip("*/") ]
+        # An entry must start with a literal path segment: `**/?*` or `*.py` would accept
+        # every flagged file at once, and the point is that each one is accepted on its own.
+        out += [e for e in (ticks or b.group(1).split()[:1])
+                if e.split("/")[0] and not any(ch in e.split("/")[0] for ch in "*?[")]
     return out
 
 
@@ -1417,6 +1423,20 @@ def _contract_keys(c) -> dict[str, str]:
         out[f"table {x}"] = c.definitions.get(f"table {x}", "")
     for x in c.events:
         out[f"event {x}"] = c.definitions.get(f"event {x}", "")
+    return out
+
+
+def _contract_prose(c) -> list[str]:
+    """CONTRACTS text no declared key owns: lines outside every key section, plus sections
+    under a heading that names no declared route or page (`### /api conventions`)."""
+    from .artifacts import ROUTE_LINE_RE, normalize_route_key
+
+    declared = {r.key for r in c.routes} | {f"page {p}" for p in c.pages}
+    out = list(c.rest)
+    for h, text in sorted(c.sections.items()):
+        key = normalize_route_key(h) if ROUTE_LINE_RE.match(h) else f"page {h.split()[0]}"
+        if key not in declared:
+            out += [f"### {h}"] + text.split("\n")
     return out
 
 

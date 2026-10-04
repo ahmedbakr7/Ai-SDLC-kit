@@ -115,6 +115,11 @@ def _same_blob(cfg: Config, rel: str, expected: bytes) -> bool:
     core.autocrlf on Windows) apply: a checkout's line endings are not the branch's change."""
     import tempfile
 
+    # A committed file is judged by its committed blob: checkout filters could turn a CRLF
+    # blob back into LF and hide it. Only uncommitted edits go through the filters.
+    committed = gitutil.show_bytes(cfg.root, "HEAD", "./" + rel)
+    if committed is not None and (cfg.root / rel).read_bytes() == committed:
+        return committed == expected  # the checkout is the blob, byte for byte: judge the blob
     now = gitutil.git(cfg.root, "hash-object", "--", rel, check=False).strip()
     with tempfile.TemporaryDirectory() as d:
         p = f"{d}/blob"
