@@ -25,10 +25,13 @@ class FakeGitHub:
     """The forge API calls approval.py makes, answered from memory."""
 
     def __init__(self, n: int, author: str, head: str):
-        self.n, self.pr = n, {"user": {"login": author}, "head": {"sha": head}}
+        self.n, self.pr = n, {"user": {"login": author}, "head": {"sha": head}, "base": {"ref": "main"}}
         self.reviews, self.comments, self.commits, self.posted = [], [], [{"author": {"login": author}}], []
+        self.permissions = {"rev": "write", "lead": "admin", "bot": "write", "ahmed": "admin", "builder-bot": "write"}
 
     def get(self, path: str):
+        if path.startswith("/collaborators/"):
+            return {"permission": self.permissions.get(path.split("/")[2], "read")}
         assert path == f"/pulls/{self.n}", path
         return self.pr
 
@@ -316,10 +319,13 @@ class ReviewFindings(Base):
     def test_a_review_is_bound_to_the_commit_the_forge_recorded(self) -> None:
         old = git(self.p.root, "rev-parse", "HEAD~1").strip()
         rec = approval.render("T-042-02", self.head, "approve", "review", "reviewer", REVIEW_BODY)
-        self.review("COMMENTED", old, rec)  # given on an older commit, body names the head
+        self.review("APPROVED", old, rec)  # given on an older commit, body names the head
         self.assertNotEqual(self.approval()[0], 0)
         self.fake.reviews.clear()
-        self.review("COMMENTED", self.head, rec)
+        self.review("COMMENTED", self.head, rec)  # a comment-only review is no verdict
+        self.assertNotEqual(self.approval()[0], 0)
+        self.fake.reviews.clear()
+        self.review("APPROVED", self.head, rec)
         self.assertEqual(self.approval()[0], 0)
 
     def test_dismissed_and_contradicting_reviews_approve_nothing(self) -> None:
@@ -381,6 +387,12 @@ class ReviewFindings(Base):
         self.assertNotEqual(code, 0)  # the old ci.json proves an older commit
         self.assertIn("T-042-02: done without passing build evidence", out)
 
+    def test_a_comment_event_reads_the_base_branch_from_the_pr(self) -> None:
+        git(self.p.root, "update-ref", "refs/remotes/origin/main", "main")
+        self.record("rev", self.head)
+        code, out = self.p.sdlc("approval", "--pr", "7")  # no --base: an issue_comment event has none
+        self.assertEqual(code, 0, out)
+
     def test_the_result_is_posted_on_the_pr_head(self) -> None:
         self.record("rev", self.head)
         self.approval("--publish-status")
@@ -424,14 +436,18 @@ class Trust(Base):
         code, out, res = self.approval()
         self.assertEqual(code, 0, out)
         self.assertTrue(res["trust_based"])
-        self.assertIn("[trust-based: approvers' identities are not verified]", res["summary"])
+        self.assertTrue(res["summary"].startswith("[trust-based: identities not verified] "), res["summary"])
 
     def test_trust_still_needs_write_access(self) -> None:
-        # On a public repository anyone can comment an approval record.
+        # On a public repository anyone can comment an approval record; and author_association
+        # says nothing about permission (a read-only org member is MEMBER): the permission is asked.
         self.record("passer-by", self.head, association="NONE")
+        self.record("member", self.head, association="MEMBER")
         code, _, res = self.approval()
         self.assertNotEqual(code, 0)
-        self.assertIn("passer-by has no write access (NONE)", "\n".join(res["details"]))
+        details = "\n".join(res["details"])
+        self.assertIn("passer-by has no write access (read)", details)
+        self.assertIn("member has no write access (read)", details)
 
     def test_trust_still_needs_a_different_agent(self) -> None:
         self.record("ahmed", self.head, association="OWNER", agent="builder")

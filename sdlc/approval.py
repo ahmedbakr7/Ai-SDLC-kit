@@ -28,7 +28,6 @@ MODES = ("file", "forge", "git")
 ROLES = ("review", "lead", "bot")
 VERDICTS = ("approve", "request_changes")
 NOTES_REF = "refs/notes/sdlc"
-WRITE_ACCESS = ("OWNER", "MEMBER", "COLLABORATOR")  # GitHub author_association values
 
 
 def mode(cfg: Config) -> str:
@@ -147,6 +146,8 @@ class PullRequest:
     author: str
     head: str
     commit_authors: set[str] = field(default_factory=set)
+    base: str = ""                                          # the branch the PR targets
+    permissions: dict[str, str] = field(default_factory=dict)  # login -> repo permission
 
 
 REVIEW_STATES = {"APPROVED": "approve", "CHANGES_REQUESTED": "request_changes", "COMMENTED": ""}
@@ -154,7 +155,8 @@ REVIEW_STATES = {"APPROVED": "approve", "CHANGES_REQUESTED": "request_changes", 
 
 def forge_records(client: GitHub, n: int) -> tuple[PullRequest, list[Record]]:
     pr = client.get(f"/pulls/{n}")
-    info = PullRequest(n, (pr.get("user") or {}).get("login", ""), (pr.get("head") or {}).get("sha", ""))
+    info = PullRequest(n, (pr.get("user") or {}).get("login", ""), (pr.get("head") or {}).get("sha", ""),
+                       base=(pr.get("base") or {}).get("ref", ""))
     for c in client.pages(f"/pulls/{n}/commits"):
         for k in ("author", "committer"):
             login = (c.get(k) or {}).get("login")
@@ -171,7 +173,8 @@ def forge_records(client: GitHub, n: int) -> tuple[PullRequest, list[Record]]:
         if rec is not None:
             # A review is bound to the commit the forge says it was given on, and its state
             # must agree with the record: the body can be edited, the commit and state cannot.
-            if rec.sha != sha or (REVIEW_STATES[state] and REVIEW_STATES[state] != rec.verdict):
+            # A COMMENTED review is no verdict at all (publish records as PR comments instead).
+            if rec.sha != sha or REVIEW_STATES[state] != rec.verdict:
                 continue
         elif REVIEW_STATES[state]:
             rec = Record(sha=sha, who=who, role="", source="review", association=assoc, verdict=REVIEW_STATES[state],
@@ -185,6 +188,12 @@ def forge_records(client: GitHub, n: int) -> tuple[PullRequest, list[Record]]:
                          association=cm.get("author_association", ""), at=cm.get("created_at") or "")
         if rec is not None:
             out.append(rec)
+    # author_association is not a permission (MEMBER and COLLABORATOR include read-only); ask.
+    for who in sorted({r.who for r in out if r.who}):
+        try:
+            info.permissions[who] = str((client.get(f"/collaborators/{who}/permission") or {}).get("permission", ""))
+        except Exception:
+            info.permissions[who] = ""
     return info, out
 
 
@@ -221,6 +230,16 @@ def git_records(cfg: Config, shas: list[str], base: str = "main") -> list[Record
     paths = {p.replace("/", ""): p for p in
              gitutil.git(root, "ls-tree", "-r", "--name-only", NOTES_REF, check=False).split()}
     out = []
+    try:
+        return _notes(cfg, shas, paths, signers, out)
+    finally:
+        rel = str(cfg.section("approval").get("allowed_signers", ""))
+        if signers and not os.path.isabs(rel):
+            os.unlink(signers)
+
+
+def _notes(cfg: Config, shas: list[str], paths: dict[str, str], signers: str, out: list[Record]) -> list[Record]:
+    root = cfg.root
     for sha in shas:
         path = paths.get(sha)
         if not path:
@@ -290,8 +309,9 @@ def identity_problems(cfg: Config, rec: Record, role: str, pr: PullRequest | Non
         # Trust-based (the lead's explicit choice for one shared identity): declared roles are
         # taken on trust, so the author exclusions cannot apply; write access is still required,
         # because on a public repository anyone can comment.
-        if rec.association not in WRITE_ACCESS:
-            out.append(f"{rec.who} has no write access ({rec.association or 'unknown'})")
+        perm = (pr.permissions.get(rec.who, "") if pr is not None else "")
+        if perm not in ("admin", "maintain", "write"):
+            out.append(f"{rec.who} has no write access ({perm or rec.association or 'unknown'})")
         return out
     if rec.who not in _list(cfg, role):
         out.append(f"{rec.who} is not in [approval] {_key(role)}")
@@ -398,11 +418,12 @@ def evaluate(cfg: Config, gate, records: list[Record], pr: PullRequest | None, h
         # Two roles are two people: one identity listed as both does not sign off alone.
         if not any(a != b for a in approvers.get("review", set()) for b in approvers.get("lead", set())):
             missing.append("the review and the lead approval from different identities")
-    label = " [trust-based: approvers' identities are not verified]" if trust else ""
+    # The label leads: a status description keeps only 140 characters.
+    label = "[trust-based: identities not verified] " if trust else ""
     who = t.id if t is not None else "this PR"
     if missing:
-        return Result(False, f"{who} ({lane}) needs " + "; ".join(missing) + label, details, trust)
-    return Result(True, f"{who} ({lane}) approved for {head[:12]}" + label, details, trust)
+        return Result(False, f"{label}{who} ({lane}) needs " + "; ".join(missing), details, trust)
+    return Result(True, f"{label}{who} ({lane}) approved for {head[:12]}", details, trust)
 
 
 def _list(cfg: Config, role: str) -> list[str]:

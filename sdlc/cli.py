@@ -210,6 +210,14 @@ def cmd_approval(args) -> int:
     from .gate import Gate, pr_tickets
 
     branch_cfg = _cfg(args)
+    if not args.base and approval.mode(branch_cfg) == "forge" and approval.pr_number(args.pr):
+        # A comment event carries no base: the PR says which branch it targets.
+        try:
+            target = (approval.forge_client(branch_cfg).get(f"/pulls/{approval.pr_number(args.pr)}") or {})
+            ref = (target.get("base") or {}).get("ref", "")
+            args.base = f"origin/{ref}" if ref else None
+        except Exception:
+            pass
     base = args.base or branch_cfg.section("vcs").get("base", "main")
     # Judged by the base branch's sdlc.toml, like every gate: a PR cannot switch its own
     # approval mode, roles or trust setting.

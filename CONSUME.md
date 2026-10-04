@@ -106,6 +106,13 @@ Set `[approval] mode = "forge"` (GitHub) or `"git"` (signed notes in `refs/notes
   `.github/workflows/sdlc-approval.yml`, which `sdlc init` installs: on `pull_request_target`,
   reviews and comments it runs the base branch's kit against the PR head (read as data) and posts
   the `sdlc/approval` commit status. Require both the `gate` check and the `sdlc/approval` status.
+- What branch protection can and cannot prove: the `gate` check and the `sdlc/approval` status
+  come from GitHub Actions, and any workflow or token with write access can post a check or status
+  with the same name (a same-repository PR can add a workflow that does). Against that, post the
+  approval from a GitHub App and pin the app as the required check's source, and require review of
+  `.github/workflows/`. Without it, the gate and the approval stop mistakes and confused agents,
+  not someone with write access.
+- In `git` mode a lead's own PR needs a second lead (a signer may not approve their own commits).
 - A PR that names no ticket (config, CI, the kit pin, contracts, tickets) needs a lead approval.
   Review records count only unedited (comments) and on the commit the forge recorded (reviews).
 - List the reviewer, lead and bot identities in `[approval]`. They must differ from the identity
