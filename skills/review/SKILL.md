@@ -34,11 +34,18 @@ every check, AC -> test mapping) in your prompt. Read the diff yourself:
    unauthorised, concurrent, invalid input. Missing = finding.
 6. **Security.** Authorisation enforced server-side on every new route; input
    validated; no secrets or PII in logs; no injection via string-built queries/HTML.
-7. **Write** `reviews/<id>.md` from the template at the end of this skill
+7. **Scope and amendments.** The build gate's `scope` details list files outside the
+   ticket's areas. Accept each one that belongs in this change by naming it under
+   `## Out of area` with why; anything else is a blocking finding. Read every new line
+   in the ticket's `## Amendments`: a `strengthen` that is really weaker, or a `split`
+   that drops behaviour, is blocking. In the mechanical lane, judge the transform list:
+   a literal applied to a value and its test alike (`"404" -> "200"`) passes the suite
+   while changing behaviour.
+8. **Write** `reviews/<id>.md` from the template at the end of this skill
    (frontmatter `ticket`, `verdict`, `reviewer` = your agent name, `commit` = the
    commit in the latest evidence: test if the test play ran, else build). One AC table row per AC. Each finding has
    `file:line`, the rule it breaks, and the change you want.
-8. Run `sdlc gate review <id>` until it passes. Stop.
+9. Run `sdlc gate review <id>` until it passes. Stop.
 
 ## Verdict
 
@@ -62,5 +69,6 @@ commit: <commit from evidence>
 | AC | Proof | What the test actually asserts |
 |---|---|---|
 ## Findings
+## Out of area
 ## Checklist
 ```

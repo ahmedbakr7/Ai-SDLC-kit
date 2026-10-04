@@ -14,11 +14,16 @@ lists the wrong files, the build will be wrong no matter how good the agent is.
    the plan is forbidden; if the plan is missing something, stop and say what.
 2. Order: shared-module and contract tickets first, then backend, then frontend.
    `depends_on` lists every ticket whose code this one imports or calls.
-3. **files:** the exact paths this ticket creates or edits (no globs, <= 8). Tests
-   beside them are implied. A shared module is created by its owner ticket (the
-   plan's Shared modules table; the owner lists it in `files:`) and listed in
-   `shared:` or `files:` by later tickets that must extend it. Two open tickets that
-   write the same file must be ordered with `depends_on` (`sdlc lint` checks both).
+3. **areas:** the paths (or narrow globs) this ticket creates or edits. Tests beside
+   them are implied; the build may touch other files, which the reviewer must accept.
+   A shared module is created by its owner ticket (the plan's Shared modules table; the
+   owner lists it in `areas:`) and listed in `shared:` or `areas:` by later tickets that
+   must extend it. Two open tickets that list the same area must be ordered with
+   `depends_on` (`sdlc lint` checks both).
+   - A rename or move that preserves behaviour is `lane: mechanical` with `transforms:`
+     (`'literal "/v1/" -> "/api/v1/"'`, `rename oldName -> newName`, `move a -> b`) and
+     no acceptance criteria. Anything that changes behaviour is not mechanical.
+   - An unknown that blocks planning is `type: spike` with `questions:` (`Q-1: ...`).
 4. **acceptance_criteria:** `AC-n: <observable behaviour>`. One behaviour each, <= 8.
    Each must be checkable by a test without asking anyone:
    - Good: `AC-2: PUT /api/v1/plans/{id}/response with an unknown planId answers 404 not_found`
@@ -39,5 +44,5 @@ lists the wrong files, the build will be wrong no matter how good the agent is.
 
 ## Sizing
 
-Split when a ticket has > 8 files, > 8 AC, mixes contract + backend + frontend, or
+Split when a ticket has > 8 AC, spans unrelated areas, mixes contract + backend + frontend, or
 cites more than ~6 requirements. Smaller tickets build, review and revert better.

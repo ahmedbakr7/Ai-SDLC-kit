@@ -77,6 +77,26 @@ fails on a ticket that is not `done`. A PR therefore arrives reviewed and merges
 PR-level review bots (configured by the product, not the kit) comment on that PR; resolve
 their blocking findings before merging.
 
+### Lanes, areas and amendments
+
+The gate picks each ticket's lane ([ADR-0001](decisions/ADR-0001-lanes-areas-forge-approval.md)):
+
+- **mechanical**: a rename or move. The lead (or the PR itself, for a ticket whose transforms
+  explain the whole diff) writes `lane: mechanical` and `transforms:`; build runs `gate.mechanical`
+  (every `gate ci` check plus `mechanical`), there is no test play, and one review approves.
+  Any change the transforms do not produce makes the PR standard.
+- **standard**: the flow above.
+- **strict**: `risk: high`, `type: contract`, a CONTRACTS change or a `lanes.strict_paths` file.
+  The lead sets `accepted_by` on the ticket in a lead PR first; build, test and PR also run
+  `contract-diff`, and real-stack suites cannot be skipped.
+- **spike** tickets (`type: spike`) answer `questions:` (`Q-1: ...`) in findings files inside
+  their areas and change no code or tests.
+
+`areas:` (globs) replaces `files:`. A build may touch other files; the gate flags them and the
+approving review names each under `## Out of area`. Lead artifacts, other tickets, config and
+the test play's files stay off limits. The build amends its own ticket in `## Amendments`
+(`add`, `strengthen`, `split`, `widen`); weakening or removing an AC still needs the spec.
+
 Without `sdlc run` (agent in an IDE): `sdlc status T-001-03 in_progress --as build`,
 give the agent `sdlc prompt build T-001-03`, have it iterate on `sdlc gate build
 T-001-03`, commit, then `sdlc status T-001-03 in_review --as build`.

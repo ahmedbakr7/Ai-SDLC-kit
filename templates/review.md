@@ -24,6 +24,13 @@ play requires = request_changes.>
 
 (Write "None." only after doing every item in the checklist.)
 
+## Out of area
+
+<Each file the gate flagged as outside the ticket's areas, with why it belongs in this change.
+An approval that misses one is invalid. Delete this section when the gate flagged none.>
+
+- `path/or/glob` <why>
+
 ## Checklist
 
 - Contract: routes, payloads and errors match CONTRACTS exactly.
