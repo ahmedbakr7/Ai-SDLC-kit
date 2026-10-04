@@ -110,7 +110,7 @@ def cmd_gate(args) -> int:
         print(f"gate pr: ticket {args.ticket}" if args.ticket else
               "gate pr: no ticket moves on this branch; judging it as a lead PR", flush=True)
     g = Gate(cfg, args.play, args.ticket, args.base, only=args.only.split(",") if args.only else None,
-             since=args.since)
+             since=args.since, lane=args.lane)
 
     def show(c) -> None:
         mark = {"pass": "PASS", "fail": "FAIL", "skip": "skip"}[c.status]
@@ -362,6 +362,7 @@ def cmd_doctor(args) -> int:
         probs.append(f"no real-stack suite: tests.real_stack is {', '.join(suites)}, but "
                      f"commands.{'/'.join(suites)} is not set; routes and pages are never proven over the "
                      "real stack. Configure one, or set tests.real_stack = [] to accept unit-only proof")
+    probs += lane_floor_problems(cfg)
     if "contracts" in required and not cfg.section("routes").get("extractor"):
         probs.append("routes.extractor is not set; contract drift cannot be checked")
     if not cfg.section("tests").get("globs"):
@@ -387,6 +388,29 @@ def cmd_doctor(args) -> int:
         print(f"ERROR {p}")
     print("doctor: " + ("OK" if not probs else f"{len(probs)} problem(s)"))
     return EXIT_FAIL if probs else 0
+
+
+# The checks a lane may never drop (ADR-0001): the floor `doctor` holds every product to.
+MECHANICAL_FLOOR = ("artifacts", "scope", "immutable", "mechanical", "contracts", "lint", "typecheck", "unit",
+                    "ac-coverage", "test-quality", "build")
+
+
+def lane_floor_problems(cfg: config.Config) -> list[str]:
+    g = cfg.section("gate")
+    out = []
+    suites = [k for k in ("integration", "e2e") if cfg.commands.get(k)]
+    missing = [n for n in (*MECHANICAL_FLOOR, *suites) if n not in g.get("mechanical", [])]
+    if missing:
+        out.append(f"gate.mechanical drops {', '.join(missing)}: the mechanical lane must run every check gate ci "
+                   "runs (every configured test suite included) plus `mechanical`")
+    if "ac-red" not in g.get("build", []):
+        out.append("gate.build drops ac-red: the standard lane proves each AC red")
+    missing = [n for n in ("artifacts", "scope", "immutable", "spike") if n not in g.get("spike", [])]
+    if missing:
+        out.append(f"gate.spike drops {', '.join(missing)}: a spike's build must prove it changed documents only")
+    if "contract-diff" not in g.get("strict", []):
+        out.append("gate.strict drops contract-diff: the strict lane publishes the contract diff")
+    return out
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -437,6 +461,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--since", help="judge scope on changes after this commit (default: base branch "
                    "for build, the proven build commit for test/review)")
     p.add_argument("--only", help="comma-separated subset of checks (local iteration only)")
+    p.add_argument("--lane", default="", choices=["", "mechanical", "standard", "strict"],
+                   help="raise the ticket's lane (never lowers it)")
     p.add_argument("-v", "--verbose", action="store_true")
     p.set_defaults(fn=cmd_gate)
 

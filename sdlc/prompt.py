@@ -71,7 +71,9 @@ def _ticket_context(cfg: Config, repo: Repo, t: Ticket, play: str) -> list[str]:
         p = skills.resolve(cfg, s)
         if p is not None:
             out.append(_section(f"Skill: {s}", _body(p)))
-    out.append(_section("Write set (the gate rejects anything else)", _write_set(cfg, t, play)))
+    title = ("Write set (areas: the gate flags other files for the reviewer)" if play == "build"
+             else "Write set (the gate rejects anything else)")
+    out.append(_section(title, _write_set(cfg, t, play)))
     if play == "review":
         out.append(_section("Evidence (build, test) and the diff", _evidence(cfg, t)))
     out.append(_section("Definition of done", _dod(cfg, t, play)))
@@ -150,9 +152,12 @@ def _design_context(cfg: Config, repo: Repo, t: Ticket) -> list[str]:
 def _write_set(cfg: Config, t: Ticket, play: str) -> str:
     tests = cfg.section("tests")
     if play == "build":
-        lines = [f"- `{f}`" for f in t.files] + [f"- `{g}` (shared)" for g in t.shared]
+        lines = [f"- `{f}`" for f in t.areas] + [f"- `{g}` (shared)" for g in t.shared]
         if tests.get("unit_beside", True):
             lines.append("- unit tests beside the files above (same folder, same stem, matching the test globs)")
+        lines.append(f"- `{cfg.rel(t.path)}`: amendments only (see AGENTS.md rule 7)")
+        lines.append("- Areas are soft: a file outside them is flagged for the reviewer, who must accept it. Lead "
+                     "artifacts, other tickets, config and the test play's files are never yours.")
     elif play == "test":
         lines = [f"- `{g}`" for g in tests.get("integration_globs", [])] or ["- (tests.integration_globs is empty: ask the lead)"]
     else:
@@ -170,6 +175,18 @@ def _dod(cfg: Config, t: Ticket, play: str) -> str:
                 f"2. Run `sdlc gate review {t.id}` until it passes. Checks: {checks}.\n"
                 "3. Stop. Do not merge, do not edit code or tests.")
     tags = ", ".join(f"`{x}`" for x in t.ac_tags())
+    if play == "build" and t.type == "spike":
+        qs = ", ".join(q for q, _ in t.questions if q)
+        return (f"1. A findings file in the ticket's areas has a heading starting with each question id: {qs}.\n"
+                f"2. `sdlc gate build {t.id}` passes. Checks: {', '.join(cfg.section('gate').get('spike', []))}.\n"
+                "3. Change no production code and no tests.\n"
+                "4. Stop. Do not change ticket status, open PRs or start another ticket: the runner does that.")
+    if play == "build" and t.lane == "mechanical":
+        return ("1. The diff is exactly the ticket's transforms: replaying them on the base branch gives your files "
+                "byte for byte. Anything else moves the ticket to the standard lane.\n"
+                f"2. `sdlc gate build {t.id}` passes. Checks: {', '.join(cfg.section('gate').get('mechanical', []))}.\n"
+                "3. Read the gate output, not your memory of it. A check you did not see pass has not passed.\n"
+                "4. Stop. Do not change ticket status, open PRs or start another ticket: the runner does that.")
     return (f"1. Every acceptance criterion has at least one test whose name contains its tag: {tags}.\n"
             f"2. `sdlc gate {play} {t.id}` passes. Checks: {checks}.\n"
             "3. Read the gate output, not your memory of it. A check you did not see pass has not passed.\n"

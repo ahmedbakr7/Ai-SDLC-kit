@@ -21,8 +21,12 @@ the model and into one command:
 | `sdlc gate` check | Fails when |
 |---|---|
 | `artifacts` | a spec/plan/ticket/review is malformed, a reference does not resolve, deps form a cycle |
-| `scope` | a file outside the play's write set changed, or the ticket's status moved in a way the play's role may not (a test agent cannot mark its ticket done) |
-| `immutable` | an accepted ADR was edited, or an acceptance criterion was weakened without its spec |
+| `lane` | the ticket's lane does not hold: a standard or strict ticket has no AC, a strict ticket has no lead sign-off on the base branch, a non-mechanical ticket was created in its own PR, or (on a PR) evidence ran in a looser lane than the branch needs |
+| `scope` | a lead artifact, another ticket or another play's file changed, the ticket was edited beyond amendments, or its status moved in a way the play's role may not; a file outside the ticket's areas is a flag the review must accept, not a failure |
+| `immutable` | an accepted ADR was edited, or an acceptance criterion was weakened, removed or added without its spec or an amendment line |
+| `mechanical` | the diff is not exactly the ticket's declared transforms, byte for byte (modes, line endings and binaries included; a move must move, never copy or overwrite); such a PR runs in the standard lane instead |
+| `contract-diff` | strict lane: a CONTRACTS key (its attributes, its prose section, a table's fields) changed that the ticket does not cite; removed and narrowed keys are reported as breaking, prose outside every key is reported |
+| `spike` | a spike changed anything but documents in the areas the lead gave it, or a question has no findings heading |
 | `contracts` | the code exposes a route, page or table (`[tables] patterns`, Drizzle in the `nextjs` profile) CONTRACTS does not declare, or UI code calls a path no route serves |
 | `lint` `typecheck` `unit` `integration` `e2e` `build` | the product's real command exits non-zero, **is not configured**, or **ran zero tests** |
 | `ac-coverage` | an acceptance criterion has no passing test tagged `T-001-03/AC-2` in the JUnit output; in `gate ci`, for every ticket in review or done; in `gate test`, no test from a `tests.real_stack` suite (nextjs: e2e) proves any of the ticket's AC |
@@ -30,7 +34,16 @@ the model and into one command:
 | `test-quality` | tests are skipped/focused or assert on source text instead of behaviour |
 | `smoke` | the started app does not serve every contract route and page (`app.mutating_probe = "options"` checks writes via the `Allow` header instead of sending them; the `nextjs` profile sets it) |
 | `skills` | a vendored third-party skill drifted from its pinned commit and hash |
-| `review-file` | a review misses an AC row, approves a commit other than the latest proven one, or code changed after the reviewed commit; on a PR, the ticket is not yet reviewed and `done` |
+| `review-file` | a review misses an AC row, approves a commit other than the latest proven one, or code changed after the reviewed commit; an approval does not name each out-of-area file under `## Out of area` and each new `strengthen`/`split`/`widen` amendment under `## Amendments`; on a PR, the ticket is not yet reviewed and `done` |
+
+Every ticket runs in a **risk lane** ([ADR-0001](decisions/ADR-0001-lanes-areas-forge-approval.md)), chosen by
+the engine from the ticket and the diff; it may raise a lane, never lower it:
+
+| Lane | When | Runs |
+|---|---|---|
+| mechanical | the ticket declares `lane: mechanical` and `transforms:` (literal, identifier rename, file move), and replaying them on the base gives the whole diff | every `gate ci` check plus `mechanical`; no `ac-red`, no test play; one review |
+| standard | the default | build with `ac-red`, test play through the real stack, independent review |
+| strict | `risk: high`, `type: contract`, a CONTRACTS change, or a file in `lanes.strict_paths` | standard plus `contract-diff`, real-stack suites that cannot be skipped, and `accepted_by` set by the lead on the base branch |
 
 Every full gate run writes JSON evidence (`--only` runs are partial and never count).
 Ticket plays are judged by the base branch's `sdlc.toml`, so an agent cannot reconfigure

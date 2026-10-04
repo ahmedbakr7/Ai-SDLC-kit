@@ -151,3 +151,61 @@ def mark_legacy_text(text: str) -> str:
         if re.fullmatch(r"status:[ \t]*done[ \t]*", ln):
             return nl.join(lines[:i + 1] + ["legacy: v0"] + lines[i + 1:]) + sep + rest
     return text
+
+
+# -- amendments (ADR-0001) -------------------------------------------------
+# A ticket PR records each change to its own ticket as one line in an append-only
+# `## Amendments` section of the ticket body:  - <kind> <target>: <reason>
+AMENDMENT_KINDS = ("add", "strengthen", "split", "widen", "weaken", "remove")
+_AMEND_RE = None
+
+
+def _amend_re():
+    import re
+
+    global _AMEND_RE
+    if _AMEND_RE is None:
+        _AMEND_RE = re.compile(r"^\s*[-*]\s+(\w+)\s+(.+?):\s+(\S.*)$")
+    return _AMEND_RE
+
+
+def amendment_lines(body: str) -> list[str]:
+    """The raw lines of the `## Amendments` section (empty lines dropped)."""
+    import re
+
+    m = re.search(r"^## Amendments[ \t]*$(.*?)(?=^## |\Z)", body.replace("\r\n", "\n"), re.M | re.S)
+    return [ln.rstrip() for ln in (m.group(1) if m else "").split("\n") if ln.strip()]
+
+
+def parse_amendment(line: str) -> tuple[str, str, str] | None:
+    """('split', 'AC-2 -> T-001-04', reason) for one amendment line; None if malformed."""
+    m = _amend_re().match(line)
+    if not m or m.group(1) not in AMENDMENT_KINDS:
+        return None
+    return m.group(1), m.group(2).strip(), m.group(3).strip()
+
+
+def new_amendments(old_body: str, new_body: str) -> tuple[list[tuple[str, str, str]], list[str]]:
+    """Amendments this change adds, and problems: the section is append-only, and every new
+    line must parse."""
+    old, new = amendment_lines(old_body), amendment_lines(new_body)
+    problems = []
+    if new[:len(old)] != old:
+        problems.append("## Amendments is append-only: an earlier line was edited or removed")
+        return [], problems
+    out = []
+    for ln in new[len(old):]:
+        a = parse_amendment(ln)
+        if a is None:
+            problems.append(f"malformed amendment {ln.strip()!r}: want '- <kind> <target>: <reason>' with kind one of "
+                            + ", ".join(AMENDMENT_KINDS))
+        else:
+            out.append(a)
+    return out, problems
+
+
+def strip_amendments(body: str) -> str:
+    """The body without its `## Amendments` section: what a ticket PR may not change."""
+    import re
+
+    return re.sub(r"^## Amendments[ \t]*$.*?(?=^## |\Z)", "", body.replace("\r\n", "\n"), flags=re.M | re.S).strip()

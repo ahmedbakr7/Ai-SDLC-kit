@@ -3,8 +3,9 @@
 Reads the generated prompt, finds play + ticket in its first line, and copies the
 matching solution tree from tests/fixtures/solutions/<play>-<ticket>/ into the repo.
 
-FAKE_AGENT_STRAY=1  first attempt also writes an out-of-scope file, so the gate fails
-                    and the runner has to feed the failure back; the retry removes it.
+FAKE_AGENT_STRAY=1  first attempt also edits a lead artifact (outside every ticket's areas
+                    and hard), so the gate fails and the runner has to feed the failure
+                    back; the retry removes it.
 """
 import json
 import os
@@ -25,9 +26,9 @@ if not solution.is_dir():
     sys.exit(f"fake agent: no solution for {play} {tid}")
 
 retry = "The previous attempt failed the gate" in text
-stray = repo / "app" / "stray_helper.py"
+stray = repo / "arch" / "stray-notes.md"
 if os.environ.get("FAKE_AGENT_STRAY") == "1" and play == "build" and not retry:
-    stray.write_text("def helper() -> None:\n    pass\n", encoding="utf-8")
+    stray.write_text("notes the build agent should not write\n", encoding="utf-8")
 elif stray.exists():
     stray.unlink()
 

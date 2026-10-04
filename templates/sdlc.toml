@@ -25,8 +25,12 @@ profile = ""
 
 [tests]
 # globs = []                 # which files are tests
+# source_globs = []          # production source ac-red reverts (default: the ticket's areas)
 # integration_globs = []     # what the test play may write
 # forbid = [ { regex = "", message = "" } ]
+
+[lanes]
+# strict_paths = []          # globs that make a PR strict (migrations, auth, money); CONTRACTS always does
 
 [scope]
 # always_allowed = []        # globs any play may touch (lockfiles, snapshots)

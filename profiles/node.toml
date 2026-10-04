@@ -15,6 +15,10 @@ command = ""
 [tests]
 globs = ["**/*.test.ts", "**/*.spec.ts", "**/*.test.js", "**/*.spec.js", "test/**", "tests/**"]
 integration_globs = ["test/integration/**", "tests/integration/**", "e2e/**"]
+source_globs = ["src/**"]
+
+[lanes]
+strict_paths = ["**/migrations/**"]
 
 [scope]
 always_allowed = ["package-lock.json", "pnpm-lock.yaml", "yarn.lock"]

@@ -12,13 +12,14 @@ and retries.
 ## Inputs (all in your prompt)
 
 Ticket, the requirements it cites, the CONTRACTS excerpt, pattern skills, write set,
-definition of done. Read the files named in `files:` and `shared:` before editing.
+definition of done. Read the files named in `areas:` and `shared:` before editing.
 
 ## Procedure
 
 1. **Understand.** For each AC, write down (to yourself) the input, the observable
-   result, and which file produces it. If an AC is ambiguous or needs a file outside
-   the write set, stop now and say exactly what is missing.
+   result, and which file produces it. If an AC is ambiguous, stop now and say exactly
+   what is missing. A missing AC or a needed file outside the areas is an amendment
+   (AGENTS.md rule 7), not a reason to stop: record it in `## Amendments`.
 2. **Find what exists.** Your prompt's *Shared modules* table says which modules
    exist (import them), which are yours to create, and which are not built yet (if
    you need one of those, stop). Also search the pattern skills for helpers you must
@@ -57,7 +58,8 @@ several things at once, and never edit a test's expectation to match wrong outpu
 
 | Gate check | Usual cause |
 |---|---|
-| scope | you edited a file not in `files:`/`shared:`; revert it or stop and ask |
+| scope | you edited a lead artifact, another ticket, the test play's files, or your ticket beyond an amendment; revert it or stop and ask (files outside `areas:` are only flagged: say why in your final message) |
+| lane | your mechanical diff has changes the transforms do not produce (now standard: it needs AC), or a strict ticket lacks the lead's `accepted_by` |
 | contracts | route path or method differs from CONTRACTS; a client call uses an undeclared path |
 | ac-coverage | a test is missing its `T-.../AC-n` tag, or that test fails |
 | ac-red | the AC's tests also pass with your files reverted: assert on what you built |

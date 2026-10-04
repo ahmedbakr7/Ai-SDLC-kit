@@ -14,6 +14,7 @@ TICKET_FILE_RE = re.compile(r"^(T-\d{3}-\d{2,3})(?:-[a-z0-9-]+)?\.md$")
 REQ_ID = r"[A-Z]{1,4}-\d{3}-\d+"
 REQ_DEF_RE = re.compile(rf"^\s*[-*]\s+\*\*({REQ_ID})\*\*\s*(.*)$")
 AC_RE = re.compile(r"^(AC-\d+):\s+(\S.*)$")
+QUESTION_RE = re.compile(r"^(Q-\d+):\s+(\S.*)$")
 AC_TAG_RE = re.compile(r"(T-\d{3}-\d{2,3})/(AC-\d+)")
 METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")
 ROUTE_LINE_RE = re.compile(rf"^({'|'.join(METHODS)})\s+(/\S*)(.*)$")
@@ -22,7 +23,9 @@ FENCE_RE = re.compile(r"^```(routes|pages|tables|events)\s*$")
 V0_TABLE_ROW_RE = re.compile(r"^\|\s*`([A-Za-z0-9_]+)`\s*\|")
 
 STATUSES = ("draft", "ready", "in_progress", "in_review", "done", "blocked")
-TYPES = ("backend", "frontend", "fullstack", "contract", "test", "ops", "chore")
+TYPES = ("backend", "frontend", "fullstack", "contract", "test", "ops", "chore", "spike")
+# Risk lanes, loosest first. The engine may raise a ticket's lane, never lower it (ADR-0001).
+LANES = ("mechanical", "standard", "strict")
 RISKS = ("low", "medium", "high")
 VERDICTS = ("approve", "request_changes")
 
@@ -64,8 +67,38 @@ class Ticket:
 
     @property
     def test_play(self) -> bool:
-        """False when the lead marked the ticket `test: none` (no real-stack test play)."""
-        return str(self.data.get("test", "required")) != "none"
+        """False when the lead marked the ticket `test: none` (no real-stack test play), and for
+        spikes, which deliver findings, not behaviour."""
+        return str(self.data.get("test", "required")) != "none" and self.type != "spike"
+
+    @property
+    def lane(self) -> str:
+        """The lane the ticket declares, or the default its risk and type imply. The gate may
+        still raise it from the diff (lanes.resolve)."""
+        floor = "strict" if self.risk == "high" or self.type == "contract" else ""
+        declared = str(self.data.get("lane", "") or "")
+        if floor:
+            return floor  # risk: high and type: contract are strict, whatever the lane field says
+        return declared if declared in LANES else "standard"
+
+    @property
+    def areas(self) -> list[str]:
+        """Globs the ticket expects to change. `files:` (exact paths) is read as areas until
+        `sdlc migrate` rewrites it."""
+        return [str(x) for x in self.get_list("areas")] or self.files
+
+    @property
+    def transforms(self) -> list[str]:
+        return [str(x) for x in self.get_list("transforms")]
+
+    @property
+    def questions(self) -> list[tuple[str, str]]:
+        """[(Q-n, text)] of a spike; malformed entries come back as ('', raw)."""
+        out = []
+        for raw in self.get_list("questions"):
+            m = QUESTION_RE.match(str(raw).strip())
+            out.append((m.group(1), m.group(2)) if m else ("", str(raw)))
+        return out
 
     @property
     def depends_on(self) -> list[str]:
@@ -145,6 +178,11 @@ class Contracts:
     pages: list[str] = field(default_factory=list)
     page_attrs: dict[str, dict[str, str]] = field(default_factory=dict)
     headings: list[str] = field(default_factory=list)
+    # What each declaration says, for contract-diff: the rest of a table/event line, the prose
+    # under a '### METHOD /path' or '### /page' heading, and the lines no key owns.
+    definitions: dict[str, str] = field(default_factory=dict)
+    sections: dict[str, str] = field(default_factory=dict)
+    rest: list[str] = field(default_factory=list)
     issues: list[Issue] = field(default_factory=list)
 
     def has(self, ref: str) -> bool:
@@ -278,20 +316,27 @@ class Repo:
         return Review(p, data, body)
 
 
-def parse_contracts(path: Path, cfg: Config) -> Contracts:
+def parse_contracts(path: Path, cfg: Config, text: str | None = None) -> Contracts:
+    """CONTRACTS at `path`, or `text` as if it were that file (e.g. the base branch's version)."""
     c = Contracts(path)
-    if not path.is_file():
-        return c
+    if text is None:
+        if not path.is_file():
+            return c
+        text = path.read_text(encoding="utf-8")
     kind = None
     in_tables = False  # inside a v0 '## Tables' section
-    for i, line in enumerate(path.read_text(encoding="utf-8").replace("\r\n", "\n").split("\n"), 1):
+    section = None     # the heading text whose prose this line belongs to
+    for i, line in enumerate(text.replace("\r\n", "\n").split("\n"), 1):
         if kind is None:
             m = FENCE_RE.match(line.strip())
             if m:
                 kind = m.group(1)
+                section = None
                 continue
             if in_tables and (tm := V0_TABLE_ROW_RE.match(line.strip())):
                 c.tables.append(tm.group(1))
+                c.definitions[f"table {tm.group(1)}"] = line.strip()
+                continue
             if line.startswith("#"):
                 h = line.lstrip("#").strip()
                 in_tables = h.lower() == "tables"
@@ -299,6 +344,14 @@ def parse_contracts(path: Path, cfg: Config) -> Contracts:
                 rm = ROUTE_LINE_RE.match(h)
                 if rm and line.startswith(("## ", "### ", "#### ")):
                     _add_route(c, cfg, path, i, rm, "heading")
+                section = h if (rm or h.startswith("/")) and line.startswith(("### ", "#### ")) else None
+                if section is None:
+                    c.rest.append(line)
+                continue
+            if section is not None:
+                c.sections[section] = c.sections.get(section, "") + line + "\n"
+            else:
+                c.rest.append(line)
             continue
         s = line.strip()
         if s.startswith("```"):
@@ -315,8 +368,10 @@ def parse_contracts(path: Path, cfg: Config) -> Contracts:
             _add_route(c, cfg, path, i, m, "block")
         elif kind == "tables":
             c.tables.append(s.split()[0])
+            c.definitions[f"table {s.split()[0]}"] = " ".join(s.split()[1:])
         elif kind == "events":
             c.events.append(s.split()[0])
+            c.definitions[f"event {s.split()[0]}"] = " ".join(s.split()[1:])
         elif kind == "pages":
             if not s.startswith("/"):
                 c.issues.append(Issue("error", f"{cfg.rel(path)}:{i}", f"page must start with '/': {s}"))
