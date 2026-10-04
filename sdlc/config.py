@@ -142,7 +142,6 @@ DEFAULTS: dict[str, Any] = {
         "trust_unsigned": False,  # accept declared roles (single identity); every result says trust-based
         "allowed_signers": "",    # git mode: ssh allowed-signers file for signed notes
         "repo": "",               # forge mode: owner/name (default: GITHUB_REPOSITORY)
-        "api": "https://api.github.com",
     },
     "adapters": {
         "tools": ["claude", "cursor", "copilot", "gemini"],

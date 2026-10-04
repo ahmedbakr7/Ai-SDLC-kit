@@ -47,6 +47,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number || github.event.issue.number }}
+          GH_TOKEN: ${{ github.token }}
           BASE: ${{ github.event.pull_request.base.ref }}
-        # A comment event names no base branch: sdlc reads it from the PR when --base is empty.
-        run: .sdlc/bin/sdlc --root ../pr-head approval --pr "$PR" ${BASE:+--base "origin/$BASE"} --publish-status
+        # A comment event names no base branch: ask the GitHub API, never the PR's own files.
+        run: |
+          if [ -z "$BASE" ]; then
+            BASE=$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json baseRefName --jq .baseRefName)
+          fi
+          [ -n "$BASE" ] || { echo "sdlc-approval: cannot resolve the base branch of PR $PR"; exit 1; }
+          .sdlc/bin/sdlc --root ../pr-head approval --pr "$PR" --base "origin/$BASE" --publish-status
