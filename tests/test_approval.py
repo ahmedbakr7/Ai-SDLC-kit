@@ -716,7 +716,10 @@ class Tooling(Base):
         # The PR and its base are known before the checkout, so the kit (and the config it
         # judges by) come from the PR's own base branch, even when that is not the default.
         self.assertLess(wf.index("- name: Which PR and base"), wf.index("uses: actions/checkout@v4"))
-        self.assertIn("ref: ${{ env.BASE }}", wf)
+        self.assertIn("ref: ${{ needs.which.outputs.base }}", wf)
+        # One judge per PR at a time, newest last: an older run cannot post after a newer one.
+        self.assertIn("    concurrency:\n      group: sdlc-approval-${{ needs.which.outputs.pr }}\n"
+                      "      cancel-in-progress: false\n", wf)
         relay = (KIT / "adapters" / "github" / "sdlc-approval-review.yml").read_text(encoding="utf-8")
         self.assertIn("\nname: sdlc-approval-review\n", relay)
         self.assertIn("\npermissions: {}\n", relay)

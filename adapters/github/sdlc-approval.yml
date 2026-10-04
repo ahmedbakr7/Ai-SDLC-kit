@@ -20,18 +20,20 @@ on:
     types: [completed]
 
 jobs:
-  approval:
+  which:
     if: >-
       ${{ (github.event_name != 'issue_comment' || github.event.issue.pull_request) &&
           (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') }}
     runs-on: ubuntu-latest
     permissions:
-      contents: read
       pull-requests: read
       actions: read            # to read the relay's PR number after a review
-      statuses: write          # the result is posted as the sdlc/approval status on the PR head
+    outputs:
+      pr: ${{ steps.which.outputs.pr }}
+      base: ${{ steps.which.outputs.base }}
     steps:
       - name: Which PR and base
+        id: which
         env:
           EVENT_PR: ${{ github.event.pull_request.number || github.event.issue.number }}
           EVENT_BASE: ${{ github.event.pull_request.base.ref }}
@@ -51,13 +53,30 @@ jobs:
             BASE=$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json baseRefName --jq .baseRefName)
           fi
           [ -n "$BASE" ] || { echo "sdlc-approval: cannot resolve the base branch of PR $PR"; exit 1; }
-          { echo "PR=$PR"; echo "BASE=$BASE"; } >> "$GITHUB_ENV"
+          { echo "pr=$PR"; echo "base=$BASE"; } >> "$GITHUB_OUTPUT"
+
+  approval:
+    needs: which
+    runs-on: ubuntu-latest
+    # One judge per PR at a time; GitHub keeps only the newest pending run, so an older
+    # evaluation can never post after a newer one (a dismissal cannot be overwritten).
+    concurrency:
+      group: sdlc-approval-${{ needs.which.outputs.pr }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write          # the result is posted as the sdlc/approval status on the PR head
+    env:
+      PR: ${{ needs.which.outputs.pr }}
+      BASE: ${{ needs.which.outputs.base }}
+    steps:
       # The kit, and the sdlc.toml it judges by, come from the PR's own base branch.
       - uses: actions/checkout@v4
         with:
           submodules: true
           fetch-depth: 0
-          ref: ${{ env.BASE }}
+          ref: ${{ needs.which.outputs.base }}
           token: ${{ secrets.SDLC_KIT_TOKEN || github.token }}
           persist-credentials: false
       - uses: actions/setup-python@v5
