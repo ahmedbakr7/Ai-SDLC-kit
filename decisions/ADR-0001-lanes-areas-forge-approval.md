@@ -16,9 +16,9 @@ change and pushes bookkeeping into git:
 
 | Evidence from the pilot | Root cause in the kit |
 |---|---|
-| Moving 29 UI call strings from `/v1` to `/api/v1` took two tickets (T-001-32, T-001-33), a full TDD and red-proof cycle, separate review sessions and several lead PRs | One flow for every change; no way to say "this diff preserves behaviour" and have the engine check it |
+| Moving 29 UI call strings from `/v1` to `/api/v1` took two tickets (T-001-32, T-001-33), a full TDD and red-proof cycle, separate review sessions and several lead PRs | One flow for every change; no way to say "this diff is a rename" and have the engine prove it |
 | The builder stops and asks whenever it finds a missing file or a gap in the AC | `files:` is a hard write set (`scope` fails); AC are immutable inside a ticket (`immutable` fails) |
-| Kit PRs #8, #9, #10 all fixed whether a committed review or evidence file still covers the code after a base merge | Approval and evidence live in the tree, so every base merge forces the engine to decide which commits "count" (`_changed_after_review`, `same_branch_change`) |
+| Kit PRs #8, #9, #10 all fixed whether a committed review or evidence file still covers the code after a base merge | Approval and evidence live in the tree, so every base merge forces the engine to decide which commits "count" |
 | Status edits create commits; evidence must be committed after the gate that produced it, and review after that | Ticket status, evidence JSON and `reviews/<id>.md` are files the PR itself must carry |
 
 What worked and must survive: an independent reviewer, AC-tagged tests, mutation or red proof
@@ -32,7 +32,7 @@ Options considered:
   pilot's bugs came from exactly that kind of special case.
 - **Lanes inside the one engine, chosen by the engine from the ticket and the diff, plus
   approvals and evidence moved out of the tree** (this ADR). The cost of a change follows
-  its risk, and the base-merge question goes away instead of getting another fix.
+  its risk, and approvals stop being files a base merge can strand.
 
 ## Decision
 
@@ -56,27 +56,34 @@ branch's `sdlc.toml` as today, so a PR cannot loosen its own lane.
 |---|---|
 | `arch/CONTRACTS.md` changed | strict |
 | A file matches `[lanes] strict_paths` (globs; profiles ship migration dirs, products add auth and money paths) | strict |
-| Mechanical only: a test file changed beyond the declared transforms, a test file deleted, or fewer test declarations in a file | standard |
-| Mechanical only: a dependency added or changed in a manifest (`package.json`, `pyproject.toml`, ...) | standard |
+| Mechanical only: any changed line, in any file, that the declared transforms do not produce (residue) | standard |
+| Mechanical only: a file added or deleted other than by a declared move | standard |
 | Mechanical only: the ticket adds or changes an AC | standard |
 
-**mechanical** (rename, move, refactor; behaviour-preserving):
+**Strict always wins.** A change that touches CONTRACTS or a strict path is strict even when
+it is a pure rename. Renaming contract paths is a contract change: it needs the contract
+diff and lead sign-off, never the mechanical lane.
 
+**mechanical** (renames and moves the engine can prove):
+
+- The ticket declares `transforms:`. Allowed kinds: literal substitution
+  (`"/v1/" -> "/api/v1/"`), identifier rename (word-boundary token substitution), and file
+  move. No general regex: a pattern with captures can encode any edit.
+- The `mechanical` check replays the transforms on the base version of every changed file
+  and compares the result with the head, byte for byte. **The transforms must produce the
+  whole diff, production and tests alike.** Any residue raises the PR to standard. So a
+  refactor that is not a pure rename or move (extracting a function, reordering logic) is
+  standard; the lane covers what the engine can prove, not what the author claims.
 - Checks: the full `gate ci` list (lint, typecheck, every test suite, `ac-coverage` for every
-  shipped ticket, test-quality, contracts, build, smoke, skills, immutable) plus a new
-  `mechanical` check. No `ac-red`, no test play, no AC required on the ticket.
-- The ticket declares `transforms:`: literal or regex substitutions and file moves
-  (`"/v1/" -> "/api/v1/"`). The `mechanical` check replays them on the base version of every
-  changed file and diffs the result against the head.
-  - **Residue in test files fails the lane** (raises to standard). This is the invariant that
-    replaces red proof: tests change only by the declared transforms, and the whole suite
-    still passes. A refactor in Fowler's sense: same tests, same results.
-  - Residue in production files is allowed (a refactor). It is listed for the reviewer.
-- Review: one approving review from any reviewer identity other than the author; a review bot
-  configured in `[approval] bots` qualifies. No separate reviewer session.
-- A mechanical ticket whose transforms explain the **entire** diff (zero residue anywhere)
-  may be created in the same PR that applies it. Otherwise the ticket must already be
-  `ready` on the base branch.
+  shipped ticket, test-quality, contracts, build, smoke, skills, immutable) plus `mechanical`.
+  No `ac-red`, no test play, no AC required on the ticket.
+- Review: one approving review from an allowlisted reviewer or bot identity (section 4) other
+  than the author. The review judges the transform list, which is the only thing the engine
+  cannot: a literal substitution applied to both a value and its test (`"404" -> "200"`)
+  replays cleanly and passes the suite while changing behaviour.
+- A mechanical ticket may be created in the same PR that applies it. The proof above makes
+  self-declaring safe; if the PR raises to standard, the ticket must already be `ready` on
+  the base branch, as today.
 
 **standard**: today's flow. Build gate with `ac-red`, test play with real-stack proof,
 review by an independent session, AC-tagged tests for every AC.
@@ -88,7 +95,7 @@ review by an independent session, AC-tagged tests for every AC.
   the ticket's `contracts:`; a removed or narrowed key is marked breaking.
 - Real-stack e2e is required: every suite in `tests.real_stack` must be configured and run;
   `skip` is a failure (`[gate] optional` does not apply in this lane).
-- Lead sign-off: an approval whose reviewer is in `[approval] leads` (section 4).
+- Lead sign-off: an approval from an identity in `[approval] leads` (section 4).
 
 ### 2. Areas replace `files:`
 
@@ -96,11 +103,14 @@ review by an independent session, AC-tagged tests for every AC.
   The `MAX_FILES = 8` rule goes; ticket size is judged by AC count and review.
 - A changed file outside the areas is a **flag**, not a `scope` failure. Flags appear in the
   gate output and the PR check summary. The approving review must name each flagged path (or
-  a glob covering it) under `## Out of area`; an approval that misses one is invalid. The
-  reviewer decides, not the lead, and the builder does not stop.
+  a glob covering it) under `## Out of area`; an approval that misses one is invalid. This is
+  machine-checked, so soft areas never become silent. The reviewer decides, not the lead, and
+  the builder does not stop.
 - Tests beside an in-area file are in area.
-- `ac-red` reverts every non-test file the PR changed, not only `files:`. This is stricter
-  than today.
+- `ac-red` reverts the PR's changed files that match `[tests] source_globs` (production
+  source; the nextjs profile sets `src/**`) and are not tests, instead of only `files:`.
+  Manifests, lockfiles, config and docs are not reverted: reverting them can break the
+  install or build and fail ac-red for the wrong reason. Those changes are judged in review.
 - Out-of-area edits to lead artifacts and strict paths are not soft: they raise the lane
   (section 1) or stay governed by `immutable` and the trusted config (section 6).
 
@@ -131,38 +141,59 @@ ticket body: `- <kind> <AC-n | area | T-id>: <reason>`.
 
 ### 4. Approval bound to the PR's own diff
 
-An approval is a record `{head sha, fingerprint, reviewer, role (review | lead | bot),
+An approval is a record `{reviewed sha R, reviewer identity, role (review | lead | bot),
 verdict, body}`. The body is today's review template (gate, AC table, findings, out-of-area).
 It is never committed to the tree.
 
-**Fingerprint.** For each changed path (renames detected), the ordered removed and added lines
-of `git diff -U0 <merge-base>..<head>`, with hunk headers and line numbers dropped, hashed
-with SHA-256. Whitespace is kept (indentation is code).
+**Coverage is decided by replay, location-exact.** An approval of R covers the current head H
+when, for the PR's changed files at H (the same set as at R):
 
-**Staleness.** An approval of sha R covers head H when `fingerprint(R) == fingerprint(H)`.
-A base merge that leaves the PR's own lines unchanged keeps the approval. A conflict
-resolution, an amendment, or any edit to a PR line makes it stale. This replaces
-`_changed_after_review`, `same_branch_change` in approval checks, and `reviews/<id>.md`.
+- a file the base did not change between `merge-base(base, R)` and `merge-base(base, H)` is
+  byte-identical at R and H;
+- a file the base did change is exactly what `git merge-file` produces when it applies the
+  base's change (old merge base to new) to R's version, and that merge is clean.
 
-**Independence.** The reviewer must not appear in the `Sdlc-Agent` trailer of any PR commit
-(today's rule). In forge mode, the forge identity that posted the approval must also differ
-from the PR author for a standard or strict approval.
+This is the replay `same_branch_change` already implements (kit #10), applied per file. A base
+merge that leaves the PR's lines where and what they were keeps the approval. Moving an
+approved line, editing it, a conflict resolution, an amendment, or a base edit overlapping a
+PR line voids it. A content-only hash was rejected: it ignores location, so moving an
+approved line elsewhere in the file would keep the approval on code nobody reviewed.
+
+**Identity is verified against an allowlist.** `[approval] reviewers`, `leads` and `bots` list
+forge identities. `sdlc/approval` reads who posted each record (the PR review's author, or the
+commit status's `creator`) and counts it only when:
+
+- the identity is in the list for the role the lane needs;
+- for a standard or strict approval, the identity is not the PR author and did not author
+  any PR commit;
+- the reviewing agent does not appear in the `Sdlc-Agent` trailer of any PR commit (today's
+  rule).
+
+A record from any other identity is ignored, so a builder's token that posts a status
+approves nothing. When the agents and the lead share one forge identity, no approval can
+pass these rules: `sdlc/approval` fails closed and names the missing separation. Agents
+need their own forge identity (an app, or one each for building and reviewing).
 
 **Where records live** (`[approval] mode`):
 
 | Mode | Record | Identity |
 |---|---|---|
-| `forge` (GitHub adapter first; the interface is forge-neutral) | An approving PR review on R, or a commit status `sdlc/review/<ticket>` on R whose target links the review body (a PR comment). A status works when the reviewer cannot approve in the forge (same account as the author) | The review author or the status `creator` |
-| `git` (plain-git fallback) | A git note on R in `refs/notes/sdlc`, front matter plus body, pushed with the branch | Committer; `[approval] require_signed = true` verifies signed notes commits against an allowed-signers file |
+| `forge` (GitHub adapter first; the interface is forge-neutral) | An approving PR review on R, or a commit status `sdlc/review/<ticket>` on R whose target links the review body (a PR comment) | The review author or the status `creator`, checked against the allowlist |
+| `git` (plain-git fallback) | A git note on R in `refs/notes/sdlc`, front matter plus body | The signer of the notes commit, checked against an allowed-signers file. Unsigned notes count only with `[approval] trust_unsigned = true`, and the gate output then says the approval layer is trust-based |
+
+In `git` mode CI must fetch `refs/notes/sdlc` explicitly (`git fetch origin
+refs/notes/sdlc:refs/notes/sdlc`); it is not fetched by default, and most fork workflows
+drop notes. When the ref is missing, `sdlc/approval` fails closed instead of reading "no
+approval needed".
 
 The review agent still only writes a file (`.sdlc-run/review-<id>.md`); the runner publishes
-it. Agents never need forge credentials.
+it with the reviewer's credentials. Agents never need forge credentials themselves.
 
 **Checks in CI.** Two required checks, so a new approval does not re-run the tests:
 
 - `sdlc/gate`: the lane's checks on the head.
-- `sdlc/approval`: resolves the lane, then requires an approval covering the head for the
-  lane's roles (mechanical: any reviewer or bot; standard: an independent reviewer; strict:
+- `sdlc/approval`: resolves the lane, then requires approvals covering the head for the
+  lane's roles (mechanical: a reviewer or bot; standard: an independent reviewer; strict:
   that plus a lead; any lead-only amendment: a lead). Re-runs on review and status events.
 
 The merge rule becomes: both checks green on the head commit.
@@ -174,6 +205,10 @@ The merge rule becomes: both checks green on the head commit.
 - Nothing trusts earlier evidence: `gate pr` runs the lane's checks, including `ac-red` and
   real-stack proof, on the head. Today `gate pr` checks only artifacts, scope, immutable and
   the review file, and trusts the committed build and test evidence. This is stricter.
+- Cost: `ac-red` adds one extra unit-suite run per push (all source files are reverted
+  together, as today). Fine at Hangout's size. Results are cached by the pair (head tree,
+  merge-base tree), so a re-run on the same trees, or a push that changes only the PR
+  description, reuses them.
 - The test and review plays judge what they changed against the HEAD the runner recorded
   before the agent started (`since`), as today; they no longer look it up from evidence commits.
 - **Status is derived, not stored.** Stored values shrink to lead decisions:
@@ -181,6 +216,10 @@ The merge rule becomes: both checks green on the head commit.
   - `done`: a commit reachable from the base branch carries `Sdlc-Ticket: <id>`. The runner
     and `sdlc commit` add the trailer; `gate pr` requires it on at least one PR commit per
     ticket, and finds the PR's tickets from it (replacing file-based `pr_tickets`).
+  - Merge commits are the default and need no settings: the branch's commits stay reachable.
+    Squash merges work when the squash message keeps the trailer (repository setting, or the
+    trailer in the PR body). The engine only scans reachable commits, so any strategy that
+    keeps the trailer works.
   - `in_progress` / `in_review`: an open (draft / ready-for-review) PR, or in `git` mode an
     unmerged branch, whose commits carry the trailer.
   - Tickets already `done` before migration keep `status: done` as a frozen fact.
@@ -191,10 +230,11 @@ The merge rule becomes: both checks green on the head commit.
 
 - `immutable`: accepted ADRs, weakening or removing AC without a spec change or a lead
   approval, deleting a non-draft ticket, growing the baseline.
-- The base branch's `sdlc.toml` judges every PR, including its lane lists.
+- The base branch's `sdlc.toml` judges every PR, including its lane lists and allowlists.
 - `doctor` fails a lane list below the floor. Mechanical must include lint, typecheck, every
   configured test suite, build, `ac-coverage`, test-quality, contracts, immutable and
-  `mechanical`. Standard must include `ac-red`. Strict must include `contract-diff`.
+  `mechanical`. Standard must include `ac-red`. Strict must include `contract-diff`. In
+  `forge` mode `doctor` fails when `[approval] reviewers` is empty.
 - The test play still may not change production files: the red-proof separation is not an
   area question.
 - Contracts first (AGENTS.md rule 3) becomes: a ticket PR that changes CONTRACTS runs in
@@ -216,34 +256,34 @@ The merge rule becomes: both checks green on the head commit.
 
 Easier:
 
-- The `/api/v1` rename becomes one mechanical ticket and one PR: declared transforms, the full
-  suite, a bot review. T-001-33 can run this way once step 1 is pinned.
+- The `/api/v1` UI move becomes one mechanical ticket and one PR: one literal transform, the
+  full suite, a bot review. T-001-33 can run this way once step 1 is pinned. (Deleting the
+  transitional `/v1` section of CONTRACTS is a contract change and stays a strict lead PR.)
 - Builders fix gaps in the PR (add an AC, touch an unlisted file) and the reviewer judges.
-- Base merges no longer touch approvals or evidence. The `_changed_after_review` family of
-  bugs (#8-#10) has nothing left to decide.
+- Base merges no longer touch evidence. Approval coverage reuses kit #10's exact replay
+  instead of growing a new rule.
 - No status, evidence or review commits; no evidence-ordering loop.
 - CI proves `ac-red` and real-stack AC on the head instead of trusting committed files.
 
 Harder, or newly risky:
 
-- **Mechanical residue in production code is judged, not proven.** A refactor that changes
-  behaviour no test covers passes. The guard is: tests unchanged except declared transforms,
-  every suite green, every shipped AC still proven, plus review. This is the accepted price
-  of dropping red proof for this lane.
-- **Fingerprints ignore context.** A base change that alters the meaning of an unchanged PR
-  line (a renamed function the PR calls) keeps the approval. CI on the merged head still runs
-  every check; the approval only says "a person or agent read these lines".
+- **Transform lists are judged, not proven.** The engine proves the diff is exactly the
+  declared transforms; only review decides the transforms preserve behaviour. The list is
+  short, so this is a small review surface, but a bot review is the only guard in this lane.
+- **Coverage does not judge base semantics.** A base change elsewhere that alters the meaning
+  of an unchanged PR line (a renamed function the PR calls) keeps the approval. CI on the
+  merged head still runs every check; the approval only says "a reviewer read these lines,
+  here".
+- **Exact replay re-voids more often.** A base edit adjacent to a PR line can make the merge
+  conflict and void the approval. That costs a re-review, never a bypass.
 - **Out-of-area is soft.** A builder can edit any non-strict file; the guard moves from the
-  gate to the reviewer, enforced only by the `## Out of area` acknowledgement.
-- **Forge identity is only as strong as account separation.** If agents and the lead push
-  and review under one forge account, lead sign-off cannot be told apart from the agent's.
-  Real separation needs agents on their own account or app.
-- **Merge-commit trailers.** Squash merges keep `Sdlc-Ticket:` only if the squash message
-  includes commit messages or the PR body; products using squash must configure that.
-  A squash that drops the trailer leaves the ticket not `done`: its dependents stay blocked
-  and `sdlc trace` shows it, so the failure is visible, not silent.
-- Forge mode needs an API token in CI. `git` mode needs notes pushed and fetched
-  (`refs/notes/sdlc`).
+  gate to the reviewer, enforced by the `## Out of area` acknowledgement.
+- **Approvals need separate identities.** Until agents run under their own forge identity,
+  `sdlc/approval` cannot pass in `forge` mode, and `git` mode is trust-based unless notes are
+  signed. Hangout needs an app (or bot accounts) for the agents before it pins step 2.
+- **Squash merges need a setting** to keep `Sdlc-Ticket:`. A squash that drops it leaves the
+  ticket not `done`: its dependents stay blocked and `sdlc trace` shows it.
+- Forge mode needs an API token in CI. `git` mode needs notes pushed and fetched.
 - Play skills, templates, AGENTS.md rules 2, 3, 7 and 8, CONSUME.md, the CI workflow template
   and the example product all change. `sdlc migrate` must convert `files:` to `areas:`,
   drop delivery statuses, and leave `reviews/` and `evidence/` in place, read-only, for
@@ -257,18 +297,12 @@ the reference passes), a release tag, and a Hangout lead PR that bumps `.sdlc` a
 
 | Step | Contents | Approval storage in that step |
 |---|---|---|
-| 1 | Lanes (resolution, triggers, mechanical with `transforms:`, strict's `contract-diff` and required e2e), areas, amendments (free kinds, split, spike), `doctor` lane floors | Still `reviews/<id>.md`. Lead-only amendments and strict's lead sign-off stay unavailable: weakening still needs a spec change, and a strict ticket needs `accepted_by` on the base branch's version of the ticket (set in a lead PR) |
-| 2 | Approval records and fingerprints (`forge` and `git` modes), `sdlc/gate` and `sdlc/approval`, evidence as CI artifacts, derived status and `Sdlc-Ticket:`, lead-only amendments, strict lead sign-off, `sdlc followups`, migration | Approval records; `reviews/` and `evidence/` read-only history |
+| 1 | Lanes (resolution, triggers, mechanical with `transforms:`, strict's `contract-diff` and required e2e), areas, `[tests] source_globs` for ac-red, amendments (free kinds, split, spike), `doctor` lane floors | Still `reviews/<id>.md`. Lead-only amendments and strict's lead sign-off stay unavailable: weakening still needs a spec change, and a strict ticket needs `accepted_by` on the base branch's version of the ticket (set in a lead PR) |
+| 2 | Approval records with replay coverage and identity allowlists (`forge` and `git` modes), `sdlc/gate` and `sdlc/approval`, evidence as CI artifacts with ac-red caching, derived status and `Sdlc-Ticket:`, lead-only amendments, strict lead sign-off, `sdlc followups`, migration | Approval records; `reviews/` and `evidence/` read-only history |
 | 3 | Packaging, Action, releases, Renovate | (own ADR) |
 | 4 | Count-based baseline, waivers, strictness profiles | (own ADR) |
 
 ## Not decided
 
-- [OPEN: Should a mechanical ticket created in the same PR be allowed only at zero residue
-  (proposed), or never?]
-- [OPEN: Should the `## Out of area` acknowledgement be required for a valid approval
-  (proposed), or should out-of-area flags be advisory only?]
-- [OPEN: Forge identity for agents on Hangout: a separate bot account or app, so that lead
-  sign-off is verifiable. Without one, strict's lead sign-off is honour-system.]
-- [OPEN: Merge strategy the kit assumes for `Sdlc-Ticket:`: merge commits (works as-is) or
-  squash (needs repository settings).]
+- [OPEN: The forge identity the agents use on Hangout (one app, or separate builder and
+  reviewer identities). Lead action in GitHub settings; needed before Hangout pins step 2.]
