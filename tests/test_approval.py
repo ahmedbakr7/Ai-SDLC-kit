@@ -698,7 +698,6 @@ class Tooling(Base):
 
         wf = (KIT / "adapters" / "github" / "sdlc-approval.yml").read_text(encoding="utf-8")
         self.assertIn("pull_request_target:", wf)  # the base branch's workflow, not the PR's
-        self.assertIn("ref: ${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}", wf)
         self.assertIn(".sdlc/bin/sdlc --root ../pr-head approval", wf)
         self.assertIn("--publish-status", wf)
         # The base is resolved from the event or the GitHub API, never from the PR's sdlc.toml.
@@ -707,6 +706,24 @@ class Tooling(Base):
         # Git over HTTPS rejects a bearer token; it takes basic auth with x-access-token.
         self.assertNotIn("bearer", wf)
         self.assertIn("x-access-token:%s", wf)
+        # Reviews never run the privileged job: pull_request_review runs the PR's copy of a
+        # workflow, and on a fork its token cannot write a status. An unprivileged relay records
+        # the PR number; the judge runs on workflow_run, always from the default branch.
+        on = wf.split("\non:\n", 1)[1].split("\njobs:\n", 1)[0]
+        self.assertNotIn("pull_request_review", on)
+        self.assertIn("  workflow_run:\n    workflows: [sdlc-approval-review]\n    types: [completed]\n", on)
+        self.assertIn("*[!0-9]*", wf)  # the relayed PR number is data: digits only
+        # The PR and its base are known before the checkout, so the kit (and the config it
+        # judges by) come from the PR's own base branch, even when that is not the default.
+        self.assertLess(wf.index("- name: Which PR and base"), wf.index("uses: actions/checkout@v4"))
+        self.assertIn("ref: ${{ needs.which.outputs.base }}", wf)
+        # One judge per PR at a time, newest last: an older run cannot post after a newer one.
+        self.assertIn("    concurrency:\n      group: sdlc-approval-${{ needs.which.outputs.pr }}\n"
+                      "      cancel-in-progress: false\n", wf)
+        relay = (KIT / "adapters" / "github" / "sdlc-approval-review.yml").read_text(encoding="utf-8")
+        self.assertIn("\nname: sdlc-approval-review\n", relay)
+        self.assertIn("\npermissions: {}\n", relay)
+        self.assertIn("  pull_request_review:\n    types: [submitted, edited, dismissed]\n", relay)
         self.assertIn("types: [opened, synchronize, reopened, edited]", wf)  # retargeting re-judges
         self.assertIn("statuses: write", wf)
         # The gate lives in its own workflow, so a review event can never skip (= pass) it.

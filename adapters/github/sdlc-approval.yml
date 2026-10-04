@@ -2,36 +2,81 @@
 # cover the head for every role its lane needs? Installed by `sdlc init` as
 # .github/workflows/sdlc-approval.yml. Mark the "sdlc/approval" commit status required.
 #
-# Its own workflow, so a review event never skips (and so passes) the gate job. On
-# pull_request_target and comment events GitHub runs this file from the base (default) branch;
-# on pull_request_review events it runs the PR's copy, which a same-repository PR can edit (see
-# CONSUME.md: a status from Actions proves nothing against write access). As written, the
-# checkout and the kit come from the base branch and the PR head is fetched into a separate
-# worktree and only read; nothing from it runs.
+# Its own workflow, so a review event never skips (and so passes) the gate job. GitHub runs it
+# from the base (default) branch on every trigger: pull_request_target, comments, and
+# workflow_run after sdlc-approval-review.yml relays a review (pull_request_review itself would
+# run the PR's copy, read-only on forks). The checkout and the kit come from the base branch;
+# the PR head is fetched into a separate worktree and only read; nothing from it runs.
 name: sdlc-approval
 
 on:
   pull_request_target:
     # edited: a retargeted PR is judged again with the new base branch's config and roles.
     types: [opened, synchronize, reopened, edited]
-  pull_request_review:
   issue_comment:
     types: [created, edited, deleted]
+  workflow_run:
+    workflows: [sdlc-approval-review]
+    types: [completed]
 
 jobs:
-  approval:
-    if: ${{ github.event_name != 'issue_comment' || github.event.issue.pull_request }}
+  which:
+    if: >-
+      ${{ (github.event_name != 'issue_comment' || github.event.issue.pull_request) &&
+          (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') }}
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+      actions: read            # to read the relay's PR number after a review
+    outputs:
+      pr: ${{ steps.which.outputs.pr }}
+      base: ${{ steps.which.outputs.base }}
+    steps:
+      - name: Which PR and base
+        id: which
+        env:
+          EVENT_PR: ${{ github.event.pull_request.number || github.event.issue.number }}
+          EVENT_BASE: ${{ github.event.pull_request.base.ref }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          GH_TOKEN: ${{ github.token }}
+        # After a review the number comes from the relay's artifact: data, digits only. Comment
+        # and relayed events name no base branch: ask the GitHub API, never the PR's own files.
+        run: |
+          PR="$EVENT_PR"
+          if [ -z "$PR" ] && [ -n "$RUN_ID" ]; then
+            gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name sdlc-approval-pr --dir "$RUNNER_TEMP/relay"
+            PR=$(cat "$RUNNER_TEMP/relay/pr")
+          fi
+          case "$PR" in ''|*[!0-9]*) echo "sdlc-approval: no PR number"; exit 1;; esac
+          BASE="$EVENT_BASE"
+          if [ -z "$BASE" ]; then
+            BASE=$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json baseRefName --jq .baseRefName)
+          fi
+          [ -n "$BASE" ] || { echo "sdlc-approval: cannot resolve the base branch of PR $PR"; exit 1; }
+          { echo "pr=$PR"; echo "base=$BASE"; } >> "$GITHUB_OUTPUT"
+
+  approval:
+    needs: which
+    runs-on: ubuntu-latest
+    # One judge per PR at a time; GitHub keeps only the newest pending run, so an older
+    # evaluation can never post after a newer one (a dismissal cannot be overwritten).
+    concurrency:
+      group: sdlc-approval-${{ needs.which.outputs.pr }}
+      cancel-in-progress: false
     permissions:
       contents: read
       pull-requests: read
       statuses: write          # the result is posted as the sdlc/approval status on the PR head
+    env:
+      PR: ${{ needs.which.outputs.pr }}
+      BASE: ${{ needs.which.outputs.base }}
     steps:
+      # The kit, and the sdlc.toml it judges by, come from the PR's own base branch.
       - uses: actions/checkout@v4
         with:
           submodules: true
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}
+          ref: ${{ needs.which.outputs.base }}
           token: ${{ secrets.SDLC_KIT_TOKEN || github.token }}
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -39,7 +84,6 @@ jobs:
           python-version: "3.12"
       - name: PR head as data (a worktree; nothing from it runs)
         env:
-          PR: ${{ github.event.pull_request.number || github.event.issue.number }}
           GH_TOKEN: ${{ github.token }}
         # Git over HTTPS takes the token as basic auth (x-access-token), as actions/checkout does.
         run: |
@@ -50,13 +94,4 @@ jobs:
       - name: Approval (covers the head, from the right identities)
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          PR: ${{ github.event.pull_request.number || github.event.issue.number }}
-          GH_TOKEN: ${{ github.token }}
-          BASE: ${{ github.event.pull_request.base.ref }}
-        # A comment event names no base branch: ask the GitHub API, never the PR's own files.
-        run: |
-          if [ -z "$BASE" ]; then
-            BASE=$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json baseRefName --jq .baseRefName)
-          fi
-          [ -n "$BASE" ] || { echo "sdlc-approval: cannot resolve the base branch of PR $PR"; exit 1; }
-          .sdlc/bin/sdlc --root ../pr-head approval --pr "$PR" --base "origin/$BASE" --publish-status
+        run: .sdlc/bin/sdlc --root ../pr-head approval --pr "$PR" --base "origin/$BASE" --publish-status

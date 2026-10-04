@@ -427,8 +427,8 @@ def cmd_init(args) -> int:
             created.append(f"skills/{s}/")
     put("skills.lock.json", '{\n  "version": 1,\n  "skills": {}\n}\n')
     put(".github/workflows/sdlc.yml", (KIT_ROOT / "adapters" / "github" / "sdlc.yml").read_text(encoding="utf-8"))
-    put(".github/workflows/sdlc-approval.yml",
-        (KIT_ROOT / "adapters" / "github" / "sdlc-approval.yml").read_text(encoding="utf-8"))
+    for wf in ("sdlc-approval.yml", "sdlc-approval-review.yml"):
+        put(f".github/workflows/{wf}", (KIT_ROOT / "adapters" / "github" / wf).read_text(encoding="utf-8"))
     gi = root / ".gitignore"
     lines = gi.read_text(encoding="utf-8").splitlines() if gi.is_file() else []
     if ".sdlc-run/" not in lines:
