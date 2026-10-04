@@ -17,6 +17,10 @@ def matrix(repo: Repo) -> dict:
     # evidence `gate ci` just wrote (.sdlc-run/ci.json, its AC matrix for shipped tickets).
     ci_path = repo.cfg.root / ".sdlc-run" / "ci.json"
     ci = json.loads(ci_path.read_text(encoding="utf-8")) if ci_path.is_file() else {}
+    from . import gitutil
+
+    if ci.get("commit") != gitutil.head(repo.cfg.root):
+        ci = {}  # only this commit's own gate ci run proves anything
     for tid, t in sorted(repo.tickets.items()):
         ev_path = repo.cfg.path("evidence") / f"{tid}.build.json"
         ev = json.loads(ev_path.read_text(encoding="utf-8")) if ev_path.is_file() else {}

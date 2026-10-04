@@ -182,6 +182,7 @@ class Gate:
                 # The test play's order (its suites run before ac-coverage reads them), then the
                 # build's own checks (ac-red, duplication) after.
                 names = list(g["test"]) + [n for n in names if n not in g["test"]]
+            names += [n for n in g["pr"] if n not in names]  # checks the lead added to the PR gate
             names = [n for n in names if n != "review-file"]
         if self.lane and self.lane.name == "strict" and self.play in ("build", "test", "pr"):
             names += [n for n in g.get("strict", []) if n not in names]
@@ -1186,6 +1187,9 @@ class Gate:
         c.details = problems + lead_only
         if problems:
             c.status, c.summary = "fail", f"{len(problems)} immutable artifact(s) changed"
+        elif lead_only:
+            c.summary = (f"{len(lead_only)} AC weakened or removed by amendment: allowed only with a lead "
+                         "approval (`sdlc approval` requires it)")
         else:
             c.summary = "no accepted ADR edited, no AC weakened, baseline not grown"
 

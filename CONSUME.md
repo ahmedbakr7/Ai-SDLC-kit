@@ -102,9 +102,12 @@ the test play's files stay off limits. The build amends its own ticket in `## Am
 Set `[approval] mode = "forge"` (GitHub) or `"git"` (signed notes in `refs/notes/sdlc`) in a lead PR:
 
 - The review play writes `.sdlc-run/review-<id>.md`; `sdlc review publish <id> --pr N` posts it.
-- CI runs two required jobs: `gate` (the lane's checks on the head) and `approval`
-  (`sdlc approval`, re-run on reviews and comments; it runs the base branch's kit and reads the PR
-  head as data). Merge when both are green.
+- CI runs the `gate` job (`.github/workflows/sdlc.yml`: the lane's checks on the head) and
+  `.github/workflows/sdlc-approval.yml`, which `sdlc init` installs: on `pull_request_target`,
+  reviews and comments it runs the base branch's kit against the PR head (read as data) and posts
+  the `sdlc/approval` commit status. Require both the `gate` check and the `sdlc/approval` status.
+- A PR that names no ticket (config, CI, the kit pin, contracts, tickets) needs a lead approval.
+  Review records count only unedited (comments) and on the commit the forge recorded (reviews).
 - List the reviewer, lead and bot identities in `[approval]`. They must differ from the identity
   that opens PRs. If one account does everything, set `trust_unsigned = true`: approvals then need
   write access only, and every result says they are trust-based.

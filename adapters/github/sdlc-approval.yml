@@ -1,0 +1,49 @@
+# Product CI for [approval] mode = forge (ADR-0001): does an approval bound to the PR's own diff
+# cover the head for every role its lane needs? Installed by `sdlc init` as
+# .github/workflows/sdlc-approval.yml. Mark the "sdlc/approval" commit status required.
+#
+# Its own workflow, so a review event never skips (and so passes) the gate job. It runs on
+# pull_request_target and review/comment events: the workflow definition, the checkout and the
+# kit all come from the base branch, so a PR cannot rewrite or replace the judge. The PR head
+# is fetched into a separate worktree and only read; nothing from it runs.
+name: sdlc-approval
+
+on:
+  pull_request_target:
+  pull_request_review:
+  issue_comment:
+    types: [created, edited, deleted]
+
+jobs:
+  approval:
+    if: ${{ github.event_name != 'issue_comment' || github.event.issue.pull_request }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write          # the result is posted as the sdlc/approval status on the PR head
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}
+          token: ${{ secrets.SDLC_KIT_TOKEN || github.token }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: PR head as data (a worktree; nothing from it runs)
+        env:
+          PR: ${{ github.event.pull_request.number || github.event.issue.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git -c "http.extraheader=AUTHORIZATION: bearer $GH_TOKEN" fetch origin "pull/$PR/head:pr-head"
+          git -c "http.extraheader=AUTHORIZATION: bearer $GH_TOKEN" fetch origin "refs/notes/sdlc:refs/notes/sdlc" || true
+          git worktree add ../pr-head pr-head
+      - name: Approval (covers the head, from the right identities)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number || github.event.issue.number }}
+          BASE: ${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}
+        run: .sdlc/bin/sdlc --root ../pr-head approval --pr "$PR" --base "origin/$BASE" --publish-status

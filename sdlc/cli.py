@@ -242,7 +242,7 @@ def cmd_approval(args) -> int:
             return EXIT_FAIL
         mb = gitutil.merge_base(cfg.root, base)
         shas = gitutil.git(cfg.root, "rev-list", f"{mb}..{head}", check=False).split()
-        records = approval.git_records(cfg, shas)
+        records = approval.git_records(cfg, shas, base)
     res = approval.evaluate(cfg, g, records, pr, head)
     out = {"result": "pass" if res.ok else "fail", "summary": res.summary, "details": res.details,
            "trust_based": res.trust_based, "head": head, "ticket": found[0] if found else None}
@@ -252,6 +252,12 @@ def cmd_approval(args) -> int:
     for d in res.details:
         print(f"  {d}")
     print(f"approval: {'PASS' if res.ok else 'FAIL'}  {res.summary}")
+    if args.publish_status and m == "forge":
+        # A comment-triggered run's check lands on the default branch, not the PR: the result
+        # is posted as a commit status on the PR head, which branch protection requires.
+        approval.forge_client(cfg).post(f"/statuses/{head}", {
+            "state": "success" if res.ok else "failure", "context": "sdlc/approval",
+            "description": res.summary[:140]})
     return 0 if res.ok else EXIT_FAIL
 
 
@@ -412,6 +418,8 @@ def cmd_init(args) -> int:
             created.append(f"skills/{s}/")
     put("skills.lock.json", '{\n  "version": 1,\n  "skills": {}\n}\n')
     put(".github/workflows/sdlc.yml", (KIT_ROOT / "adapters" / "github" / "sdlc.yml").read_text(encoding="utf-8"))
+    put(".github/workflows/sdlc-approval.yml",
+        (KIT_ROOT / "adapters" / "github" / "sdlc-approval.yml").read_text(encoding="utf-8"))
     gi = root / ".gitignore"
     lines = gi.read_text(encoding="utf-8").splitlines() if gi.is_file() else []
     if ".sdlc-run/" not in lines:
@@ -653,6 +661,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("ticket", nargs="?")
     p.add_argument("--pr", type=int, help="PR number (default: the GitHub event's)")
     p.add_argument("--base", help="base branch (default vcs.base)")
+    p.add_argument("--publish-status", action="store_true",
+                   help="forge: post the result as the sdlc/approval commit status on the PR head")
     p.set_defaults(fn=cmd_approval)
 
     p = sp.add_parser("review", help="publish a review record (forge comment or git note)")

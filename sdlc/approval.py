@@ -149,6 +149,9 @@ class PullRequest:
     commit_authors: set[str] = field(default_factory=set)
 
 
+REVIEW_STATES = {"APPROVED": "approve", "CHANGES_REQUESTED": "request_changes", "COMMENTED": ""}
+
+
 def forge_records(client: GitHub, n: int) -> tuple[PullRequest, list[Record]]:
     pr = client.get(f"/pulls/{n}")
     info = PullRequest(n, (pr.get("user") or {}).get("login", ""), (pr.get("head") or {}).get("sha", ""))
@@ -159,17 +162,25 @@ def forge_records(client: GitHub, n: int) -> tuple[PullRequest, list[Record]]:
                 info.commit_authors.add(login)
     out: list[Record] = []
     for rv in client.pages(f"/pulls/{n}/reviews"):
-        who, assoc = (rv.get("user") or {}).get("login", ""), rv.get("author_association", "")
+        state = rv.get("state", "")
+        if state not in REVIEW_STATES:
+            continue  # DISMISSED and PENDING reviews approve nothing
+        who, assoc, sha = (rv.get("user") or {}).get("login", ""), rv.get("author_association", ""), rv.get("commit_id") or ""
         rec = _from_text(rv.get("body") or "", who=who, source="review", association=assoc,
                          at=rv.get("submitted_at") or "")
-        if rec is None and rv.get("state") in ("APPROVED", "CHANGES_REQUESTED"):
-            # A native forge review: its commit and verdict come from the forge itself.
-            rec = Record(sha=rv.get("commit_id") or "", who=who, role="", source="review", association=assoc,
-                         verdict="approve" if rv["state"] == "APPROVED" else "request_changes",
+        if rec is not None:
+            # A review is bound to the commit the forge says it was given on, and its state
+            # must agree with the record: the body can be edited, the commit and state cannot.
+            if rec.sha != sha or (REVIEW_STATES[state] and REVIEW_STATES[state] != rec.verdict):
+                continue
+        elif REVIEW_STATES[state]:
+            rec = Record(sha=sha, who=who, role="", source="review", association=assoc, verdict=REVIEW_STATES[state],
                          body=rv.get("body") or "", at=rv.get("submitted_at") or "")
         if rec is not None:
             out.append(rec)
     for cm in client.pages(f"/issues/{n}/comments"):
+        if cm.get("updated_at") and cm.get("updated_at") != cm.get("created_at"):
+            continue  # an edited comment may say what its author never wrote (others with write access can edit)
         rec = _from_text(cm.get("body") or "", who=(cm.get("user") or {}).get("login", ""), source="comment",
                          association=cm.get("author_association", ""), at=cm.get("created_at") or "")
         if rec is not None:
@@ -178,11 +189,35 @@ def forge_records(client: GitHub, n: int) -> tuple[PullRequest, list[Record]]:
 
 
 # -- plain git (notes) ----------------------------------------------------------
-def git_records(cfg: Config, shas: list[str]) -> list[Record]:
+def signers_file(cfg: Config, base: str) -> str:
+    """The allowed-signers file as the base branch has it (a temp copy), or an absolute path
+    outside the tree: a PR must not choose who may sign its approvals."""
+    import tempfile
+
+    rel = str(cfg.section("approval").get("allowed_signers", ""))
+    if not rel:
+        return ""
+    if os.path.isabs(rel):
+        return rel
+    try:
+        mb = gitutil.merge_base(cfg.root, base)
+    except gitutil.GitError:
+        return ""
+    data = gitutil.show_bytes(cfg.root, mb, "./" + rel)
+    if data is None:
+        return ""
+    fd, path = tempfile.mkstemp(prefix="sdlc-signers-")
+    with os.fdopen(fd, "wb") as f:
+        f.write(data)
+    return path
+
+
+def git_records(cfg: Config, shas: list[str], base: str = "main") -> list[Record]:
     """Notes on the PR's commits in refs/notes/sdlc. A note's identity is the signer of the
-    notes commit that wrote it (checked against [approval] allowed_signers), else its committer."""
+    notes commit that wrote it (checked against the base branch's allowed signers), else its
+    committer."""
     root = cfg.root
-    signers = str(cfg.section("approval").get("allowed_signers", ""))
+    signers = signers_file(cfg, base)
     paths = {p.replace("/", ""): p for p in
              gitutil.git(root, "ls-tree", "-r", "--name-only", NOTES_REF, check=False).split()}
     out = []
@@ -193,15 +228,25 @@ def git_records(cfg: Config, shas: list[str]) -> list[Record]:
         text = gitutil.git(root, "notes", "--ref", NOTES_REF, "show", sha, check=False)
         cfg_args = ["-c", f"gpg.ssh.allowedSignersFile={signers}"] if signers else []
         # The notes commit that last wrote this note decides who gave it.
-        line = gitutil.git(root, *cfg_args, "log", "-1", "--format=%G?%x00%GS%x00%ce%x00%cI", NOTES_REF,
+        line = gitutil.git(root, *cfg_args, "log", "-1", "--format=%G?%x00%GS%x00%ce%x00%ct", NOTES_REF,
                            "--", path, check=False).strip()
         status, signer, email, at = (line.split("\0") + ["", "", "", ""])[:4]
         signed = status == "G" and bool(signer)
-        rec = _from_text(text, who=signer if signed else email, source="note", signed=signed, at=at)
+        rec = _from_text(text, who=signer if signed else email, source="note", signed=signed, at=at.zfill(12))
         if rec is not None:
             rec.sha = rec.sha or sha
             out.append(rec)
     return out
+
+
+def commit_identities(cfg: Config, base: str, head: str) -> set[str]:
+    """Author and committer emails and names of the PR's commits (git mode's independence check)."""
+    try:
+        mb = gitutil.merge_base(cfg.root, base, head)
+    except gitutil.GitError:
+        return set()
+    out = gitutil.git(cfg.root, "log", f"{mb}..{head}", "--format=%ae%n%ce%n%an%n%cn", check=False)
+    return {x.strip() for x in out.splitlines() if x.strip()}
 
 
 def notes_missing(cfg: Config) -> bool:
@@ -224,7 +269,8 @@ def required_roles(lane: str, lead_amendments: list[str]) -> list[str]:
     return need
 
 
-def identity_problems(cfg: Config, rec: Record, role: str, pr: PullRequest | None, build_agents: set[str]) -> list[str]:
+def identity_problems(cfg: Config, rec: Record, role: str, pr: PullRequest | None, build_agents: set[str],
+                      committers: set[str] | None = None) -> list[str]:
     """Why `rec` cannot count for `role` (empty: it counts)."""
     a = cfg.section("approval")
     trust = bool(a.get("trust_unsigned", False))
@@ -235,19 +281,20 @@ def identity_problems(cfg: Config, rec: Record, role: str, pr: PullRequest | Non
         if not rec.signed and not trust:
             out.append("unsigned note (set [approval] allowed_signers, or trust_unsigned for trust-based approvals)")
         if rec.signed and not trust:
-            allowed = [str(x) for x in a.get({"review": "reviewers", "lead": "leads", "bot": "bots"}[role], [])]
-            if rec.who not in allowed:
-                out.append(f"signer {rec.who} is not in [approval] {role}s")
+            if rec.who not in _list(cfg, role):
+                out.append(f"signer {rec.who} is not in [approval] {_key(role)}")
+            if role in ("review", "lead") and rec.who in (committers or set()):
+                out.append(f"signer {rec.who} authored or committed this PR's commits")
         return out
     if trust:
-        # Declared roles are taken on trust, but only from identities with write access: on a
-        # public repository anyone can comment.
+        # Trust-based (the lead's explicit choice for one shared identity): declared roles are
+        # taken on trust, so the author exclusions cannot apply; write access is still required,
+        # because on a public repository anyone can comment.
         if rec.association not in WRITE_ACCESS:
             out.append(f"{rec.who} has no write access ({rec.association or 'unknown'})")
         return out
-    allowed = [str(x) for x in a.get({"review": "reviewers", "lead": "leads", "bot": "bots"}[role], [])]
-    if rec.who not in allowed:
-        out.append(f"{rec.who} is not in [approval] {'reviewers' if role == 'review' else role + 's'}")
+    if rec.who not in _list(cfg, role):
+        out.append(f"{rec.who} is not in [approval] {_key(role)}")
     if role in ("review", "lead") and pr is not None:
         if rec.who == pr.author:
             out.append(f"{rec.who} opened this PR")
@@ -256,12 +303,41 @@ def identity_problems(cfg: Config, rec: Record, role: str, pr: PullRequest | Non
     return out
 
 
-def latest(records: list[Record]) -> list[Record]:
-    """Each reviewer's newest record per role: a later request_changes withdraws an approval."""
-    keep: dict[tuple[str, str, str], Record] = {}
+def _key(role: str) -> str:
+    return {"review": "reviewers", "lead": "leads", "bot": "bots"}[role]
+
+
+def latest(cfg: Config, records: list[Record]) -> list[tuple[Record, str]]:
+    """Each identity's newest record per role, roles resolved first (a native review takes its
+    roles from the allowlists): a later request_changes withdraws an earlier approval."""
+    keep: dict[tuple[str, str], Record] = {}
     for r in sorted(records, key=lambda r: r.at):
-        keep[(r.who, r.role, r.agent)] = r
-    return list(keep.values())
+        roles = [r.role] if r.role in ROLES else [x for x in ROLES if r.who in _list(cfg, x)]
+        for role in roles:
+            keep[(r.who, role)] = r
+    return [(r, role) for (_, role), r in keep.items()]
+
+
+def lead_amendments(cfg: Config, base: str) -> list[str]:
+    """New `weaken` / `remove` lines in any ticket the branch changes: each needs a lead,
+    whichever ticket (if any) the PR says it serves."""
+    from .artifacts import Repo
+    from .tickets import new_amendments
+
+    try:
+        mb = gitutil.merge_base(cfg.root, base)
+    except gitutil.GitError:
+        return []
+    repo = Repo(cfg)
+    out = []
+    changed = set(gitutil.changed_files(cfg.root, base))
+    for t in repo.tickets.values():
+        rel = cfg.rel(t.path)
+        if rel not in changed:
+            continue
+        old = fm.split(gitutil.show(cfg.root, mb, "./" + rel) or "")[1]
+        out += [f"{t.id}: {k} {target}" for k, target, _ in new_amendments(old, t.body)[0] if k in ("weaken", "remove")]
+    return out
 
 
 def evaluate(cfg: Config, gate, records: list[Record], pr: PullRequest | None, head: str) -> Result:
@@ -271,55 +347,57 @@ def evaluate(cfg: Config, gate, records: list[Record], pr: PullRequest | None, h
 
     trust = bool(cfg.section("approval").get("trust_unsigned", False))
     t = gate.ticket
+    lead_lines = lead_amendments(cfg, gate.base)
     if t is None:
-        # A PR naming no ticket is the lead's. Lead artifacts need no approval; code outside them
-        # (a forgotten Sdlc-Ticket trailer, a hotfix) needs the lead's own approval of the head.
-        from .gate import lead_write_set
-
-        code = [f for f in gitutil.changed_files(cfg.root, gate.base)
-                if not any(_glob(f, g) for g in lead_write_set(cfg))]
-        if not code:
-            return Result(True, "lead PR: lead artifacts only, no approval needed")
-        need, lane, amendments, lead_lines = ["lead"], "lead PR", [], [f"code without a ticket: {', '.join(code[:5])}"]
+        # A PR naming no ticket is the lead's, and the lead approves it: it can change config,
+        # CI, the kit pin, contracts or tickets, all of which govern every later PR.
+        changed = gitutil.changed_files(cfg.root, gate.base)
+        if not changed:
+            return Result(True, "nothing changed", trust_based=trust)
+        need, lane, amendments = ["lead"], "lead PR", []
+        lead_lines = lead_lines or [f"a PR without a ticket ({len(changed)} file(s))"]
     else:
         lane = gate.lane.name if gate.lane else "standard"
         amendments = gate.new_amendments()
-        lead_lines = [f"{k} {target}" for k, target, _ in amendments if k in ("weaken", "remove")]
         need = required_roles(lane, lead_lines)
     build_agents = _build_agents(cfg, gate.base, head)
+    committers = commit_identities(cfg, gate.base, head) if mode(cfg) == "git" else set()
     flagged = gate.out_of_area() if t is not None else []
     details, granted = [], {}
-    for rec in latest(records):
+    for rec, role in latest(cfg, records):
         if rec.verdict not in VERDICTS or (rec.ticket and t is not None and rec.ticket != t.id):
             continue
-        roles = [rec.role] if rec.role in ROLES else [r for r in ROLES if rec.who in _list(cfg, r)]
-        if not roles:
-            details.append(f"{rec.source} by {rec.who}: no role (declare role:, or list the identity in [approval])")
+        why = identity_problems(cfg, rec, role, pr, build_agents, committers)
+        stale = gitutil.covers(cfg.root, gate.base, rec.sha, head) if rec.sha else ["no reviewed commit"]
+        content = (_content_problems(rec, role, t, lane, flagged, amendments, _review_entries, _glob)
+                   if t is not None else [])
+        label = f"{role} {rec.verdict} by {rec.who}" + (f" ({rec.agent})" if rec.agent else "") + f" at {rec.sha[:12]}"
+        if why or stale or content:
+            details.append(f"{label}: does not count: " + "; ".join(why + stale[:3] + content[:5]))
             continue
-        for role in roles:
-            why = identity_problems(cfg, rec, role, pr, build_agents)
-            stale = gitutil.covers(cfg.root, gate.base, rec.sha, head) if rec.sha else ["no reviewed commit"]
-            content = (_content_problems(rec, role, t, lane, flagged, amendments, _review_entries, _glob)
-                       if t is not None else [])
-            label = f"{role} {rec.verdict} by {rec.who}" + (f" ({rec.agent})" if rec.agent else "") + f" at {rec.sha[:12]}"
-            if why or stale or content:
-                details.append(f"{label}: does not count: " + "; ".join(why + stale[:3] + content[:5]))
-                continue
-            details.append(f"{label}: counts")
-            granted.setdefault(role, []).append(rec)
+        details.append(f"{label}: counts")
+        granted.setdefault(role, []).append(rec)
+    for rec in records:
+        if not (rec.role in ROLES or any(rec.who in _list(cfg, x) for x in ROLES)):
+            details.append(f"{rec.source} by {rec.who}: no role (declare role:, or list the identity in [approval])")
     missing = []
+    approvers = {role: {r.who for r in rs if r.verdict == "approve"} for role, rs in granted.items()}
     for role in need:
         if role == "any":
-            if not any(r.verdict == "approve" for rs in granted.values() for r in rs):
+            if not any(approvers.values()):
                 missing.append("an approving review (any reviewer or bot)")
             continue
         rs = granted.get(role, [])
         if any(r.verdict == "request_changes" for r in rs):
             missing.append(f"{role}: changes requested")
-        elif not any(r.verdict == "approve" for r in rs):
+        elif not approvers.get(role):
             missing.append({"review": "an approval from an independent reviewer",
                             "lead": "a lead approval" + (f" (for {', '.join(lead_lines)})" if lead_lines else
                                                          " (strict lane)")}[role])
+    if "review" in need and "lead" in need and not missing and not trust:
+        # Two roles are two people: one identity listed as both does not sign off alone.
+        if not any(a != b for a in approvers.get("review", set()) for b in approvers.get("lead", set())):
+            missing.append("the review and the lead approval from different identities")
     label = " [trust-based: approvers' identities are not verified]" if trust else ""
     who = t.id if t is not None else "this PR"
     if missing:

@@ -139,9 +139,12 @@ def covers(root: Path, base: str, reviewed: str, head: str) -> list[str]:
     out = [f"{f}: changed after the review" for f in sorted(now - then)]
     out += [f"{f}: the reviewed change to it is gone" for f in sorted(then - now)]
     for f in sorted(then & now):
-        if blob(root, reviewed, f) == blob(root, head, f):
+        base_moved = mb_r != mb_h and blob(root, mb_r, f) != blob(root, mb_h, f)
+        if not base_moved and blob(root, reviewed, f) == blob(root, head, f):
             continue
-        if mb_r != mb_h and same_branch_change(root, base, reviewed, f, head):
+        # The base changed this file since the review: only its change merged in cleanly keeps
+        # the approval (identical-to-reviewed would mean the merge undid the base's change).
+        if base_moved and same_branch_change(root, base, reviewed, f, head):
             continue
         out.append(f"{f}: differs from the reviewed version beyond the base branch's change")
     return out

@@ -219,14 +219,18 @@ class Identity(Base):
 
 
 class LeadPRs(Base):
-    def test_lead_artifacts_need_no_approval(self) -> None:
-        git(self.p.root, "checkout", "-q", "-b", "lead/plan")
-        self.p.write("arch/plan-042-return-status.md", self.p.read("arch/plan-042-return-status.md") + "\nNote.\n")
-        self.p.commit("lead: plan note")
+    def test_a_pr_without_a_ticket_needs_the_lead_even_for_lead_artifacts(self) -> None:
+        # Review of step 2: config, CI and the kit pin are lead artifacts that govern every
+        # later PR; a builder's ticketless PR adding itself to `leads` passed with no approval.
+        git(self.p.root, "checkout", "-q", "-b", "lead/config")
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace('leads = ["lead"]', 'leads = ["lead", "builder-bot"]'))
+        self.p.commit("add myself to leads")
         self.forge()
-        code, out, res = self.approval()
-        self.assertEqual(code, 0, out)
-        self.assertIn("lead artifacts only", res["summary"])
+        code, _, res = self.approval()
+        self.assertNotEqual(code, 0)
+        self.assertIn("this PR (lead PR) needs a lead approval", res["summary"])
+        self.record("lead", git(self.p.root, "rev-parse", "HEAD").strip(), role="lead", agent="", body="ok", ticket="")
+        self.assertEqual(self.approval()[0], 0)
 
     def test_code_without_a_ticket_needs_the_lead(self) -> None:
         # A forgotten Sdlc-Ticket trailer must not turn a code change into an unapproved lead PR.
@@ -236,8 +240,7 @@ class LeadPRs(Base):
         self.forge()
         code, _, res = self.approval()
         self.assertNotEqual(code, 0)
-        self.assertIn("this PR (lead PR) needs a lead approval (for code without a ticket: app/returns.py)",
-                      res["summary"])
+        self.assertIn("this PR (lead PR) needs a lead approval (for a PR without a ticket (1 file(s)))", res["summary"])
         self.record("lead", git(self.p.root, "rev-parse", "HEAD").strip(), role="lead", agent="", body="ok",
                     ticket="")
         self.assertEqual(self.approval()[0], 0)
@@ -271,9 +274,141 @@ class Strict(Base):
         self.record("rev", head, body=body)
         code, _, res = self.approval()
         self.assertNotEqual(code, 0)
-        self.assertIn("a lead approval (for weaken AC-3)", res["summary"])
+        self.assertIn("a lead approval (for T-042-02: weaken AC-3)", res["summary"])
         self.record("lead", head, role="lead", agent="", body="Yes, drop the 200.")
         self.assertEqual(self.approval()[0], 0)
+
+
+class ReviewFindings(Base):
+    """Bypasses the independent review of step 2 found; each stays caught."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.head = self.build()
+        self.forge()
+
+    def test_a_merge_that_undoes_the_bases_change_voids_the_approval(self) -> None:
+        git(self.p.root, "checkout", "-q", "main")
+        self.p.write("app/server.py", self.p.read("app/server.py").replace('"not_found"', '"missing"', 1))
+        self.p.commit("main: rename an error code")
+        git(self.p.root, "checkout", "-q", "build/T-042-02")
+        git(self.p.root, "merge", "-q", "-s", "ours", "--no-edit", "main")  # keeps the PR's side: reverts main
+        self.assertIn("app/server.py: differs from the reviewed version beyond the base branch's change",
+                      gitutil.covers(self.p.root, "main", self.head, "HEAD"))
+
+    def test_a_ticketless_weakening_needs_a_lead(self) -> None:
+        git(self.p.root, "checkout", "-q", "-b", "weaken", "main")
+        rel = "tickets/T-042-02-order-page.md"
+        t = self.p.read(rel).replace("and the page still answers 200", "if convenient")
+        self.p.write(rel, t.rstrip("\n") + "\n\n## Amendments\n\n- weaken AC-3: meh\n")
+        self.p.commit("weaken without a ticket")
+        code, out = self.p.sdlc("gate", "ci", "--only", "immutable", "--base", "main")
+        self.assertIn("AC weakened or removed by amendment: allowed only with a lead approval", out)
+        self.forge()
+        code, _, res = self.approval()
+        self.assertNotEqual(code, 0)
+        self.assertIn("T-042-02: weaken AC-3", res["summary"])
+
+    def review(self, state: str, commit_id: str, body: str, at: str = "2026-10-04T10:00:00Z", who: str = "rev") -> None:
+        self.fake.reviews.append({"user": {"login": who}, "author_association": "COLLABORATOR", "state": state,
+                                  "commit_id": commit_id, "body": body, "submitted_at": at})
+
+    def test_a_review_is_bound_to_the_commit_the_forge_recorded(self) -> None:
+        old = git(self.p.root, "rev-parse", "HEAD~1").strip()
+        rec = approval.render("T-042-02", self.head, "approve", "review", "reviewer", REVIEW_BODY)
+        self.review("COMMENTED", old, rec)  # given on an older commit, body names the head
+        self.assertNotEqual(self.approval()[0], 0)
+        self.fake.reviews.clear()
+        self.review("COMMENTED", self.head, rec)
+        self.assertEqual(self.approval()[0], 0)
+
+    def test_dismissed_and_contradicting_reviews_approve_nothing(self) -> None:
+        rec = approval.render("T-042-02", self.head, "approve", "review", "reviewer", REVIEW_BODY)
+        self.review("DISMISSED", self.head, rec)
+        self.assertNotEqual(self.approval()[0], 0)
+        self.fake.reviews.clear()
+        self.review("CHANGES_REQUESTED", self.head, rec)
+        self.assertNotEqual(self.approval()[0], 0)
+
+    def test_an_edited_comment_approves_nothing(self) -> None:
+        self.record("rev", self.head)
+        self.fake.comments[-1]["updated_at"] = "2026-10-04T12:00:00Z"
+        self.assertNotEqual(self.approval()[0], 0)
+        self.fake.comments[-1]["updated_at"] = self.fake.comments[-1]["created_at"]
+        self.assertEqual(self.approval()[0], 0)
+
+    def test_a_later_approval_supersedes_the_same_reviewers_native_changes_request(self) -> None:
+        self.review("CHANGES_REQUESTED", self.head, "please fix", at="2026-10-04T09:00:00Z")
+        self.record("rev", self.head, at="2026-10-04T10:00:00Z")
+        code, out, res = self.approval()
+        self.assertEqual(code, 0, res)
+
+    def test_one_identity_cannot_be_reviewer_and_lead_at_once(self) -> None:
+        git(self.p.root, "checkout", "-q", "main")
+        rel = "tickets/T-042-02-order-page.md"
+        self.p.write(rel, self.p.read(rel).replace("risk: low", "risk: high"))
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace('leads = ["lead"]', 'leads = ["lead", "rev"]'))
+        self.p.commit("lead: high risk; rev also leads")
+        git(self.p.root, "checkout", "-q", "build/T-042-02")
+        git(self.p.root, "merge", "-q", "--no-edit", "main")
+        self.forge()
+        head = git(self.p.root, "rev-parse", "HEAD").strip()
+        self.record("rev", head)
+        self.record("rev", head, role="lead", agent="", body="also lead", at="2026-10-04T10:01:00Z")
+        code, _, res = self.approval()
+        self.assertNotEqual(code, 0)
+        self.assertIn("the review and the lead approval from different identities", res["summary"])
+        self.record("lead", head, role="lead", agent="", body="ok", at="2026-10-04T10:02:00Z")
+        self.assertEqual(self.approval()[0], 0)
+
+    def test_the_pr_gate_keeps_checks_the_lead_added(self) -> None:
+        git(self.p.root, "checkout", "-q", "main")
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml") + '\n[gate]\npr = ["artifacts", "scope", "immutable", "skills"]\n')
+        self.p.commit("lead: skills in the PR gate")
+        git(self.p.root, "checkout", "-q", "build/T-042-02")
+        git(self.p.root, "merge", "-q", "--no-edit", "main")
+        self.p.sdlc("gate", "pr", "--base", "main")
+        names = [c["name"] for c in json.loads(self.p.read(".sdlc-run/T-042-02.pr.json"))["checks"]]
+        self.assertIn("skills", names)
+
+    def test_trace_trusts_only_this_commits_ci_evidence(self) -> None:
+        git(self.p.root, "checkout", "-q", "main")
+        git(self.p.root, "merge", "-q", "--no-ff", "--no-edit", "build/T-042-02")
+        self.assertEqual(self.p.sdlc("gate", "ci")[0], 0)
+        self.p.write("README.md", self.p.read("README.md") + "\n")
+        self.p.commit("a later commit")
+        code, out = self.p.sdlc("trace")
+        self.assertNotEqual(code, 0)  # the old ci.json proves an older commit
+        self.assertIn("T-042-02: done without passing build evidence", out)
+
+    def test_the_result_is_posted_on_the_pr_head(self) -> None:
+        self.record("rev", self.head)
+        self.approval("--publish-status")
+        path, data = self.fake.posted[-1]
+        self.assertEqual(path, f"/statuses/{self.head}")
+        self.assertEqual((data["state"], data["context"]), ("success", "sdlc/approval"))
+
+
+class GitIdentity(Base):
+    def test_allowed_signers_come_from_the_base_branch(self) -> None:
+        git(self.p.root, "checkout", "-q", "main")
+        self.p.write("signers", "lead ssh-ed25519 AAAA-the-real-lead\n")
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml") + 'allowed_signers = "signers"\n')
+        self.p.commit("lead: signers")
+        git(self.p.root, "checkout", "-q", "-b", "sneaky")
+        self.p.write("signers", "lead ssh-ed25519 AAAA-the-builders-key\n")
+        self.p.commit("swap the lead's key")
+        cfg = __import__("sdlc.config", fromlist=["load"]).load(self.p.root)
+        with open(approval.signers_file(cfg, "main"), encoding="utf-8") as f:
+            self.assertIn("the-real-lead", f.read())
+
+    def test_a_signer_who_committed_cannot_approve(self) -> None:
+        cfg = __import__("sdlc.config", fromlist=["load"]).load(self.p.root)
+        rec = approval.Record(sha="x", who="lead@example.com", role="lead", verdict="approve", source="note", signed=True)
+        cfg.data["approval"]["leads"] = ["lead@example.com"]
+        self.assertIn("signer lead@example.com authored or committed this PR's commits",
+                      approval.identity_problems(cfg, rec, "lead", None, set(), {"lead@example.com"}))
+        self.assertEqual(approval.identity_problems(cfg, rec, "lead", None, set(), {"builder@example.com"}), [])
 
 
 class Trust(Base):
@@ -487,10 +622,16 @@ class Tooling(Base):
     def test_ci_runs_the_base_kit_and_reads_the_pr_head_as_data(self) -> None:
         from helpers import KIT
 
-        wf = (KIT / "adapters" / "github" / "sdlc.yml").read_text(encoding="utf-8")
-        self.assertIn("ref: ${{ github.event.repository.default_branch }}", wf)
+        wf = (KIT / "adapters" / "github" / "sdlc-approval.yml").read_text(encoding="utf-8")
+        self.assertIn("pull_request_target:", wf)  # the base branch's workflow, not the PR's
+        self.assertIn("ref: ${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}", wf)
         self.assertIn(".sdlc/bin/sdlc --root ../pr-head approval", wf)
-        self.assertIn("pull_request_review:", wf)
+        self.assertIn("--publish-status", wf)
+        self.assertIn("statuses: write", wf)
+        # The gate lives in its own workflow, so a review event can never skip (= pass) it.
+        gate = (KIT / "adapters" / "github" / "sdlc.yml").read_text(encoding="utf-8")
+        self.assertNotIn("pull_request_review", gate)
+        self.assertNotIn("issue_comment", gate)
 
 
 if __name__ == "__main__":
