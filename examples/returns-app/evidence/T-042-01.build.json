@@ -2,67 +2,83 @@
   "kit_evidence": 1,
   "play": "build",
   "ticket": "T-042-01",
-  "commit": "7cedb2303a983435a560403c4bfa8fd9f6a2f2ec",
+  "commit": "027673c56255bee1d777f53f72ad2b4e5387ad77",
   "dirty": false,
   "base": "main",
-  "started": "2026-10-01T17:46:04+00:00",
+  "started": "2026-10-04T14:11:04+00:00",
   "result": "pass",
   "checks": [
+    {
+      "name": "lane",
+      "status": "pass",
+      "summary": "lane standard",
+      "details": [],
+      "ms": 5,
+      "log": "",
+      "known": []
+    },
     {
       "name": "artifacts",
       "status": "pass",
       "summary": "artifacts valid (0 warning(s))",
       "details": [],
-      "ms": 1,
-      "log": ""
+      "ms": 2,
+      "log": "",
+      "known": []
     },
     {
       "name": "scope",
       "status": "pass",
       "summary": "4 changed file(s), all in scope",
       "details": [],
-      "ms": 21,
-      "log": ""
+      "ms": 30,
+      "log": "",
+      "known": []
     },
     {
       "name": "immutable",
       "status": "pass",
-      "summary": "no accepted ADR edited, no AC weakened",
+      "summary": "no accepted ADR edited, no AC weakened, baseline not grown",
       "details": [],
-      "ms": 6,
-      "log": ""
+      "ms": 10,
+      "log": "",
+      "known": []
     },
     {
       "name": "contracts",
       "status": "pass",
       "summary": "1 code route(s) match CONTRACTS; 0 declared route(s) not built yet",
       "details": [],
-      "ms": 67,
-      "log": ""
+      "ms": 88,
+      "log": "",
+      "known": []
     },
     {
       "name": "lint",
       "status": "pass",
       "summary": "`python tools/lint.py` ok",
       "details": [],
-      "ms": 32,
-      "log": ".sdlc-run/logs/lint.log"
+      "ms": 66,
+      "log": ".sdlc-run/logs/lint.log",
+      "known": []
     },
     {
       "name": "typecheck",
       "status": "pass",
       "summary": "`python tools/lint.py --types` ok",
       "details": [],
-      "ms": 32,
-      "log": ".sdlc-run/logs/typecheck.log"
+      "ms": 66,
+      "log": ".sdlc-run/logs/typecheck.log",
+      "known": []
     },
     {
       "name": "unit",
       "status": "pass",
       "summary": "`python tools/junit.py --start app --out .sdlc-run/junit-unit.xml` ok (4 tests)",
       "details": [],
-      "ms": 115,
-      "log": ".sdlc-run/logs/unit.log"
+      "ms": 166,
+      "log": ".sdlc-run/logs/unit.log",
+      "known": []
     },
     {
       "name": "ac-coverage",
@@ -75,15 +91,17 @@
         "T-042-01/AC-4: passed"
       ],
       "ms": 0,
-      "log": ""
+      "log": "",
+      "known": []
     },
     {
       "name": "ac-red",
       "status": "pass",
       "summary": "every AC has a test that fails without the ticket's code (2 file(s) reverted)",
       "details": [],
-      "ms": 78,
-      "log": ".sdlc-run/logs/ac-red.log"
+      "ms": 82,
+      "log": ".sdlc-run/logs/ac-red.log",
+      "known": []
     },
     {
       "name": "test-quality",
@@ -91,7 +109,8 @@
       "summary": "1 test file(s) clean",
       "details": [],
       "ms": 0,
-      "log": ""
+      "log": "",
+      "known": []
     },
     {
       "name": "duplication",
@@ -99,23 +118,26 @@
       "summary": "commands.duplication not configured",
       "details": [],
       "ms": 0,
-      "log": ""
+      "log": "",
+      "known": []
     },
     {
       "name": "build",
       "status": "pass",
       "summary": "`python -m compileall -q app tools` ok",
       "details": [],
-      "ms": 64,
-      "log": ".sdlc-run/logs/build.log"
+      "ms": 65,
+      "log": ".sdlc-run/logs/build.log",
+      "known": []
     },
     {
       "name": "smoke",
       "status": "pass",
       "summary": "app booted; 1 route/page probe(s) answered",
       "details": [],
-      "ms": 1066,
-      "log": ".sdlc-run/logs/smoke-server.log"
+      "ms": 1074,
+      "log": ".sdlc-run/logs/smoke-server.log",
+      "known": []
     },
     {
       "name": "skills",
@@ -123,7 +145,8 @@
       "summary": "vendored skills match skills.lock.json",
       "details": [],
       "ms": 0,
-      "log": ""
+      "log": "",
+      "known": []
     }
   ],
   "ac": {
@@ -152,5 +175,7 @@
       ]
     }
   },
-  "config_note": ""
+  "config_note": "",
+  "lane": "standard",
+  "baseline": ""
 }
