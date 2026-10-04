@@ -1400,7 +1400,7 @@ def _play_commit(cfg: Config, base: str, plays: tuple[str, ...]) -> str | None:
                       check=False)
     for line in log.splitlines():
         sha, _, play = line.partition(" ")
-        if play.strip() in plays:
+        if any(v.strip() in plays for v in play.split(",")):  # a commit may carry several
             return sha
     return None
 

@@ -317,10 +317,10 @@ class Repo:
             self._delivered = set()
             if approval.records_mode(self.cfg):
                 base = str(self.cfg.section("vcs").get("base", "main"))
+                # Both refs: a local base that lags the remote must not hide merged tickets.
                 for ref in (base, f"origin/{base}"):
                     if gitutil.git(self.cfg.root, "rev-parse", "--verify", "-q", ref, check=False).strip():
-                        self._delivered = set(gitutil.trailer_values(self.cfg.root, ref, "Sdlc-Ticket"))
-                        break
+                        self._delivered |= set(gitutil.trailer_values(self.cfg.root, ref, "Sdlc-Ticket"))
         return self._delivered
 
     def status_of(self, t: Ticket) -> str:

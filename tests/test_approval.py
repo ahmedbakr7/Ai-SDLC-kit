@@ -504,6 +504,25 @@ class DerivedStatus(Base):
         code, out = self.p.sdlc("next")
         self.assertNotIn("T-042-02", out)
 
+    def test_a_local_base_behind_the_remote_still_sees_merged_tickets(self) -> None:
+        self.build()
+        git(self.p.root, "checkout", "-q", "main")
+        git(self.p.root, "merge", "-q", "--no-ff", "--no-edit", "build/T-042-02")
+        merged = git(self.p.root, "rev-parse", "HEAD").strip()
+        git(self.p.root, "update-ref", "refs/remotes/origin/main", merged)
+        git(self.p.root, "reset", "-q", "--hard", "HEAD^")  # local main lags origin/main
+        self.assertEqual(self.p.sdlc("status", "T-042-02")[1].strip(), "done")
+
+    def test_a_commit_with_several_play_trailers_counts_for_each(self) -> None:
+        from sdlc import config, gate
+
+        git(self.p.root, "checkout", "-q", "-b", "build/T-042-02")
+        copy_solution(self.p, "build-T-042-02")
+        git(self.p.root, "add", "-A")
+        git(self.p.root, "commit", "-q", "-m", "both", "-m", "Sdlc-Play: test\nSdlc-Play: build")
+        sha = git(self.p.root, "rev-parse", "HEAD").strip()
+        self.assertEqual(gate._play_commit(config.load(self.p.root), "main", ("build",)), sha)
+
     def test_delivery_statuses_are_not_stored(self) -> None:
         code, out = self.p.sdlc("status", "T-042-02", "in_progress", "--as", "build")
         self.assertNotEqual(code, 0)
@@ -643,6 +662,7 @@ class Tooling(Base):
         self.assertIn("ref: ${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}", wf)
         self.assertIn(".sdlc/bin/sdlc --root ../pr-head approval", wf)
         self.assertIn("--publish-status", wf)
+        self.assertIn("types: [opened, synchronize, reopened, edited]", wf)  # retargeting re-judges
         self.assertIn("statuses: write", wf)
         # The gate lives in its own workflow, so a review event can never skip (= pass) it.
         gate = (KIT / "adapters" / "github" / "sdlc.yml").read_text(encoding="utf-8")

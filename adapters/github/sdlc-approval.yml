@@ -10,6 +10,8 @@ name: sdlc-approval
 
 on:
   pull_request_target:
+    # edited: a retargeted PR is judged again with the new base branch's config and roles.
+    types: [opened, synchronize, reopened, edited]
   pull_request_review:
   issue_comment:
     types: [created, edited, deleted]
