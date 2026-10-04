@@ -21,7 +21,7 @@ downstream invents a route, table, page, event, dependency or pattern.
 | `ticketize` | `tickets/T-*.md` | `sdlc lint` and `sdlc trace` clean |
 | `build <id>` | ticket `areas:` + `shared:` + unit tests beside them; amendments to its own ticket | `sdlc gate build <id>` passes |
 | `test <id>` | integration / e2e test paths only | `sdlc gate test <id>` passes |
-| `review <id>` | `reviews/<id>.md` only | `sdlc gate review <id>` passes |
+| `review <id>` | `reviews/<id>.md` only (`.sdlc-run/review-<id>.md` when approvals live outside the tree) | `sdlc gate review <id>` passes |
 | `observe` | `ops/incident-*.md`, draft intent | incident has a follow-up |
 
 Get the exact task with `sdlc prompt <play> [id]`. It contains everything you need.
@@ -53,7 +53,8 @@ Get the exact task with `sdlc prompt <play> [id]`. It contains everything you ne
    in its `## Amendments` section (`- <kind> <target>: <reason>`): `add AC-n`,
    `strengthen AC-n` (the reviewer confirms it is stronger), `split AC-n -> T-id` (the AC
    moves verbatim into a new draft ticket with `split_from:`), `widen <area>`. Weakening
-   or removing an AC needs a spec change. Everything else on a ticket is the lead's.
+   or removing an AC needs a spec change, or (when approvals live outside the tree) a
+   `weaken`/`remove` line plus a lead approval. Everything else on a ticket is the lead's.
 8. **One play, then stop.** Do not start the next ticket, change ticket status, merge,
    or push to the base branch. The runner (`sdlc run`) and humans do that.
 9. **Skills by ticket only.** Load the skills the prompt includes. Third-party skills

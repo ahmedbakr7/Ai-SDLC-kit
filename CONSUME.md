@@ -97,6 +97,22 @@ approving review names each under `## Out of area`. Lead artifacts, other ticket
 the test play's files stay off limits. The build amends its own ticket in `## Amendments`
 (`add`, `strengthen`, `split`, `widen`); weakening or removing an AC still needs the spec.
 
+### Approvals outside the tree
+
+Set `[approval] mode = "forge"` (GitHub) or `"git"` (signed notes in `refs/notes/sdlc`) in a lead PR:
+
+- The review play writes `.sdlc-run/review-<id>.md`; `sdlc review publish <id> --pr N` posts it.
+- CI runs two required jobs: `gate` (the lane's checks on the head) and `approval`
+  (`sdlc approval`, re-run on reviews and comments; it runs the base branch's kit and reads the PR
+  head as data). Merge when both are green.
+- List the reviewer, lead and bot identities in `[approval]`. They must differ from the identity
+  that opens PRs. If one account does everything, set `trust_unsigned = true`: approvals then need
+  write access only, and every result says they are trust-based.
+- Commits carry `Sdlc-Ticket: <id>` (`sdlc run` and `sdlc commit` add it). Tickets store only
+  `draft`, `ready` or `blocked`; `sdlc migrate` rewrites old delivery statuses. `reviews/` and
+  `evidence/` stay as read-only history.
+- Weakening or removing an AC by amendment needs a lead approval; a strict ticket needs one too.
+
 Without `sdlc run` (agent in an IDE): `sdlc status T-001-03 in_progress --as build`,
 give the agent `sdlc prompt build T-001-03`, have it iterate on `sdlc gate build
 T-001-03`, commit, then `sdlc status T-001-03 in_review --as build`.

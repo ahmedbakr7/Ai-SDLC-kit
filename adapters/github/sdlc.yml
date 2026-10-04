@@ -7,9 +7,14 @@ on:
   pull_request:
   push:
     branches: [main]
+  # Approvals arrive after CI ran: the approval job re-runs on reviews and comments alone.
+  pull_request_review:
+  issue_comment:
+    types: [created, edited]
 
 jobs:
   gate:
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -57,3 +62,37 @@ jobs:
           name: sdlc-run
           path: .sdlc-run/
           include-hidden-files: true   # v4 skips dot-folders by default: the evidence was never uploaded
+
+  # [approval] mode = forge | git (ADR-0001): an approval bound to the PR's own diff covers the
+  # head for every role its lane needs. Mark "approval" required too. It never re-runs the tests.
+  # Review and comment events run with this repository's secrets, so the kit that judges runs
+  # from the base branch's checkout; the PR head is only read, from a separate worktree.
+  approval:
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'pull_request_review' || (github.event_name == 'issue_comment' && github.event.issue.pull_request) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 0
+          ref: ${{ github.event.repository.default_branch }}
+          token: ${{ secrets.SDLC_KIT_TOKEN || github.token }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: PR head as data (a worktree; nothing from it runs)
+        env:
+          PR: ${{ github.event.pull_request.number || github.event.issue.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git -c "http.extraheader=AUTHORIZATION: bearer $GH_TOKEN" fetch origin "pull/$PR/head:pr-head"
+          git -c "http.extraheader=AUTHORIZATION: bearer $GH_TOKEN" fetch origin "refs/notes/sdlc:refs/notes/sdlc" || true
+          git worktree add ../pr-head pr-head
+      - name: Approval (covers the head, from the right identities)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: .sdlc/bin/sdlc --root ../pr-head approval --base origin/${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}

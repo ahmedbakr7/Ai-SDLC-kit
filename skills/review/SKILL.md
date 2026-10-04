@@ -42,8 +42,10 @@ every check, AC -> test mapping) in your prompt. Read the diff yourself:
    or a `split` that drops behaviour, is blocking. In the mechanical lane, judge the transform list:
    a literal applied to a value and its test alike (`"404" -> "200"`) passes the suite
    while changing behaviour.
-8. **Write** `reviews/<id>.md` from the template at the end of this skill
-   (frontmatter `ticket`, `verdict`, `reviewer` = your agent name, `commit` = the
+8. **Write** the review: `reviews/<id>.md`, or, when the prompt names `.sdlc-run/review-<id>.md`,
+   that file with front matter `sdlc: approval`, `ticket`, `commit` (the HEAD you reviewed),
+   `verdict`, `role: review`, `reviewer`, then the same template. Use the template at the end of
+   this skill (for `reviews/<id>.md`: frontmatter `ticket`, `verdict`, `reviewer` = your agent name, `commit` = the
    commit in the latest evidence: test if the test play ran, else build). One AC table row per AC. Each finding has
    `file:line`, the rule it breaks, and the change you want.
 9. Run `sdlc gate review <id>` until it passes. Stop.

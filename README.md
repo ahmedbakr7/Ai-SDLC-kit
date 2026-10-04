@@ -45,6 +45,17 @@ the engine from the ticket and the diff; it may raise a lane, never lower it:
 | standard | the default | build with `ac-red`, test play through the real stack, independent review |
 | strict | `risk: high`, `type: contract`, a CONTRACTS change, or a file in `lanes.strict_paths` | standard plus `contract-diff`, real-stack suites that cannot be skipped, and `accepted_by` set by the lead on the base branch |
 
+Approvals can live outside the tree (`[approval] mode = "forge"` or `"git"`, ADR-0001 step 2).
+Then an approval is a record bound to the reviewed commit: it covers the head while the PR's own
+change is the same, location-exact (a base merge keeps it, editing or moving an approved line voids
+it), and it counts only from identities in `[approval] reviewers` / `leads` / `bots` that neither
+opened the PR nor wrote its commits. With one identity for everyone that cannot hold: the lead sets
+`trust_unsigned = true`, write access is still required, and every result says it is trust-based.
+Evidence stays in CI (`.sdlc-run/`, uploaded as an artifact), `gate pr` re-proves the lane's checks
+on the head, and a ticket's delivery status is derived: `done` once a merged commit carries
+`Sdlc-Ticket: <id>`. The default `mode = "file"` keeps `reviews/<id>.md`, committed evidence and
+stored status.
+
 Every full gate run writes JSON evidence (`--only` runs are partial and never count).
 Ticket plays are judged by the base branch's `sdlc.toml`, so an agent cannot reconfigure
 its own gate. CI re-runs the gate and judges the whole ticket branch (`sdlc gate pr`);
@@ -67,6 +78,10 @@ it never trusts committed evidence on its own.
 | `sdlc adapters sync` | regenerate CLAUDE.md, GEMINI.md, Cursor rules, Copilot instructions, slash commands |
 | `sdlc routes` | list routes: declared and built, built but undeclared, declared but not built |
 | `sdlc migrate` | upgrade v0.x tickets (number acceptance criteria) |
+| `sdlc approval [--pr N]` | CI (`[approval] mode = forge` or `git`): an approval covers the PR's head for every role its lane needs |
+| `sdlc review publish T-001-03 [--pr N]` | publish the review agent's record: a PR comment (forge) or a note on the reviewed commit (git) |
+| `sdlc commit T-001-03 -m "..."` | commit with the `Sdlc-Ticket:` trailer derived status reads |
+| `sdlc followups --pr N` | draft tickets from an approval's `[follow-up]` findings |
 | `sdlc baseline [--prune]` | record the failures a red base branch already has; gates and `trace` then fail only on new ones, and the file only shrinks |
 
 Stdlib-only Python ≥ 3.11. Works with any agent CLI that can take a prompt
