@@ -523,6 +523,15 @@ class DerivedStatus(Base):
         sha = git(self.p.root, "rev-parse", "HEAD").strip()
         self.assertEqual(gate._play_commit(config.load(self.p.root), "main", ("build",)), sha)
 
+    def test_one_play_trailer_with_a_comma_is_one_value(self) -> None:
+        from sdlc import config, gate
+
+        git(self.p.root, "checkout", "-q", "-b", "build/T-042-02")
+        copy_solution(self.p, "build-T-042-02")
+        git(self.p.root, "add", "-A")
+        git(self.p.root, "commit", "-q", "-m", "not a build", "-m", "Sdlc-Play: other, build")
+        self.assertIsNone(gate._play_commit(config.load(self.p.root), "main", ("build",)))
+
     def test_delivery_statuses_are_not_stored(self) -> None:
         code, out = self.p.sdlc("status", "T-042-02", "in_progress", "--as", "build")
         self.assertNotEqual(code, 0)
