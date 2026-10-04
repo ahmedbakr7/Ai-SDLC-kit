@@ -1,7 +1,7 @@
 ---
 id: ADR-0001
 title: Risk lanes, soft areas, ticket amendments, and approvals bound to the PR's own diff
-status: proposed          # proposed -> accepted (lead) | rejected
+status: accepted
 date: 2026-10-04
 source: Hangout pilot (hangout-planner docs/sdlc-pilot-report.md, PRs #54-#64; kit PRs #8-#10)
 supersedes: none
@@ -178,7 +178,7 @@ need their own forge identity (an app, or one each for building and reviewing).
 
 | Mode | Record | Identity |
 |---|---|---|
-| `forge` (GitHub adapter first; the interface is forge-neutral) | An approving PR review on R, or a commit status `sdlc/review/<ticket>` on R whose target links the review body (a PR comment) | The review author or the status `creator`, checked against the allowlist |
+| `forge` (GitHub first; the interface is forge-neutral) | An approving PR review on R, or a commit status `sdlc/review/<ticket>` on R whose target links the review body (a PR comment) | The review author or the status `creator`, checked against the allowlist |
 | `git` (plain-git fallback) | A git note on R in `refs/notes/sdlc`, front matter plus body | The signer of the notes commit, checked against an allowed-signers file. Unsigned notes count only with `[approval] trust_unsigned = true`, and the gate output then says the approval layer is trust-based |
 
 In `git` mode CI must fetch `refs/notes/sdlc` explicitly (`git fetch origin
@@ -240,11 +240,11 @@ The merge rule becomes: both checks green on the head commit.
 - Contracts first (AGENTS.md rule 3) becomes: a ticket PR that changes CONTRACTS runs in
   strict and needs a lead approval, instead of stopping.
 
-### 7. Later steps (direction only; each gets its own ADR before code)
+### 7. Later steps (direction only; baseline, waivers and profiles get their own ADR before code)
 
-- **Packaging and releases**: a stdlib zipapp and a pip-installable package, a reusable
-  GitHub Action in the kit repo (doctor, gate, approval, evidence upload), semantic version
-  tags with a changelog, and Renovate bumping the product's pin.
+- **Releases**: semantic version tags with a changelog on the kit repo. Products pin a tag
+  through the `.sdlc` submodule, and the lead bumps it in a lead PR. `sdlc init` keeps
+  copying the CI workflow into the product.
 - **Baseline and waivers**: per-file counts for checks without stable keys (lint, typecheck),
   so moving code does not churn entries; stable keys stay for tests and AC. Time-boxed
   waivers with an owner and an expiry date; an expired waiver fails `gate ci`; only the lead
@@ -299,7 +299,7 @@ the reference passes), a release tag, and a Hangout lead PR that bumps `.sdlc` a
 |---|---|---|
 | 1 | Lanes (resolution, triggers, mechanical with `transforms:`, strict's `contract-diff` and required e2e), areas, `[tests] source_globs` for ac-red, amendments (free kinds, split, spike), `doctor` lane floors | Still `reviews/<id>.md`. Lead-only amendments and strict's lead sign-off stay unavailable: weakening still needs a spec change, and a strict ticket needs `accepted_by` on the base branch's version of the ticket (set in a lead PR) |
 | 2 | Approval records with replay coverage and identity allowlists (`forge` and `git` modes), `sdlc/gate` and `sdlc/approval`, evidence as CI artifacts with ac-red caching, derived status and `Sdlc-Ticket:`, lead-only amendments, strict lead sign-off, `sdlc followups`, migration | Approval records; `reviews/` and `evidence/` read-only history |
-| 3 | Packaging, Action, releases, Renovate | (own ADR) |
+| 3 | Release tags + changelog; the submodule pin documented in CONSUME.md | n/a |
 | 4 | Count-based baseline, waivers, strictness profiles | (own ADR) |
 
 ## Not decided
