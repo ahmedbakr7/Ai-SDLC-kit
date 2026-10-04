@@ -1,0 +1,29 @@
+# Relay for [approval] mode = forge (ADR-0001). Installed by `sdlc init` as
+# .github/workflows/sdlc-approval-review.yml, next to sdlc-approval.yml.
+#
+# GitHub runs pull_request_review workflows from the PR's own copy, and on a fork the token is
+# read-only. So a review never runs the judge: this job has no permissions and only records the
+# PR number. Its completion triggers sdlc-approval.yml (workflow_run), which GitHub always runs
+# from the default branch, with a token that can post the sdlc/approval status. The number is
+# treated as data there: any PR may relay any number, and the judge only recomputes.
+name: sdlc-approval-review
+
+on:
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+
+permissions: {}
+
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record the PR number
+        env:
+          PR: ${{ github.event.pull_request.number }}
+        run: mkdir relay && printf '%s' "$PR" > relay/pr
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdlc-approval-pr
+          path: relay/pr
+          retention-days: 1

@@ -103,6 +103,7 @@ class KitConsistency(unittest.TestCase):
                 code = cli.main(["--root", d, "doctor"])
             root = Path(d)
             for rel in ("sdlc.toml", "AGENTS.md", "CLAUDE.md", ".github/workflows/sdlc.yml",
+                        ".github/workflows/sdlc-approval.yml", ".github/workflows/sdlc-approval-review.yml",
                         "skills/backend-patterns/SKILL.md", "skills.lock.json", ".claude/commands/sdlc-build.md"):
                 self.assertTrue((root / rel).is_file(), rel)
             self.assertIn('profile = "nextjs"', (root / "sdlc.toml").read_text())
