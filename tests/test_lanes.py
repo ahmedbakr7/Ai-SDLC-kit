@@ -176,6 +176,16 @@ None.
         self.gate("build", "T-042-03", "lane")
         self.assertEqual(self.ev["lane"], "strict")
 
+    def test_high_risk_is_strict_even_with_an_invalid_lane(self) -> None:
+        # A baselined lint error must not turn an unknown lane value into a way out of strict.
+        from sdlc.artifacts import Ticket
+        from pathlib import Path
+
+        for lane, risk, want in (("fast", "high", "strict"), ("fast", "low", "standard"),
+                                 ("mechanical", "low", "mechanical"), ("", "high", "strict")):
+            with self.subTest(lane=lane, risk=risk):
+                self.assertEqual(Ticket("T-1", Path("t.md"), {"lane": lane, "risk": risk}, "").lane, want)
+
     def test_override_raises_but_never_lowers(self) -> None:
         self.mechanical_branch()
         self.gate("build", "T-042-03", "lane", lane="standard")

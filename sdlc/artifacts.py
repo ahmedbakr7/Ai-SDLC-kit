@@ -77,9 +77,9 @@ class Ticket:
         still raise it from the diff (lanes.resolve)."""
         floor = "strict" if self.risk == "high" or self.type == "contract" else ""
         declared = str(self.data.get("lane", "") or "")
-        if declared in LANES and floor:
+        if floor:
             return floor  # risk: high and type: contract are strict, whatever the lane field says
-        return declared or floor or "standard"
+        return declared if declared in LANES else "standard"
 
     @property
     def areas(self) -> list[str]:
