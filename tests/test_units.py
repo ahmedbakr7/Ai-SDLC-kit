@@ -14,6 +14,13 @@ class Frontmatter(unittest.TestCase):
         self.assertEqual(d, {"a": 1, "b": "x: y", "c": ["p", "q, r", 3], "d": ["one", "two: 2"],
                              "e": None, "f": "l1\nl2"})
 
+    def test_a_leading_zero_keeps_the_text(self) -> None:
+        # An abbreviated commit such as 0510682 is not the number 510682: dropping the zero
+        # names a different commit.
+        d = fm.parse("commit: 0510682\nn: 12\nz: 0\nm: -3\n")
+        self.assertEqual(d, {"commit": "0510682", "n": 12, "z": 0, "m": -3})
+        self.assertEqual(fm.parse("c: " + fm.dump_scalar("0510682") + "\n"), {"c": "0510682"})
+
     def test_plain_scalars_fold_across_lines_like_yaml(self) -> None:
         d = fm.parse("title: Fix the very\n  long title  # note\nfiles:\n  - a\n")
         self.assertEqual(d, {"title": "Fix the very long title", "files": ["a"]})

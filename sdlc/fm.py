@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):(?:\s+(.*)|\s*)$")
-INT_RE = re.compile(r"^-?\d+$")
+INT_RE = re.compile(r"^-?(?:0|[1-9]\d*)$")  # a leading zero keeps the text: 0510682 is a commit
 
 
 class ParseError(ValueError):
