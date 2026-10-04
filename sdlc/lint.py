@@ -173,7 +173,13 @@ def lint_ticket(repo: Repo, t: Ticket, reqs: dict) -> list[Issue]:
         elif t.status != "done":
             err("legacy: v0 is only for a ticket that shipped (status: done) under kit v0")
     shipped_v0 = legacy is not None and str(legacy) == "v0" and t.status == "done"
-    if t.status == "done" and not shipped_v0:
+    from . import approval
+
+    records = approval.records_mode(repo.cfg)
+    if records and t.status in ("in_progress", "in_review"):
+        err(f"status {t.status} is derived, not stored ([approval] mode = {approval.mode(repo.cfg)}): "
+            "store draft, ready or blocked; `sdlc migrate` rewrites old tickets")
+    if t.status == "done" and not shipped_v0 and not records:
         # `sdlc status ... done` enforces this; a hand-edited status must not skip it.
         try:
             rv = repo.review_for(t.id)

@@ -13,14 +13,25 @@ def matrix(repo: Repo) -> dict:
         for r in t.requirements:
             by_req.setdefault(r, []).append(t.id)
     tickets = {}
+    # When status is derived, a ticket merged without committed evidence is proven by the CI
+    # evidence `gate ci` just wrote (.sdlc-run/ci.json, its AC matrix for shipped tickets).
+    ci_path = repo.cfg.root / ".sdlc-run" / "ci.json"
+    ci = json.loads(ci_path.read_text(encoding="utf-8")) if ci_path.is_file() else {}
+    from . import gitutil
+
+    if ci.get("commit") != gitutil.head(repo.cfg.root):
+        ci = {}  # only this commit's own gate ci run proves anything
     for tid, t in sorted(repo.tickets.items()):
         ev_path = repo.cfg.path("evidence") / f"{tid}.build.json"
         ev = json.loads(ev_path.read_text(encoding="utf-8")) if ev_path.is_file() else {}
+        if not ev and t.status != "done" and repo.status_of(t) == "done" and ci and not ci.get("partial"):
+            ev = {"result": ci.get("result", "none"),
+                  "ac": {k: v for k, v in ci.get("ac", {}).items() if k.startswith(f"{tid}/")}}
         acs = {}
         for ac, text in t.acs:
             tag = f"{tid}/{ac}"
             acs[ac] = {"text": text, "proof": ev.get("ac", {}).get(tag, {}).get("status", "none")}
-        tickets[tid] = {"status": t.status, "requirements": t.requirements, "acs": acs,
+        tickets[tid] = {"status": repo.status_of(t), "requirements": t.requirements, "acs": acs,
                         "evidence": ev.get("result", "none")}
     accepted = {r.id for s in repo.specs if s.status == "accepted" for r in s.requirements}
     return {

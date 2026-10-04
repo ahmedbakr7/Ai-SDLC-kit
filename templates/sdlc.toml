@@ -32,6 +32,11 @@ profile = ""
 [lanes]
 # strict_paths = []          # globs that make a PR strict (migrations, auth, money); CONTRACTS always does
 
+[approval]
+# mode = "file"              # file: reviews/<id>.md | forge: PR records (GitHub) | git: refs/notes/sdlc
+# reviewers = [] ; leads = [] ; bots = []   # identities whose approvals count, per role
+# trust_unsigned = false     # one identity for everyone: accept declared roles; results say trust-based
+
 [scope]
 # always_allowed = []        # globs any play may touch (lockfiles, snapshots)
 # lead_allowed = []          # globs a PR that moves no ticket may change besides lead artifacts

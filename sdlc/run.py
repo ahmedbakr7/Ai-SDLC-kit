@@ -15,7 +15,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import gitutil, prompt, tickets
+from . import approval, gitutil, prompt, tickets
 from .artifacts import Repo
 from .config import Config
 from .gate import Gate, recover
@@ -73,8 +73,20 @@ def run(cfg: Config, play: str, tid: str, agent: str, attempts: int | None, base
         _checkout(root, branch, base, create=False)
     repo = Repo(cfg)
     t = repo.ticket(tid)
+    records = approval.records_mode(cfg)
 
-    if play == "build":
+    if records:
+        # Status is derived (ADR-0001 step 2): nothing to move, no status or evidence commits.
+        if repo.status_of(t) == "done":
+            raise SystemExit(f"{tid} is done (a merged commit names it)")
+        if play == "build":
+            pending = [d for d in t.depends_on if repo.tickets.get(d) and repo.status_of(repo.tickets[d]) != "done"]
+            if t.status != "ready" or pending:
+                raise SystemExit(f"refused: {tid} must be ready with its dependencies done"
+                                 + (f" (pending: {', '.join(pending)})" if pending else f" (it is {t.status})"))
+        elif play == "test" and not t.test_play:
+            raise SystemExit(f"{tid} is marked test: none; review it after the build")
+    elif play == "build":
         if t.status == "ready":
             try:
                 tickets.check_transition(repo, t, "in_progress", "build")
@@ -104,9 +116,9 @@ def run(cfg: Config, play: str, tid: str, agent: str, attempts: int | None, base
     # test and review are judged on what changed after this point. Taken before any agent
     # runs, so no file the agent can write (e.g. evidence) can move it.
     since = gitutil.head(root) if play != "build" else None
-    if play == "build" and t.status == "ready":
+    if play == "build" and t.status == "ready" and not records:
         tickets.set_status(repo, t, "in_progress", "build")
-        _commit(root, f"start {tid}: {t.data.get('title')}", agent, play)
+        _commit(root, f"start {tid}: {t.data.get('title')}", agent, play, tid)
 
     feedback = ""
     for n in range(1, attempts + 1):
@@ -123,26 +135,28 @@ def run(cfg: Config, play: str, tid: str, agent: str, attempts: int | None, base
             # Never commit onto a branch the agent switched to, or over history it rewrote.
             _say(f"stopped: {problem}")
             return 1
-        _commit(root, f"{play} {tid}: {t.data.get('title')} (attempt {n})", agent, play)
+        _commit(root, f"{play} {tid}: {t.data.get('title')} (attempt {n})", agent, play, tid)
         g = Gate(cfg, play, tid, base, since=since)
         ev = g.run(on_check=_report)
         if ev["result"] == "pass":
             repo = Repo(cfg)
-            if play == "build":
+            if play == "build" and not records:
                 tickets.set_status(repo, repo.ticket(tid), "in_review", "build")
-            _commit(root, f"evidence {tid}: {play} gate pass", agent, play)
+            _commit(root, f"evidence {tid}: {play} gate pass", agent, play, tid)
+            if records and play == "review":
+                _say(f"review record at .sdlc-run/review-{tid}.md; publish it: sdlc review publish {tid} --pr <n>")
             _say(f"gate passed; evidence at {ev['path']}")
             _open_pr(cfg, branch, base, tid, play)
             return 0
         feedback = _feedback(ev)
-        _commit(root, f"evidence {tid}: {play} gate fail (attempt {n})", agent, play)
+        _commit(root, f"evidence {tid}: {play} gate fail (attempt {n})", agent, play, tid)
 
     repo = Repo(cfg)
     failed = [c["name"] for c in ev["checks"] if c["status"] == "fail"]
-    if play == "build":
+    if play == "build" and not records:
         tickets.set_status(repo, repo.ticket(tid), "blocked", "build",
                            reason=f"gate failed after {attempts} attempts: {', '.join(failed)}")
-        _commit(root, f"block {tid}: gate failed", agent, play)
+        _commit(root, f"block {tid}: gate failed", agent, play, tid)
     _say(f"gate still failing after {attempts} attempts: {', '.join(failed)}")
     return 1
 
@@ -208,11 +222,12 @@ def _checkout(root: Path, branch: str, base: str, create: bool) -> None:
         raise SystemExit(f"branch {branch} does not exist; run build first")
 
 
-def _commit(root: Path, msg: str, agent: str, play: str) -> None:
+def _commit(root: Path, msg: str, agent: str, play: str, tid: str) -> None:
     gitutil.git(root, "add", "-A")
     if not gitutil.git(root, "diff", "--cached", "--name-only").strip():
         return
-    gitutil.git(root, "commit", "-q", "-m", msg, "-m", f"Sdlc-Agent: {agent}\nSdlc-Play: {play}")
+    # Sdlc-Ticket is what derived status reads once the commit reaches the base branch.
+    gitutil.git(root, "commit", "-q", "-m", msg, "-m", f"Sdlc-Agent: {agent}\nSdlc-Play: {play}\nSdlc-Ticket: {tid}")
 
 
 def _authors(root: Path, base: str) -> set[str]:

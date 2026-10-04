@@ -160,9 +160,12 @@ def _write_set(cfg: Config, t: Ticket, play: str) -> str:
                      "artifacts, other tickets, config and the test play's files are never yours.")
     elif play == "test":
         lines = [f"- `{g}`" for g in tests.get("integration_globs", [])] or ["- (tests.integration_globs is empty: ask the lead)"]
+    elif _records(cfg):
+        lines = [f"- `.sdlc-run/review-{t.id}.md` (the review record; nothing in the repository)"]
     else:
         lines = [f"- `{cfg.data['paths']['reviews']}/{t.id}.md`"]
-    lines.append(f"- `{cfg.data['paths']['evidence']}/{t.id}.{play}.json` (written by the gate, not by you)")
+    if not _records(cfg):
+        lines.append(f"- `{cfg.data['paths']['evidence']}/{t.id}.{play}.json` (written by the gate, not by you)")
     for g in cfg.section("scope").get("always_allowed", []):
         lines.append(f"- `{g}` (always allowed)")
     return "\n".join(lines)
@@ -170,6 +173,12 @@ def _write_set(cfg: Config, t: Ticket, play: str) -> str:
 
 def _dod(cfg: Config, t: Ticket, play: str) -> str:
     checks = ", ".join(cfg.section("gate")[play])
+    if play == "review" and _records(cfg):
+        return (f"1. Write `.sdlc-run/review-{t.id}.md`: front matter `sdlc: approval`, `ticket: {t.id}`, "
+                "`commit:` the HEAD you reviewed, `verdict:`, `role: review`, `reviewer:` your agent name; then the "
+                "review template from your play skill.\n"
+                f"2. Run `sdlc gate review {t.id}` until it passes. Checks: {checks}.\n"
+                "3. Stop. Do not merge, publish, or edit code or tests: the runner publishes the record.")
     if play == "review":
         return (f"1. Write `{cfg.data['paths']['reviews']}/{t.id}.md` from the review template in your play skill.\n"
                 f"2. Run `sdlc gate review {t.id}` until it passes. Checks: {checks}.\n"
@@ -193,10 +202,17 @@ def _dod(cfg: Config, t: Ticket, play: str) -> str:
             "4. Stop. Do not change ticket status, open PRs or start another ticket: the runner does that.")
 
 
+def _records(cfg: Config) -> bool:
+    from . import approval
+
+    return approval.records_mode(cfg)
+
+
 def _evidence(cfg: Config, t: Ticket) -> str:
     rows, latest = [], ""
     for play in ("build", "test"):
-        p = cfg.path("evidence") / f"{t.id}.{play}.json"
+        # Records mode keeps evidence in CI and the local run directory, never in the tree.
+        p = (cfg.root / ".sdlc-run" if _records(cfg) else cfg.path("evidence")) / f"{t.id}.{play}.json"
         if not p.is_file():
             rows.append(f"### {play}\n\nNo {play} evidence at `{cfg.rel(p)}`."
                         + (" Verdict must be request_changes." if play == "build" else ""))

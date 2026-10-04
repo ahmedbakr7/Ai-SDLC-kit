@@ -97,6 +97,32 @@ approving review names each under `## Out of area`. Lead artifacts, other ticket
 the test play's files stay off limits. The build amends its own ticket in `## Amendments`
 (`add`, `strengthen`, `split`, `widen`); weakening or removing an AC still needs the spec.
 
+### Approvals outside the tree
+
+Set `[approval] mode = "forge"` (GitHub) or `"git"` (signed notes in `refs/notes/sdlc`) in a lead PR:
+
+- The review play writes `.sdlc-run/review-<id>.md`; `sdlc review publish <id> --pr N` posts it.
+- CI runs the `gate` job (`.github/workflows/sdlc.yml`: the lane's checks on the head) and
+  `.github/workflows/sdlc-approval.yml`, which `sdlc init` installs: on `pull_request_target`,
+  reviews and comments it runs the base branch's kit against the PR head (read as data) and posts
+  the `sdlc/approval` commit status. Require both the `gate` check and the `sdlc/approval` status.
+- What branch protection can and cannot prove: the `gate` check and the `sdlc/approval` status
+  come from GitHub Actions, and any workflow or token with write access can post a check or status
+  with the same name (a same-repository PR can add a workflow that does). Against that, post the
+  approval from a GitHub App and pin the app as the required check's source, and require review of
+  `.github/workflows/`. Without it, the gate and the approval stop mistakes and confused agents,
+  not someone with write access.
+- In `git` mode a lead's own PR needs a second lead (a signer may not approve their own commits).
+- A PR that names no ticket (config, CI, the kit pin, contracts, tickets) needs a lead approval.
+  Review records count only unedited (comments) and on the commit the forge recorded (reviews).
+- List the reviewer, lead and bot identities in `[approval]`. They must differ from the identity
+  that opens PRs. If one account does everything, set `trust_unsigned = true`: approvals then need
+  write access only, and every result says they are trust-based.
+- Commits carry `Sdlc-Ticket: <id>` (`sdlc run` and `sdlc commit` add it). Tickets store only
+  `draft`, `ready` or `blocked`; `sdlc migrate` rewrites old delivery statuses. `reviews/` and
+  `evidence/` stay as read-only history.
+- Weakening or removing an AC by amendment needs a lead approval; a strict ticket needs one too.
+
 Without `sdlc run` (agent in an IDE): `sdlc status T-001-03 in_progress --as build`,
 give the agent `sdlc prompt build T-001-03`, have it iterate on `sdlc gate build
 T-001-03`, commit, then `sdlc status T-001-03 in_review --as build`.

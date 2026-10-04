@@ -131,6 +131,19 @@ DEFAULTS: dict[str, Any] = {
     "review": {
         "require_distinct_agent": True,
     },
+    # Where approvals live (ADR-0001 section 4). "file": reviews/<id>.md, committed evidence and
+    # stored delivery status (kit v1). "forge" (GitHub first) or "git" (refs/notes/sdlc): records
+    # outside the tree bound to the PR's own diff, evidence in CI, status derived from git.
+    "approval": {
+        "mode": "file",
+        "reviewers": [],          # identities whose approval counts as the independent review
+        "leads": [],              # identities whose approval is lead sign-off
+        "bots": [],               # review bots; enough for the mechanical lane
+        "trust_unsigned": False,  # accept declared roles (single identity); every result says trust-based
+        "allowed_signers": "",    # git mode: ssh allowed-signers file for signed notes
+        "repo": "",               # forge mode: owner/name (default: GITHUB_REPOSITORY)
+        "api": "https://api.github.com",
+    },
     "adapters": {
         "tools": ["claude", "cursor", "copilot", "gemini"],
     },
