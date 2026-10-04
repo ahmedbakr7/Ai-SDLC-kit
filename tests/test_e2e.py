@@ -23,8 +23,8 @@ class Conveyor(unittest.TestCase):
         code, out = p.sdlc("run", "build", "T-042-02", "--agent", "fake")
         self.assertEqual(code, 0, out)
         self.assertIn("attempt 2/3", out)                       # first attempt was rejected
-        self.assertIn("outside build write set: app/stray_helper.py", out)  # ... by the scope check
-        self.assertFalse((p.root / "app" / "stray_helper.py").exists())
+        self.assertIn("outside build write set: arch/stray-notes.md", out)  # ... by the scope check
+        self.assertFalse((p.root / "arch" / "stray-notes.md").exists())
         self.assertEqual(p.sdlc("status", "T-042-02")[1].strip(), "in_review")
         ev = json.loads(p.read("evidence/T-042-02.build.json"))
         self.assertEqual(ev["result"], "pass")

@@ -46,6 +46,17 @@ DEFAULTS: dict[str, Any] = {
         # One ticket's whole branch, as CI sees it: every file is in some play's write set,
         # status moved only legally, and a `done` ticket carries an approval of what ships.
         "pr": ["artifacts", "scope", "immutable", "review-file"],
+        # Risk lanes (ADR-0001). A standard ticket runs the play lists above. A mechanical
+        # ticket's build runs this list instead: every check `ci` runs, plus `mechanical` (the
+        # diff is exactly the declared transforms). No ac-red, no test play.
+        "mechanical": ["artifacts", "scope", "immutable", "mechanical", "contracts", "lint", "typecheck",
+                       "unit", "integration", "e2e", "ac-coverage", "test-quality", "duplication", "build",
+                       "smoke", "skills"],
+        # A strict ticket runs the standard lists plus these (build, test and pr plays). Its
+        # real-stack suites may not be skipped.
+        "strict": ["contract-diff"],
+        # A spike's build: findings only, no production code or tests.
+        "spike": ["artifacts", "scope", "immutable", "spike", "skills"],
         # Checks that may be skipped when their command is not configured.
         "optional": ["integration", "e2e", "duplication"],
         "max_attempts": 3,
@@ -93,6 +104,15 @@ DEFAULTS: dict[str, Any] = {
         # [] = the lead accepts unit-only proof; doctor fails if none of these is configured.
         "real_stack": ["integration", "e2e"],
         "forbid": [],                      # [{regex, message}] patterns banned in tests
+        # Production source (globs). ac-red reverts the ticket's changed files that match these
+        # and are not tests; manifests, lockfiles, config and docs are judged in review. Empty:
+        # the ticket's areas and shared globs.
+        "source_globs": [],
+    },
+    "lanes": {
+        # A changed file matching one of these makes the PR strict (migrations, auth, money).
+        # CONTRACTS always does.
+        "strict_paths": [],
     },
     "scope": {
         "always_allowed": [],              # globs any play may touch (lockfiles, snapshots)

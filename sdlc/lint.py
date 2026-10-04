@@ -4,18 +4,16 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from . import fm
-from .artifacts import (AC_RE, RISKS, STATUSES, TICKET_ID_RE, TYPES, VERDICTS, Issue, Repo,
+from . import fm, paths
+from .artifacts import (AC_RE, LANES, RISKS, STATUSES, TICKET_ID_RE, TYPES, VERDICTS, Issue, Repo,
                         Ticket)
 
-REQUIRED_TICKET_KEYS = ("id", "title", "type", "status", "risk", "depends_on", "files",
-                        "skills", "requirements", "acceptance_criteria", "source_spec",
-                        "source_plan")
+REQUIRED_TICKET_KEYS = ("id", "title", "type", "status", "risk", "depends_on", "skills",
+                        "requirements", "source_spec", "source_plan")
 SPEC_HEADINGS = ("## Requirements", "## Open")
 PLAN_HEADINGS = ("## Contracts", "## Shared modules", "## File map", "## Test strategy",
                  "## Ticket cuts", "## Rollback")
 DOC_STATUSES = ("draft", "accepted", "superseded", "rejected")
-MAX_FILES = 8
 MAX_ACS = 8
 
 
@@ -53,8 +51,8 @@ def _shared_module_owners(repo: Repo, plan: Path) -> list[Issue]:
         t = repo.tickets.get(owner)
         if t is None:
             out.append(Issue("error", repo.cfg.rel(plan), f"shared module {path}: owner {owner!r} is not a ticket"))
-        elif path not in t.files:
-            out.append(Issue("error", repo.cfg.rel(plan), f"shared module {path}: owner {owner} does not list it in files:"))
+        elif path not in t.files and not any(paths.match(path, a) for a in t.areas):
+            out.append(Issue("error", repo.cfg.rel(plan), f"shared module {path}: owner {owner} does not list it in areas:"))
     return out
 
 
@@ -73,7 +71,7 @@ def _unordered_writers(tickets: dict[str, Ticket]) -> list[Issue]:
     out = []
     for i, a in enumerate(open_):
         for b in open_[i + 1:]:
-            both = sorted(set(tickets[a].files) & set(tickets[b].files))
+            both = sorted(set(tickets[a].areas) & set(tickets[b].areas))
             if both and a not in anc[b] and b not in anc[a]:
                 out.append(Issue("error", "tickets/", f"{a} and {b} both write {', '.join(both)} but neither "
                                  "depends on the other; add depends_on, or give the file one owner ticket"))
@@ -187,21 +185,57 @@ def lint_ticket(repo: Repo, t: Ticket, reqs: dict) -> list[Issue]:
         elif dep not in repo.tickets:
             err(f"depends_on {dep} does not exist")
 
-    files = t.files
-    if t.type not in ("test",) and not files:
-        err("files: is empty")
+    if "areas" in d and "files" in d:
+        err("areas: replaces files:; keep one of them")
+    elif "areas" not in d and "files" not in d:
+        err("missing key 'areas'")
+    files, areas = t.files, t.areas
+    if t.type not in ("test",) and not areas:
+        err("areas: is empty")
     for f in files:
         if any(ch in f for ch in "*?"):
-            err(f"files: entries are exact paths, not globs ({f}); put globs in shared:")
+            err(f"files: entries are exact paths, not globs ({f}); use areas: for globs")
+    for f in areas:
         if f.startswith(("/", "../")) or "\\" in f:
-            err(f"files: entry must be a repo-relative posix path ({f})")
-    if len(set(files)) != len(files):
-        err("files: has duplicates")
-    if len(files) > MAX_FILES and not shipped_v0:
-        err(f"{len(files)} files > {MAX_FILES}; split the ticket")
+            err(f"areas: entry must be a repo-relative posix path or glob ({f})")
+    if len(set(areas)) != len(areas):
+        err("areas: has duplicates")
+
+    lane = str(d.get("lane", "") or "")
+    if lane and lane not in LANES:
+        err(f"lane must be one of {LANES}, got {lane!r}")
+    if lane == "mechanical":
+        from .lanes import parse_transforms
+
+        transforms, terrs = parse_transforms(t.transforms)
+        for e in terrs:
+            err(e)
+        if not transforms and not terrs:
+            err("lane: mechanical needs transforms: (the edits the engine replays to prove the diff)")
+        if t.type == "spike":
+            err("a spike cannot be mechanical")
+    elif t.transforms:
+        err("transforms: only apply to lane: mechanical")
+    from .tickets import amendment_lines, parse_amendment
+
+    for ln in amendment_lines(t.body):
+        if parse_amendment(ln) is None:
+            err(f"malformed amendment {ln.strip()!r}: want '- <kind> <target>: <reason>'")
+    sf = d.get("split_from")
+    if sf and str(sf) not in repo.tickets:
+        err(f"split_from {sf} does not exist")
 
     acs = t.acs
-    if not acs:
+    if t.type == "spike":
+        qs = t.questions
+        if not qs:
+            err("a spike needs questions: ('Q-1: what we must learn')")
+        for q, text in qs:
+            if not q:
+                err(f"question must be 'Q-<n>: <question>': {text!r}")
+        if acs:
+            err("a spike has questions:, not acceptance_criteria")
+    elif not acs and lane != "mechanical":
         err("no acceptance_criteria")
     seen = set()
     for ac, text in acs:
@@ -216,7 +250,7 @@ def lint_ticket(repo: Repo, t: Ticket, reqs: dict) -> list[Issue]:
     if len(acs) > MAX_ACS and not shipped_v0:
         err(f"{len(acs)} acceptance criteria > {MAX_ACS}; split the ticket")
 
-    if not t.requirements and t.type not in ("chore", "ops"):
+    if not t.requirements and t.type not in ("chore", "ops", "spike") and lane != "mechanical":
         err("requirements: is empty (cite F-/N- ids from the spec)")
     for r in t.requirements:
         if r not in reqs:

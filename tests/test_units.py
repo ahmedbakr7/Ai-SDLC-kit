@@ -272,7 +272,7 @@ class Lint(unittest.TestCase):
             p.write(plan, p.read(plan).replace("| `app/returns.py` | T-042-01 |", "| `app/returns.py` | T-042-02 |"))
             msgs = "\n".join(str(i) for i in lint_repo(Repo(config.load(p.root))))
             self.assertIn("T-042-01 and T-042-02 both write app/server.py but neither depends on the other", msgs)
-            self.assertIn("shared module app/returns.py: owner T-042-02 does not list it in files:", msgs)
+            self.assertIn("shared module app/returns.py: owner T-042-02 does not list it in areas:", msgs)
         finally:
             p.close()
 

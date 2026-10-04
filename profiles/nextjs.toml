@@ -38,12 +38,18 @@ integration_globs = ["e2e/**", "tests/**", "**/*.int.test.ts", "**/*.int.test.ts
 # Real-stack proof is e2e (Playwright against `start`). Vitest "integration" tests run route
 # handlers in-process under jsdom and never cross HTTP (the Hangout pilot's /v1 vs /api/v1).
 real_stack = ["e2e"]
+# What ac-red reverts: production source only (not package.json, lockfiles or config).
+source_globs = ["src/**", "app/**"]
 forbid = [
   { regex = '''readFileSync\([^)]*["'`][^"'`]*\b(?:src|app)/''', message = "test reads source text instead of exercising behaviour" },
   # helpers that wrap readFileSync: read("src/app/tokens.css")
   { regex = '''\bread(?!FileSync)\w*\(\s*["'`](?:\./)?(?:src|app)/''', message = "test reads source text instead of exercising behaviour" },
   { regex = '\.toMatch\(\s*/[^/]*(?:className|class=)', message = "test asserts on markup strings; assert on rendered behaviour" },
 ]
+
+[lanes]
+# Migrations make a PR strict (contract diff, required e2e, lead sign-off). Add auth and money paths.
+strict_paths = ["drizzle/**", "**/migrations/**"]
 
 [scope]
 always_allowed = ["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "**/__snapshots__/**"]

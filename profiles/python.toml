@@ -12,6 +12,9 @@ build = "python -m compileall -q ."
 extractor = "command"
 command = ""
 
+[lanes]
+strict_paths = ["**/migrations/**", "alembic/**"]
+
 [tests]
 globs = ["tests/**", "**/test_*.py", "**/*_test.py"]
 integration_globs = ["tests/integration/**", "tests/e2e/**"]

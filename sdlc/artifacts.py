@@ -14,6 +14,7 @@ TICKET_FILE_RE = re.compile(r"^(T-\d{3}-\d{2,3})(?:-[a-z0-9-]+)?\.md$")
 REQ_ID = r"[A-Z]{1,4}-\d{3}-\d+"
 REQ_DEF_RE = re.compile(rf"^\s*[-*]\s+\*\*({REQ_ID})\*\*\s*(.*)$")
 AC_RE = re.compile(r"^(AC-\d+):\s+(\S.*)$")
+QUESTION_RE = re.compile(r"^(Q-\d+):\s+(\S.*)$")
 AC_TAG_RE = re.compile(r"(T-\d{3}-\d{2,3})/(AC-\d+)")
 METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")
 ROUTE_LINE_RE = re.compile(rf"^({'|'.join(METHODS)})\s+(/\S*)(.*)$")
@@ -22,7 +23,9 @@ FENCE_RE = re.compile(r"^```(routes|pages|tables|events)\s*$")
 V0_TABLE_ROW_RE = re.compile(r"^\|\s*`([A-Za-z0-9_]+)`\s*\|")
 
 STATUSES = ("draft", "ready", "in_progress", "in_review", "done", "blocked")
-TYPES = ("backend", "frontend", "fullstack", "contract", "test", "ops", "chore")
+TYPES = ("backend", "frontend", "fullstack", "contract", "test", "ops", "chore", "spike")
+# Risk lanes, loosest first. The engine may raise a ticket's lane, never lower it (ADR-0001).
+LANES = ("mechanical", "standard", "strict")
 RISKS = ("low", "medium", "high")
 VERDICTS = ("approve", "request_changes")
 
@@ -64,8 +67,38 @@ class Ticket:
 
     @property
     def test_play(self) -> bool:
-        """False when the lead marked the ticket `test: none` (no real-stack test play)."""
-        return str(self.data.get("test", "required")) != "none"
+        """False when the lead marked the ticket `test: none` (no real-stack test play), and for
+        spikes, which deliver findings, not behaviour."""
+        return str(self.data.get("test", "required")) != "none" and self.type != "spike"
+
+    @property
+    def lane(self) -> str:
+        """The lane the ticket declares, or the default its risk and type imply. The gate may
+        still raise it from the diff (lanes.resolve)."""
+        floor = "strict" if self.risk == "high" or self.type == "contract" else ""
+        declared = str(self.data.get("lane", "") or "")
+        if declared in LANES and floor:
+            return floor  # risk: high and type: contract are strict, whatever the lane field says
+        return declared or floor or "standard"
+
+    @property
+    def areas(self) -> list[str]:
+        """Globs the ticket expects to change. `files:` (exact paths) is read as areas until
+        `sdlc migrate` rewrites it."""
+        return [str(x) for x in self.get_list("areas")] or self.files
+
+    @property
+    def transforms(self) -> list[str]:
+        return [str(x) for x in self.get_list("transforms")]
+
+    @property
+    def questions(self) -> list[tuple[str, str]]:
+        """[(Q-n, text)] of a spike; malformed entries come back as ('', raw)."""
+        out = []
+        for raw in self.get_list("questions"):
+            m = QUESTION_RE.match(str(raw).strip())
+            out.append((m.group(1), m.group(2)) if m else ("", str(raw)))
+        return out
 
     @property
     def depends_on(self) -> list[str]:
@@ -278,13 +311,16 @@ class Repo:
         return Review(p, data, body)
 
 
-def parse_contracts(path: Path, cfg: Config) -> Contracts:
+def parse_contracts(path: Path, cfg: Config, text: str | None = None) -> Contracts:
+    """CONTRACTS at `path`, or `text` as if it were that file (e.g. the base branch's version)."""
     c = Contracts(path)
-    if not path.is_file():
-        return c
+    if text is None:
+        if not path.is_file():
+            return c
+        text = path.read_text(encoding="utf-8")
     kind = None
     in_tables = False  # inside a v0 '## Tables' section
-    for i, line in enumerate(path.read_text(encoding="utf-8").replace("\r\n", "\n").split("\n"), 1):
+    for i, line in enumerate(text.replace("\r\n", "\n").split("\n"), 1):
         if kind is None:
             m = FENCE_RE.match(line.strip())
             if m:

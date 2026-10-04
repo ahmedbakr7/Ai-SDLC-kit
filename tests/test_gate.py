@@ -252,12 +252,49 @@ class GateCatches(unittest.TestCase):
         for ln, msg in ((1, "expected-failure"), (2, "focused"), (3, "conditionally skipped")):
             self.assertTrue(any(d.startswith(f"tests/ui.test.ts:{ln}: ") and msg in d for d in details), details)
 
-    def test_file_outside_ticket_scope(self) -> None:
+    def test_file_outside_ticket_areas_is_flagged_not_failed(self) -> None:
+        # ADR-0001: areas are soft. The builder does not stop; the reviewer must accept the file.
         self.apply_solution()
         self.p.write("app/returns.py", self.p.read("app/returns.py") + "\n# drive-by edit\n")
         c = self.gate("build", "scope")["scope"]
-        self.assertEqual(c["status"], "fail")
-        self.assertIn("outside build write set: app/returns.py", c["details"])
+        self.assertEqual(c["status"], "pass", c)
+        self.assertIn("out of area (the approving review must name it under ## Out of area): app/returns.py",
+                      c["details"])
+        self.assertIn("1 out of the ticket's areas (flagged for review)", c["summary"])
+
+    def test_lead_artifacts_stay_outside_every_ticket(self) -> None:
+        self.apply_solution()
+        for rel in ("arch/plan-042-return-status.md", "tickets/T-042-01-returns-api.md",
+                    "evidence/T-042-01.build.json", "reviews/T-042-01.md"):
+            with self.subTest(rel=rel):
+                self.p.write(rel, self.p.read(rel) + "\n")
+                c = self.gate("build", "scope")["scope"]
+                self.assertEqual(c["status"], "fail", c)
+                self.assertIn(f"outside build write set: {rel}", c["details"])
+                from helpers import git
+                git(self.p.root, "checkout", "-q", "--", rel)
+
+    def test_review_must_name_each_out_of_area_file(self) -> None:
+        from helpers import git
+
+        git(self.p.root, "checkout", "-q", "-b", "build/T-042-02")
+        self.apply_solution()
+        self.p.write("app/returns.py", self.p.read("app/returns.py") + "\n# shared helper touched by the build\n")
+        self.p.commit("build T-042-02")
+        code, out = self.p.sdlc("gate", "build", "T-042-02")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.p.sdlc("status", "T-042-02", "in_review", "--as", "build")[0], 0)
+        self.p.commit("evidence T-042-02: build gate pass")
+        proven = self.run_test_play()
+        review = (FIXTURES_DIR / "solutions" / "review-T-042-02" / "reviews" / "T-042-02.md").read_text(encoding="utf-8")
+        review = review.replace("{commit}", proven)
+        self.p.write("reviews/T-042-02.md", review)
+        c = self.gate("review", "review-file")["review-file"]
+        self.assertEqual(c["status"], "fail", c)
+        self.assertIn("out of area and not named under ## Out of area in reviews/T-042-02.md: app/returns.py",
+                      c["details"])
+        self.p.write("reviews/T-042-02.md", review + "\n## Out of area\n\n- `app/returns.py`: comment only\n")
+        self.assertEqual(self.gate("review", "review-file")["review-file"]["status"], "pass")
 
     def test_agent_cannot_reconfigure_its_own_gate(self) -> None:
         # The agent drops `scope` from the build gate so its stray file goes unnoticed.
@@ -267,7 +304,7 @@ class GateCatches(unittest.TestCase):
         checks = self.gate("build", "scope", "unit")  # KeyError if the branch's plan was obeyed
         self.assertEqual(checks["scope"]["status"], "fail")
         details = "\n".join(checks["scope"]["details"])
-        self.assertIn("outside build write set: app/stray.py", details)
+        self.assertIn("out of area (the approving review must name it under ## Out of area): app/stray.py", details)
         self.assertIn("outside build write set: sdlc.toml", details)
         self.assertIn("differs from main", details)
 
@@ -504,7 +541,8 @@ class GateCatches(unittest.TestCase):
         self.p.write(ticket, self.p.read(ticket).replace("risk: low", "risk: low\ntest: none"))
         c = self.gate("build", "scope")["scope"]
         self.assertEqual(c["status"], "fail")
-        self.assertIn(f"outside build write set: {ticket}", c["details"])
+        self.assertIn(f"{ticket}: test changed; a ticket PR may amend acceptance criteria, areas, transforms, "
+                      "skills, contracts (add only) and raise lane or risk; test is the lead's", c["details"])
 
     def test_review_must_name_the_proven_commit_exactly(self) -> None:
         self.build_and_commit()
