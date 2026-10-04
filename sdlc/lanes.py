@@ -77,6 +77,9 @@ def parse_transforms(items: list[str]) -> tuple[list[Transform], list[str]]:
                 errs.append(f"transform {raw!r} changes nothing")
             else:
                 out.append(Transform("rename", m.group(1), m.group(2)))
+        elif (m := _MOVE_RE.match(s)) and (m.group(1) in {t.old for t in out if t.kind == "move"}
+                                            or m.group(2) in {t.new for t in out if t.kind == "move"}):
+            errs.append(f"transform {raw!r}: each path may be moved from, and moved to, once")
         elif m := _MOVE_RE.match(s):
             old, new = m.group(1), m.group(2)
             if any(ch in old + new for ch in "*?") or old.startswith(("/", "../")) or new.startswith(("/", "../")):
@@ -91,38 +94,75 @@ def parse_transforms(items: list[str]) -> tuple[list[Transform], list[str]]:
     return out, errs
 
 
-def _norm(b: bytes | None) -> str | None:
-    return None if b is None else b.decode("utf-8", "replace").replace("\r\n", "\n")
+def _text(b: bytes) -> str | None:
+    """`b` as text when it is valid UTF-8, else None (binary: transforms never apply)."""
+    try:
+        return b.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
 
 
-def _first_difference(a: str, b: str) -> int:
-    al, bl = a.split("\n"), b.split("\n")
+def _first_difference(a: bytes, b: bytes) -> int:
+    al, bl = a.split(b"\n"), b.split(b"\n")
     for i, (x, y) in enumerate(zip(al, bl), 1):
         if x != y:
             return i
     return min(len(al), len(bl)) + 1
 
 
+def _same_blob(cfg: Config, rel: str, expected: bytes) -> bool:
+    """The working-tree file is stored as exactly `expected` once git's own filters (such as
+    core.autocrlf on Windows) apply: a checkout's line endings are not the branch's change."""
+    import tempfile
+
+    now = gitutil.git(cfg.root, "hash-object", "--", rel, check=False).strip()
+    with tempfile.TemporaryDirectory() as d:
+        p = f"{d}/blob"
+        with open(p, "wb") as fh:
+            fh.write(expected)
+        want = gitutil.git(cfg.root, "hash-object", "--no-filters", p, check=False).strip()
+    return bool(now) and now == want
+
+
+def _mode_changes(cfg: Config, mb: str) -> set[str]:
+    """Files whose mode (e.g. the executable bit) differs from the merge base."""
+    out = set()
+    raw = gitutil.git(cfg.root, "diff", "--raw", "-z", "--no-renames", "--relative", mb, check=False)
+    parts = raw.split("\0")
+    for i in range(0, len(parts) - 1, 2):
+        head, path = parts[i], parts[i + 1]
+        fields = head.lstrip(":").split()
+        if len(fields) >= 2 and "000000" not in fields[:2] and fields[0] != fields[1]:
+            out.add(path)
+    return out
+
+
 def residue(cfg: Config, mb: str, changed: list[str], transforms: list[Transform],
             ignore: set[str]) -> list[str]:
-    """Changed files (or lines) the transforms do not produce, one message each. `changed` is
-    every file that differs from the merge base `mb`; `ignore` is bookkeeping the play writes
-    (the ticket, its evidence and review)."""
+    """Changes the transforms do not produce, one message each. `changed` is every file that
+    differs from the merge base `mb`; `ignore` is bookkeeping the play writes (the ticket, its
+    evidence and review). Byte for byte: line endings, invalid UTF-8 and file modes count."""
     moves = {t.old: t.new for t in transforms if t.kind == "move"}
     targets = {new: old for old, new in moves.items()}
     edits = [t for t in transforms if t.kind != "move"]
     out = []
-    for f in sorted(changed):
+    # A move moves: the source existed and is gone, the target did not exist and now does.
+    # Otherwise a "move" is a copy (a new route) or overwrites a file (a stub over the real one).
+    for old, new in moves.items():
+        if gitutil.show_bytes(cfg.root, mb, "./" + old) is None:
+            out.append(f"{old}: declared moved, but it does not exist on the base branch")
+        if (cfg.root / old).exists():
+            out.append(f"{old}: declared moved to {new}, but it still exists")
+        if gitutil.show_bytes(cfg.root, mb, "./" + new) is not None:
+            out.append(f"{new}: a move may not overwrite a file that exists on the base branch")
+        if not (cfg.root / new).is_file():
+            out.append(f"{new}: declared move target does not exist")
+    for f in sorted(set(changed) - set(moves)):
         if f in ignore:
             continue
         now_p = cfg.root / f
-        now = _norm(now_p.read_bytes()) if now_p.is_file() else None
-        src = targets.get(f, f)
-        before = _norm(gitutil.show_bytes(cfg.root, mb, "./" + src))
-        if f in moves:
-            if now is not None:
-                out.append(f"{f}: declared moved to {moves[f]}, but it still exists")
-            continue
+        now = now_p.read_bytes() if now_p.is_file() else None
+        before = gitutil.show_bytes(cfg.root, mb, "./" + targets.get(f, f))
         if before is None:
             out.append(f"{f}: added, and no declared move creates it")
             continue
@@ -130,13 +170,15 @@ def residue(cfg: Config, mb: str, changed: list[str], transforms: list[Transform
             out.append(f"{f}: deleted, and no declared move removes it")
             continue
         expected = before
-        for t in edits:
-            expected = t.apply(expected)
-        if expected != now:
+        text = _text(before)
+        if text is not None:
+            for t in edits:
+                text = t.apply(text)
+            expected = text.encode("utf-8")
+        if expected != now and not _same_blob(cfg, f, expected):
             out.append(f"{f}:{_first_difference(expected, now)}: differs from what the transforms produce")
-    for old, new in moves.items():
-        if old in changed and not (cfg.root / new).is_file():
-            out.append(f"{new}: declared move target does not exist")
+    for f in sorted(_mode_changes(cfg, mb) - ignore):
+        out.append(f"{f}: file mode changed")
     return out
 
 

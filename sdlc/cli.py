@@ -405,6 +405,9 @@ def lane_floor_problems(cfg: config.Config) -> list[str]:
                    "runs (every configured test suite included) plus `mechanical`")
     if "ac-red" not in g.get("build", []):
         out.append("gate.build drops ac-red: the standard lane proves each AC red")
+    missing = [n for n in ("artifacts", "scope", "immutable", "spike") if n not in g.get("spike", [])]
+    if missing:
+        out.append(f"gate.spike drops {', '.join(missing)}: a spike's build must prove it changed documents only")
     if "contract-diff" not in g.get("strict", []):
         out.append("gate.strict drops contract-diff: the strict lane publishes the contract diff")
     return out

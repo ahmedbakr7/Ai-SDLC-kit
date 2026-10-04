@@ -178,6 +178,11 @@ class Contracts:
     pages: list[str] = field(default_factory=list)
     page_attrs: dict[str, dict[str, str]] = field(default_factory=dict)
     headings: list[str] = field(default_factory=list)
+    # What each declaration says, for contract-diff: the rest of a table/event line, the prose
+    # under a '### METHOD /path' or '### /page' heading, and the lines no key owns.
+    definitions: dict[str, str] = field(default_factory=dict)
+    sections: dict[str, str] = field(default_factory=dict)
+    rest: list[str] = field(default_factory=list)
     issues: list[Issue] = field(default_factory=list)
 
     def has(self, ref: str) -> bool:
@@ -320,14 +325,18 @@ def parse_contracts(path: Path, cfg: Config, text: str | None = None) -> Contrac
         text = path.read_text(encoding="utf-8")
     kind = None
     in_tables = False  # inside a v0 '## Tables' section
+    section = None     # the heading text whose prose this line belongs to
     for i, line in enumerate(text.replace("\r\n", "\n").split("\n"), 1):
         if kind is None:
             m = FENCE_RE.match(line.strip())
             if m:
                 kind = m.group(1)
+                section = None
                 continue
             if in_tables and (tm := V0_TABLE_ROW_RE.match(line.strip())):
                 c.tables.append(tm.group(1))
+                c.definitions[f"table {tm.group(1)}"] = line.strip()
+                continue
             if line.startswith("#"):
                 h = line.lstrip("#").strip()
                 in_tables = h.lower() == "tables"
@@ -335,6 +344,14 @@ def parse_contracts(path: Path, cfg: Config, text: str | None = None) -> Contrac
                 rm = ROUTE_LINE_RE.match(h)
                 if rm and line.startswith(("## ", "### ", "#### ")):
                     _add_route(c, cfg, path, i, rm, "heading")
+                section = h if (rm or h.startswith("/")) and line.startswith(("### ", "#### ")) else None
+                if section is None:
+                    c.rest.append(line)
+                continue
+            if section is not None:
+                c.sections[section] = c.sections.get(section, "") + line + "\n"
+            else:
+                c.rest.append(line)
             continue
         s = line.strip()
         if s.startswith("```"):
@@ -351,8 +368,10 @@ def parse_contracts(path: Path, cfg: Config, text: str | None = None) -> Contrac
             _add_route(c, cfg, path, i, m, "block")
         elif kind == "tables":
             c.tables.append(s.split()[0])
+            c.definitions[f"table {s.split()[0]}"] = " ".join(s.split()[1:])
         elif kind == "events":
             c.events.append(s.split()[0])
+            c.definitions[f"event {s.split()[0]}"] = " ".join(s.split()[1:])
         elif kind == "pages":
             if not s.startswith("/"):
                 c.issues.append(Issue("error", f"{cfg.rel(path)}:{i}", f"page must start with '/': {s}"))

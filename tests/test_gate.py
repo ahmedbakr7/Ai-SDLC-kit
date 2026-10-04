@@ -575,6 +575,40 @@ class GateCatches(unittest.TestCase):
         self.assertEqual(c["status"], "fail")
         self.assertIn("test evidence is older than the build evidence", "\n".join(c["details"]))
 
+    def test_widening_and_amendments_still_need_the_reviewer(self) -> None:
+        # Review of step 1: a `widen` line dodged the Out of area acknowledgement, and a
+        # `strengthen` line let a weaker AC through with nobody required to judge it.
+        from helpers import git
+
+        git(self.p.root, "checkout", "-q", "-b", "build/T-042-02")
+        self.apply_solution()
+        rel = "tickets/T-042-02-order-page.md"
+        ac3 = "and the page still answers 200"
+        t = self.p.read(rel).replace("  - app/server.py\n", "  - app/server.py\n  - app/returns.py\n")
+        t = t.replace(ac3, ac3 + " with a plain heading")
+        self.p.write(rel, t.rstrip("\n") + "\n\n## Amendments\n\n- widen app/returns.py: shared helper\n"
+                     "- strengthen AC-3: also checks the heading\n")
+        self.p.write("app/returns.py", self.p.read("app/returns.py") + "\n# shared helper touched by the build\n")
+        self.p.commit("build T-042-02")
+        code, out = self.p.sdlc("gate", "build", "T-042-02")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.p.sdlc("status", "T-042-02", "in_review", "--as", "build")[0], 0)
+        self.p.commit("evidence T-042-02: build gate pass")
+        proven = self.run_test_play()
+        review = (FIXTURES_DIR / "solutions" / "review-T-042-02" / "reviews" / "T-042-02.md").read_text(encoding="utf-8")
+        review = review.replace("{commit}", proven)
+        self.p.write("reviews/T-042-02.md", review + "\n## Out of area\n\n- `**` everything is fine\n")
+        c = self.gate("review", "review-file")["review-file"]
+        self.assertEqual(c["status"], "fail", c)
+        details = "\n".join(c["details"])
+        self.assertIn("out of area and not named under ## Out of area in reviews/T-042-02.md: app/returns.py", details)
+        self.assertIn("amendment `widen app/returns.py` is not named under ## Amendments", details)
+        self.assertIn("amendment `strengthen AC-3` is not named under ## Amendments", details)
+        self.p.write("reviews/T-042-02.md", review + "\n## Out of area\n\n- `app/returns.py`: comment only\n"
+                     "\n## Amendments\n\n- `app/returns.py`: fine\n- `AC-3`: stronger, it adds a check\n")
+        c = self.gate("review", "review-file")["review-file"]
+        self.assertEqual(c["status"], "pass", c)
+
     def test_rebuild_keeps_but_may_not_edit_the_test_plays_files(self) -> None:
         self.build_and_commit()
         self.p.write("tests/test_order_page_http.py", '"""T-042-02 integration tests"""\n')

@@ -8,18 +8,19 @@ from helpers import ProductRepo, git
 MECH = "tickets/T-042-03-rename.md"
 MECH_TICKET = """---
 id: T-042-03
-title: Rename returns_for to find_returns
+title: Rename STATES to RETURN_STATES
 type: chore
 status: in_progress
 risk: low
 lane: mechanical
 depends_on: []
 areas:
-  - app/**
+  - app/returns.py
+  - app/test_returns.py
 skills:
   - build
 transforms:
-  - rename returns_for -> find_returns
+  - rename STATES -> RETURN_STATES
 requirements: []
 source_spec: design/spec-042-return-status.md
 source_plan: arch/plan-042-return-status.md
@@ -29,8 +30,8 @@ A pure rename: the engine proves the diff is this transform and nothing else.
 """
 
 
-def rename(p: ProductRepo, old: str = "returns_for", new: str = "find_returns") -> None:
-    for rel in ("app/returns.py", "app/server.py", "app/test_returns.py"):
+def rename(p: ProductRepo, old: str = "STATES", new: str = "RETURN_STATES") -> None:
+    for rel in ("app/returns.py", "app/test_returns.py"):
         p.write(rel, p.read(rel).replace(old, new))
 
 
@@ -84,7 +85,7 @@ reviewer: fake-reviewer
 commit: {proven}
 ---
 
-# Review T-042-03: Rename returns_for to find_returns
+# Review T-042-03: Rename STATES to RETURN_STATES
 
 ## Gate
 
@@ -137,24 +138,24 @@ None.
 
     def test_declared_move_is_mechanical(self) -> None:
         git(self.p.root, "checkout", "-q", "main")
-        self.p.write("app/notes.txt", "see returns_for\n")
+        self.p.write("app/notes.txt", "see STATES\n")
         self.p.commit("notes")
         git(self.p.root, "checkout", "-q", "-B", "build/T-042-03")
         self.mechanical_branch()
-        self.p.write(MECH, self.p.read(MECH).replace("  - rename returns_for -> find_returns",
-                                                     "  - rename returns_for -> find_returns\n"
+        self.p.write(MECH, self.p.read(MECH).replace("  - rename STATES -> RETURN_STATES",
+                                                     "  - rename STATES -> RETURN_STATES\n"
                                                      "  - move app/notes.txt -> app/docs/notes.txt"))
         # The edits apply to the moved file too: its content is the transformed original.
-        self.p.write("app/docs/notes.txt", "see find_returns\n")
+        self.p.write("app/docs/notes.txt", "see RETURN_STATES\n")
         (self.p.root / "app" / "notes.txt").unlink()
         checks = self.gate("build", "T-042-03", "lane", "mechanical")
         self.assertEqual(self.ev["lane"], "mechanical", checks["lane"])
-        self.p.write("app/docs/notes.txt", "see returns_for\n")
+        self.p.write("app/docs/notes.txt", "see STATES\n")
         self.gate("build", "T-042-03", "lane")
         self.assertEqual(self.ev["lane"], "standard")
 
     def test_regex_transforms_do_not_exist(self) -> None:
-        self.p.write(MECH, MECH_TICKET.replace("  - rename returns_for -> find_returns",
+        self.p.write(MECH, MECH_TICKET.replace("  - rename STATES -> RETURN_STATES",
                                                "  - regex s/(\\w+)_for/find_\\1/"))
         code, out = self.p.sdlc("lint")
         self.assertNotEqual(code, 0)
@@ -277,6 +278,193 @@ None.
         self.assertEqual(self.gate("build", "T-042-03", "integration")["integration"]["status"], "skip")
 
 
+class ReviewFindings(unittest.TestCase):
+    """Bypasses the independent review of step 1 reproduced; each stays caught."""
+
+    def setUp(self) -> None:
+        self.p = ProductRepo()
+
+    def tearDown(self) -> None:
+        self.p.close()
+
+    def on_branch(self, name: str) -> None:
+        git(self.p.root, "checkout", "-q", "-B", name)
+
+    def check(self, play: str, ticket: str, *names: str) -> dict:
+        self.code, self.out = self.p.sdlc("gate", play, ticket, "--only", ",".join(names))
+        ev = json.loads((self.p.root / ".sdlc-run" / f"{ticket}.{play}.json").read_text(encoding="utf-8"))
+        self.ev = ev
+        return {c["name"]: c for c in ev["checks"]}
+
+    def start_t2(self) -> None:
+        self.on_branch("build/T-042-02")
+        self.assertEqual(self.p.sdlc("status", "T-042-02", "in_progress", "--as", "build")[0], 0)
+
+    def widen_t2(self, *rels: str) -> None:
+        rel = "tickets/T-042-02-order-page.md"
+        t = self.p.read(rel).replace("  - app/server.py\n", "  - app/server.py\n" + "".join(f"  - {r}\n" for r in rels))
+        t = t.rstrip("\n") + "\n\n## Amendments\n\n" + "".join(f"- widen {r}: tidy wording\n" for r in rels)
+        self.p.write(rel, t)
+
+    def test_widening_never_reaches_lead_artifacts_evidence_or_test_play_files(self) -> None:
+        hard = ("design/spec-042-return-status.md", "decisions/ADR-0001-stack.md", "evidence/T-042-01.build.json",
+                "tests/test_http_returns.py")
+        self.start_t2()
+        self.widen_t2(*hard)
+        for r in hard:
+            self.p.write(r, self.p.read(r) + "\n")
+        c = self.check("build", "T-042-02", "scope")["scope"]
+        self.assertEqual(c["status"], "fail")
+        for r in hard:
+            self.assertIn(f"outside build write set: {r}", c["details"])
+
+    def test_widening_to_ordinary_code_is_allowed(self) -> None:
+        self.start_t2()
+        self.widen_t2("app/returns.py")
+        self.p.write("app/returns.py", self.p.read("app/returns.py") + "\n")
+        c = self.check("build", "T-042-02", "scope")["scope"]
+        self.assertEqual(c["status"], "pass", c)
+        # Still flagged: the base branch's areas decide what the review must accept.
+        self.assertIn("out of area (the approving review must name it under ## Out of area): app/returns.py",
+                      c["details"])
+
+    def test_mechanical_ticket_with_every_area_cannot_rewrite_the_spec(self) -> None:
+        self.on_branch("build/T-042-03")
+        self.p.write(MECH, MECH_TICKET.replace("  - app/returns.py\n  - app/test_returns.py", '  - "**"')
+                     .replace("  - rename STATES -> RETURN_STATES", '  - \'literal "Unknown" -> "Unclear"\''))
+        for rel in ("design/spec-042-return-status.md", "tickets/T-042-02-order-page.md"):
+            self.p.write(rel, self.p.read(rel).replace("Unknown", "Unclear"))
+        c = self.check("build", "T-042-03", "scope")["scope"]
+        self.assertEqual(c["status"], "fail")
+        self.assertIn("outside build write set: design/spec-042-return-status.md", c["details"])
+        self.assertIn("outside build write set: tickets/T-042-02-order-page.md", c["details"])
+
+    def spike_on_main(self) -> None:
+        self.p.write(Spikes.REL, Spikes.TICKET.replace("status: in_progress", "status: ready"))
+        self.p.commit("lead: spike ready")
+        self.on_branch("build/T-042-05")
+        self.p.write(Spikes.REL, Spikes.TICKET)
+
+    def test_spike_cannot_widen_its_way_to_code_or_new_folders(self) -> None:
+        self.spike_on_main()
+        t = self.p.read(Spikes.REL).replace("  - research/**\n", "  - research/**\n  - app/returns.py\n  - notes/**\n")
+        self.p.write(Spikes.REL, t.rstrip("\n") + "\n\n## Amendments\n\n- widen app/returns.py: prototype\n"
+                     "- widen notes/**: more room\n")
+        self.p.write("research/carriers.md", "## Q-1 a\n\n## Q-2 b\n")
+        self.p.write("app/returns.py", self.p.read("app/returns.py") + "\n# prototype\n")
+        self.p.write("notes/extra.md", "# extra\n")
+        c = self.check("build", "T-042-05", "spike")["spike"]
+        self.assertEqual(c["status"], "fail")
+        self.assertIn("app/returns.py: a spike changes documents only (.md, .markdown, .rst, .txt), not code, tests "
+                      "or config", c["details"])
+        self.assertIn("notes/extra.md: outside the spike's areas", c["details"])
+
+    def mech(self, transforms: str) -> None:
+        self.on_branch("build/T-042-03")
+        self.p.write(MECH, MECH_TICKET.replace("  - app/returns.py\n  - app/test_returns.py", "  - app/**")
+                     .replace("  - rename STATES -> RETURN_STATES", transforms))
+
+    def lane(self) -> dict:
+        return self.check("build", "T-042-03", "lane")["lane"]
+
+    def test_a_move_that_keeps_its_source_is_a_copy(self) -> None:
+        self.mech("  - move app/returns.py -> app/admin/returns.py")
+        self.p.write("app/admin/returns.py", self.p.read("app/returns.py"))
+        lane = self.lane()
+        self.assertEqual(self.ev["lane"], "standard")
+        self.assertIn("residue: app/returns.py: declared moved to app/admin/returns.py, but it still exists",
+                      lane["details"])
+
+    def test_a_move_may_not_overwrite_a_base_file(self) -> None:
+        self.mech("  - move app/returns.py -> app/server.py")
+        self.p.write("app/server.py", self.p.read("app/returns.py"))
+        (self.p.root / "app" / "returns.py").unlink()
+        self.lane()
+        self.assertEqual(self.ev["lane"], "standard")
+        self.assertIn("residue: app/server.py: a move may not overwrite a file that exists on the base branch",
+                      self.ev["checks"][0]["details"])
+
+    def test_two_moves_to_one_target_are_refused(self) -> None:
+        self.mech("  - move app/returns.py -> app/x.py\n  - move app/pages.py -> app/x.py")
+        code, out = self.p.sdlc("lint")
+        self.assertNotEqual(code, 0)
+        self.assertIn("each path may be moved from, and moved to, once", out)
+
+    def binary_on_main(self, data: bytes) -> None:
+        (self.p.root / "app" / "blob.bin").write_bytes(data)
+        self.p.commit("a binary")
+
+    def test_binary_changes_are_residue(self) -> None:
+        self.binary_on_main(b"\xff\xfe\x00data")
+        self.mech("  - rename STATES -> RETURN_STATES")
+        rename(self.p)
+        self.assertEqual(self.lane()["status"], "pass")
+        (self.p.root / "app" / "blob.bin").write_bytes(b"\xfe\xff\x00data")
+        self.lane()
+        self.assertEqual(self.ev["lane"], "standard")
+        self.assertIn("residue: app/blob.bin:1: differs from what the transforms produce", self.ev["checks"][0]["details"])
+
+    def test_line_endings_and_modes_are_residue(self) -> None:
+        self.mech("  - rename STATES -> RETURN_STATES")
+        rename(self.p)
+        self.assertEqual(self.ev_lane(), "mechanical")
+        rel = self.p.root / "app" / "server.py"
+        rel.write_bytes(rel.read_bytes().replace(b"\n", b"\r\n"))
+        self.assertEqual(self.ev_lane(), "standard")
+        git(self.p.root, "checkout", "-q", "--", "app/server.py")
+        import os
+        import stat
+        os.chmod(rel, os.stat(rel).st_mode | stat.S_IXUSR)
+        if os.name != "nt":
+            self.assertEqual(self.ev_lane(), "standard")
+            self.assertIn("residue: app/server.py: file mode changed", self.ev["checks"][0]["details"])
+
+    def ev_lane(self) -> str:
+        self.lane()
+        return self.ev["lane"]
+
+    def test_table_definitions_and_route_prose_are_in_the_contract_diff(self) -> None:
+        self.mech("  - rename STATES -> RETURN_STATES")
+        rename(self.p)
+        c = self.p.read("arch/CONTRACTS.md")
+        self.p.write("arch/CONTRACTS.md", c.replace("returns  read-only projection owned by the returns service",
+                                                    "returns  projection owned by the returns service")
+                     .replace("- Unknown order: `404` `not_found`", "- Unknown order: `404`"))
+        d = self.check("build", "T-042-03", "contract-diff")["contract-diff"]
+        self.assertEqual(d["status"], "fail")
+        self.assertIn("narrowed (breaking): table returns: dropped read-only", d["details"])
+        self.assertIn("narrowed (breaking): GET /api/orders/{}/returns: dropped `not_found`", d["details"])
+        self.p.write(MECH, self.p.read(MECH).replace("requirements: []", 'requirements: []\ncontracts:\n'
+                                                     '  - returns\n  - "GET /api/orders/{id}/returns"'))
+        d = self.check("build", "T-042-03", "contract-diff")["contract-diff"]
+        self.assertEqual(d["status"], "pass", d)
+        self.assertIn("returns is cited by this branch, not by main's ticket", d["details"])
+
+    def test_contract_prose_outside_every_key_is_never_unchanged(self) -> None:
+        self.mech("  - rename STATES -> RETURN_STATES")
+        rename(self.p)
+        c = self.p.read("arch/CONTRACTS.md")
+        self.p.write("arch/CONTRACTS.md", c.replace("- JSON over HTTP.", "- JSON or XML over HTTP."))
+        d = self.check("build", "T-042-03", "contract-diff")["contract-diff"]
+        self.assertNotIn("unchanged", d["summary"])
+        self.assertIn("arch/CONTRACTS.md changed outside every declared key (conventions or prose): review the raw diff",
+                      d["details"])
+
+    def test_no_merge_base_fails_the_lane(self) -> None:
+        self.mech("  - rename STATES -> RETURN_STATES")
+        rename(self.p)
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace('base = "main"', 'base = "nope"')
+                     if 'base = "main"' in self.p.read("sdlc.toml") else self.p.read("sdlc.toml") + '\n[vcs]\nbase = "nope"\n')
+        lane = self.lane()
+        self.assertEqual(lane["status"], "fail")
+        self.assertIn("no merge base with nope", lane["summary"])
+
+    def test_doctor_keeps_the_spike_floor(self) -> None:
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml") + '\n[gate]\nspike = ["artifacts"]\n')
+        code, out = self.p.sdlc("doctor")
+        self.assertIn("gate.spike drops scope, immutable, spike", out)
+
+
 class Amendments(unittest.TestCase):
     REL = "tickets/T-042-02-order-page.md"
 
@@ -374,7 +562,8 @@ class Amendments(unittest.TestCase):
         self.edit("  - app/pages.py\n", "  - app/pages.py\n  - app/returns.py\n")
         c = self.checks("scope")["scope"]
         self.assertEqual(c["status"], "fail")
-        self.assertIn(f"{self.REL}: areas changed without a `- widen <area>: <reason>` line in ## Amendments",
+        self.assertIn(f"{self.REL}: files gains app/returns.py without a `- widen app/returns.py: <reason>` line in "
+                      "## Amendments",
                       c["details"])
         self.edit("", "", "- widen app/returns.py: the page reuses the returns helper")
         self.assertEqual(self.checks("scope")["scope"]["status"], "pass")
@@ -456,7 +645,8 @@ Answer the questions; no code.
         self.p.write("app/returns.py", self.p.read("app/returns.py") + "\n# prototype\n")
         c = self.spike()["spike"]
         self.assertEqual(c["status"], "fail")
-        self.assertIn("app/returns.py: outside the spike's areas", c["details"])
+        self.assertIn("app/returns.py: a spike changes documents only (.md, .markdown, .rst, .txt), not code, "
+                      "tests or config", c["details"])
 
 
 class SourceGlobs(unittest.TestCase):

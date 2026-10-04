@@ -31,6 +31,7 @@ PR_ROLES = ("build", "test", "review", "merge")
 COMMAND_CHECKS = ("lint", "typecheck", "unit", "integration", "e2e", "build", "duplication")
 JUNIT_CHECKS = ("unit", "integration", "e2e")
 RUN_DIR = ".sdlc-run"
+SPIKE_DOCS = (".md", ".markdown", ".rst", ".txt")  # what a spike may write: findings, not code
 RED_BACKUP = "red-backup"  # under RUN_DIR: files ac-red reverted, until it puts them back
 _JS_TEST = r"\b(?:it|test|describe|suite)(?:\.\w+)*"  # it.only, describe.concurrent.only, ...
 BUILTIN_TEST_FORBID = [
@@ -99,15 +100,19 @@ class Gate:
         self.baseline = {} if ignore_baseline or not bl.is_file() else baseline.parse(bl.read_text(encoding="utf-8"))
         # The lane is judged on the whole branch against the base, whichever play runs.
         self.lane: lanes.Lane | None = None
+        self.mb: str | None = None
+        self.base_ticket: dict | None = None  # the ticket as the base branch has it (None: new)
         if self.ticket and play in (*TICKET_PLAYS, "pr"):
             if lane and lane not in lanes.LANES:
                 raise SystemExit(f"--lane must be one of {', '.join(lanes.LANES)}, got {lane!r}")
             try:
-                mb = gitutil.merge_base(cfg.root, self.base)
+                self.mb = gitutil.merge_base(cfg.root, self.base)
                 branch = gitutil.changed_files(cfg.root, self.base)
             except gitutil.GitError:
-                mb, branch = None, []
-            self.lane = lanes.resolve(cfg, self.ticket, branch, mb, override=lane,
+                branch = []
+            if self.mb:
+                self.base_ticket = lanes._ticket_at(cfg, self.mb, self.ticket)
+            self.lane = lanes.resolve(cfg, self.ticket, branch, self.mb, override=lane,
                                       ignore=self.bookkeeping())
 
     # -- plumbing ---------------------------------------------------------
@@ -142,6 +147,18 @@ class Gate:
             return set()
         return {self.cfg.rel(t.path), f"{p['reviews']}/{t.id}.md", self.baseline_rel,
                 *(f"{p['evidence']}/{t.id}.{play}.json" for play in EVIDENCE_PLAYS)}
+
+    def build_areas(self) -> tuple[list[str], list[str]]:
+        """(globs, exact paths) of the ticket's areas as the base branch has them: widening the
+        areas in the PR is free, but it never silences the out-of-area flags the review owes.
+        A ticket created on this branch uses its own."""
+        t, d = self.ticket, self.base_ticket
+        if d is None:
+            return t.areas + t.shared, t.files
+        def lst(k: str) -> list[str]:
+            v = d.get(k)
+            return [str(x) for x in (v if isinstance(v, list) else [v] if v else [])]
+        return (lst("areas") or lst("files")) + lst("shared"), lst("files")
 
     def plan(self) -> list[str]:
         g = self.cfg.section("gate")
@@ -307,8 +324,9 @@ class Gate:
             if play in EVIDENCE_PLAYS:
                 exact.add(f"{paths['evidence']}/{t.id}.{play}.json")
             if play == "build":
-                exact |= set(t.files)
-                globs += t.areas + t.shared
+                area_globs, area_files = self.build_areas()
+                exact |= set(area_files)
+                globs += area_globs
             elif play == "test":
                 globs += tests.get("integration_globs", [])
             elif play == "review":
@@ -347,24 +365,30 @@ class Gate:
         earlier = self._earlier_play_outputs() if self.play == "build" else []
         builds = "build" in self.roles()
         own = self.cfg.rel(t.path)
+        always = self.cfg.section("scope").get("always_allowed", [])
+        mine = self.bookkeeping()
         bad, problems, flags = [], [], []
         for f in self.changed():
-            if f in exact or any(_glob(f, g) for g in globs):
+            if f == own:
+                p = self._own_ticket_problems(f)
+                if p:
+                    problems += p
+                    bad.append(f)
                 continue
-            if any(ok(f) for ok in earlier):
+            if (f in mine and f in exact) or any(_glob(f, g) for g in always) or any(ok(f) for ok in earlier):
+                continue
+            if builds and self._split_ticket(f):
+                continue
+            if builds and f == self.cfg.data["paths"]["contracts"]:
+                continue  # allowed, and it makes the lane strict (lead sign-off, contract diff)
+            if self._hard(f):
+                bad.append(f)  # no area, widened or not, covers these
+                continue
+            if f in exact or any(_glob(f, g) for g in globs):
                 continue
             if builds and self._test_beside_area(f):
                 continue
-            if f == own:
-                p = self._own_ticket_problems(f)
-                if not p:
-                    continue
-                problems += p
-            elif builds and self._split_ticket(f):
-                continue
-            elif builds and f == self.cfg.data["paths"]["contracts"]:
-                continue  # allowed, and it makes the lane strict (lead sign-off, contract diff)
-            elif builds and not self._hard(f):
+            if builds:
                 flags.append(f)
                 continue
             bad.append(f)
@@ -393,6 +417,15 @@ class Gate:
                 if f not in exact and not any(_glob(f, g) for g in globs) and f not in (own, contracts)
                 and not self._test_beside_area(f) and not self._split_ticket(f) and not self._hard(f)]
 
+    def new_amendments(self) -> list[tuple[str, str, str]]:
+        """Amendment lines this branch adds to its ticket."""
+        if not self.ticket:
+            return []
+        old_body = ""
+        if self.mb:
+            old_body = fm.split(gitutil.show(self.cfg.root, self.mb, "./" + self.cfg.rel(self.ticket.path)) or "")[1]
+        return tickets.new_amendments(old_body, self.ticket.body)[0]
+
     def _hard(self, f: str) -> bool:
         """Files no ticket PR may change, areas or not: lead artifacts, config, other tickets,
         and any evidence or review file the ticket's plays do not own."""
@@ -410,7 +443,7 @@ class Gate:
         if not tests.get("unit_beside", True):
             return False
         test_globs = tests.get("globs", [])
-        if _is_test_beside(f, t.files, test_globs):
+        if _is_test_beside(f, self.build_areas()[1], test_globs):
             return True
         if not any(_glob(f, g) for g in test_globs):
             return False
@@ -425,7 +458,7 @@ class Gate:
                 rel = (d / src.name).as_posix()
                 if (src.is_file() and re.sub(r"\.[^.]+$", "", src.name) == stem
                         and not any(_glob(rel, g) for g in test_globs)
-                        and any(_glob(rel, g) for g in t.areas + t.shared)):
+                        and any(_glob(rel, g) for g in self.build_areas()[0])):
                     return True
         return False
 
@@ -480,7 +513,7 @@ class Gate:
         for k in changed:
             if k in free:
                 continue
-            if k == "contracts" and set(map(str, od.get(k) or [])) <= set(map(str, nd.get(k) or [])):
+            if k == "contracts" and set(_as_list(od.get(k))) <= set(_as_list(nd.get(k))):
                 continue
             if k == "lane" and lanes.rank(_declared_lane(nd)) >= lanes.rank(_declared_lane(od)):
                 continue
@@ -492,8 +525,11 @@ class Gate:
             out.append(f"{f}: the ticket body changed outside ## Amendments")
         added, problems = tickets.new_amendments(obody, nbody)
         out += [f"{f}: {x}" for x in problems]
-        if any(od.get(k) != nd.get(k) for k in ("areas", "files", "shared")) and not any(a[0] == "widen" for a in added):
-            out.append(f"{f}: areas changed without a `- widen <area>: <reason>` line in ## Amendments")
+        widened = {a[1] for a in added if a[0] == "widen"}
+        for k in ("areas", "files", "shared"):
+            for entry in sorted(set(_as_list(nd.get(k))) - set(_as_list(od.get(k)))):
+                if entry not in widened:
+                    out.append(f"{f}: {k} gains {entry} without a `- widen {entry}: <reason>` line in ## Amendments")
         return out
 
     def _lead_scope(self, c: Check) -> None:
@@ -529,10 +565,12 @@ class Gate:
         c.summary = f"lane {ln.name}" + (f" (declared {ln.declared})" if ln.name != ln.declared else "")
         c.details = list(ln.reasons) + [f"residue: {r}" for r in ln.residue[:20]]
         problems = []
-        try:
-            old = lanes._ticket_at(self.cfg, gitutil.merge_base(self.cfg.root, self.base), t)
-        except gitutil.GitError:
-            old = None
+        old = self.base_ticket
+        if self.mb is None:
+            # Without the base the diff is unknown, so no trigger can raise the lane: refuse.
+            c.status, c.summary = "fail", f"no merge base with {self.base}: the lane cannot be judged"
+            c.details = [f"fetch {self.base} (CI: fetch-depth 0) or pass --base"]
+            return
         if ln.name != "mechanical" and t.type != "spike" and not [a for a, _ in t.acs if a]:
             problems.append(f"{t.id} has no acceptance criteria, but the {ln.name} lane proves each one: add them "
                             "(an `add AC-n` amendment), or make the diff exactly the declared transforms")
@@ -590,18 +628,30 @@ class Gate:
         added = sorted(set(new) - set(old))
         removed = sorted(set(old) - set(new))
         modified = sorted(k for k in set(old) & set(new) if old[k] != new[k])
-        cited = {extract_key(r) for r in (t.contracts if t else [])} | {r.strip() for r in (t.contracts if t else [])}
-        details = ([f"added: {k}" for k in added] + [f"changed: {k}" for k in modified]
-                   + [f"removed (breaking): {k}" for k in removed])
+        refs = t.contracts if t else []
+        cited = {extract_key(r) for r in refs} | {r.strip() for r in refs}
+        base_refs = _as_list((self.base_ticket or {}).get("contracts"))
+        cited_before = {extract_key(r) for r in base_refs} | {r.strip() for r in base_refs}
+        details = [f"added: {k}" for k in added]
+        for k in modified:
+            gone = _dropped(old[k], new[k])
+            details.append(f"narrowed (breaking): {k}: dropped {' '.join(gone[:8])}" if gone else f"changed: {k}")
+        details += [f"removed (breaking): {k}" for k in removed]
+        prose = before.rest != after.rest
+        if prose:
+            details.append(f"{rel} changed outside every declared key (conventions or prose): review the raw diff")
         uncited = [k for k in added + modified + removed if _contract_ref(k) not in cited]
         details += [f"{k} changed, but {t.id if t else 'the ticket'} does not cite {_contract_ref(k)} in contracts:"
                     for k in uncited]
+        # A strict build may cite a key in the same PR that changes it; say so, for the lead.
+        details += [f"{_contract_ref(k)} is cited by this branch, not by {self.base}'s ticket"
+                    for k in added + modified + removed if k not in uncited and _contract_ref(k) not in cited_before]
         c.details = details
         if uncited:
             c.status, c.summary = "fail", f"{len(uncited)} changed contract key(s) the ticket does not cite"
-        elif added or removed or modified:
-            c.summary = (f"{len(added)} added, {len(modified)} changed, {len(removed)} removed (breaking) "
-                         f"contract key(s), all cited")
+        elif added or removed or modified or prose:
+            c.summary = (f"{len(added)} added, {len(modified)} changed, {len(removed)} removed contract key(s), all "
+                         f"cited" + ("; prose outside the keys changed" if prose else ""))
         else:
             c.summary = f"{rel} unchanged since {self.base}"
 
@@ -613,15 +663,16 @@ class Gate:
             c.status, c.summary = "skip", "not a spike"
             return
         qs = [q for q, _ in t.questions if q]
-        tests = self.cfg.section("tests")
-        source = tests.get("source_globs", [])
+        # Only documents, and only in the areas the lead gave the spike: widening them in the
+        # PR, or leaving source_globs unset, must not let a spike ship code.
+        areas, _ = self.build_areas()
         bad, findings = [], []
         for f in self.changed():
             if f in self.bookkeeping() or self._split_ticket(f):
                 continue
-            if any(_glob(f, g) for g in tests.get("globs", []) + source):
-                bad.append(f"{f}: a spike may not change production code or tests")
-            elif not any(_glob(f, g) for g in t.areas):
+            if PurePosixPath(f).suffix.lower() not in SPIKE_DOCS:
+                bad.append(f"{f}: a spike changes documents only ({', '.join(SPIKE_DOCS)}), not code, tests or config")
+            elif not any(_glob(f, g) for g in areas):
                 bad.append(f"{f}: outside the spike's areas")
             elif (self.cfg.root / f).is_file():
                 findings.append(f)
@@ -1116,9 +1167,16 @@ class Gate:
             ev_problems = _changed_after_review(self.cfg, self.ticket, str(data.get("commit", "")), self.base)
         if data.get("verdict") == "approve":
             # Areas are soft: the reviewer, not the gate, accepts each file outside them.
-            named = _out_of_area_entries(body)
+            named = _review_entries(body, "## Out of area")
             ev_problems += [f"out of area and not named under ## Out of area in {self.cfg.rel(p)}: {f}"
                             for f in self.out_of_area() if not any(f == e or _glob(f, e) for e in named)]
+            # Amendments the reviewer judges (ADR-0001): each must be named under ## Amendments.
+            judged = set(_review_entries(body, "## Amendments"))
+            for kind, target, _ in self.new_amendments():
+                key = target.split()[0]
+                if kind in ("strengthen", "split", "widen") and key not in judged:
+                    ev_problems.append(f"amendment `{kind} {target}` is not named under ## Amendments in "
+                                       f"{self.cfg.rel(p)}; the reviewer judges each one")
         c.details += ev_problems
         if data.get("verdict") == "approve" and ev_problems:
             c.status, c.summary = "fail", "approve without passing evidence for the reviewed commit"
@@ -1320,32 +1378,55 @@ def _changed_after_review(cfg: Config, t: Ticket, commit: str, base: str | None 
     return [f"changed after the reviewed commit {commit[:12]}: {f}" for f in late]
 
 
-def _out_of_area_entries(body: str) -> list[str]:
-    """Paths or globs a review names under `## Out of area`: the backticked text of each
-    bullet, or its first word."""
-    m = re.search(r"^## Out of area[ \t]*$(.*?)(?=^## |\Z)", body.replace("\r\n", "\n"), re.M | re.S)
+def _as_list(v) -> list[str]:
+    return [str(x) for x in (v if isinstance(v, list) else [v] if v not in (None, "") else [])]
+
+
+def _review_entries(body: str, heading: str) -> list[str]:
+    """What a review names under `heading`: the first backticked text of each bullet, or its
+    first word. A bare `**` or `*` names nothing: each file is accepted on its own."""
+    m = re.search(rf"^{re.escape(heading)}[ \t]*$(.*?)(?=^## |\Z)", body.replace("\r\n", "\n"), re.M | re.S)
     out = []
     for ln in (m.group(1) if m else "").split("\n"):
         b = re.match(r"^\s*[-*]\s+(.*)$", ln)
         if not b:
             continue
         ticks = re.findall(r"`([^`]+)`", b.group(1))
-        out += ticks or b.group(1).split()[:1]
+        out += [e for e in (ticks or b.group(1).split()[:1]) if e.strip("*/") ]
     return out
 
 
 def _contract_keys(c) -> dict[str, str]:
-    """Every declared contract key with what it declares: routes (with their attributes),
-    pages (with theirs), tables and events."""
+    """Every declared contract key with everything it declares: a route's attributes and the
+    prose under its heading (payloads, status codes, errors), a page's attributes and prose,
+    and the rest of each table and event line (fields)."""
+    from .artifacts import ROUTE_LINE_RE, normalize_route_key
+
+    prose: dict[str, str] = {}
+    for h, text in c.sections.items():
+        key = normalize_route_key(h) if ROUTE_LINE_RE.match(h) else f"page {h.split()[0]}"
+        prose[key] = prose.get(key, "") + text
     out = {}
     for r in c.routes:
         attrs = {k: v for k, v in r.attrs.items() if k != "origin"}
-        out[r.key] = " ".join(f"{k}={v}" for k, v in sorted(attrs.items()))
+        out[r.key] = " ".join(f"{k}={v}" for k, v in sorted(attrs.items())) + "\n" + prose.get(r.key, "").strip()
     for pg in c.pages:
-        out[f"page {pg}"] = " ".join(f"{k}={v}" for k, v in sorted(c.page_attrs.get(pg, {}).items()))
-    out.update({f"table {x}": "" for x in c.tables})
-    out.update({f"event {x}": "" for x in c.events})
+        out[f"page {pg}"] = (" ".join(f"{k}={v}" for k, v in sorted(c.page_attrs.get(pg, {}).items()))
+                             + "\n" + prose.get(f"page {pg}", "").strip())
+    for x in c.tables:
+        out[f"table {x}"] = c.definitions.get(f"table {x}", "")
+    for x in c.events:
+        out[f"event {x}"] = c.definitions.get(f"event {x}", "")
     return out
+
+
+def _dropped(old: str, new: str) -> list[str]:
+    """Words a contract key's declaration lost: a narrowed key (a field or status removed)."""
+    def word(w: str) -> str:
+        return w.split("=", 1)[0] + "=" if "=" in w else w  # an attribute whose value changed is kept
+
+    now = {word(w) for w in new.split()}
+    return [w for w in dict.fromkeys(old.split()) if word(w) not in now]
 
 
 def _contract_ref(key: str) -> str:

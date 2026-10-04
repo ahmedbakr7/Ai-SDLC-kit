@@ -34,7 +34,7 @@ def lint_repo(repo: Repo, only_ticket: str | None = None) -> list[Issue]:
 
     if only_ticket is None:
         issues.extend(_cycles(tickets))
-        issues.extend(_unordered_writers(tickets))
+        issues.extend(_unordered_writers(tickets, cfg.root))
     return issues
 
 
@@ -56,7 +56,7 @@ def _shared_module_owners(repo: Repo, plan: Path) -> list[Issue]:
     return out
 
 
-def _unordered_writers(tickets: dict[str, Ticket]) -> list[Issue]:
+def _unordered_writers(tickets: dict[str, Ticket], root: Path | None = None) -> list[Issue]:
     """Two open tickets that write the same file must be ordered by depends_on; otherwise they
     build in parallel, conflict, and each implements the shared concern its own way."""
     def ancestors(tid: str, seen: set[str]) -> set[str]:
@@ -68,10 +68,13 @@ def _unordered_writers(tickets: dict[str, Ticket]) -> list[Issue]:
 
     anc = {tid: ancestors(tid, set()) for tid in tickets}
     open_ = sorted(tid for tid, t in tickets.items() if t.status != "done")
+    # Areas are globs: two tickets overlap on any existing file both match, or on an entry both list.
+    existing = paths.repo_files(root) if root is not None and open_ else []
+    reach = {tid: {f for f in existing if paths.match_any(f, tickets[tid].areas)} for tid in open_}
     out = []
     for i, a in enumerate(open_):
         for b in open_[i + 1:]:
-            both = sorted(set(tickets[a].areas) & set(tickets[b].areas))
+            both = sorted((set(tickets[a].areas) & set(tickets[b].areas)) | (reach[a] & reach[b]))
             if both and a not in anc[b] and b not in anc[a]:
                 out.append(Issue("error", "tickets/", f"{a} and {b} both write {', '.join(both)} but neither "
                                  "depends on the other; add depends_on, or give the file one owner ticket"))
