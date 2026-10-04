@@ -704,6 +704,9 @@ class Tooling(Base):
         # The base is resolved from the event or the GitHub API, never from the PR's sdlc.toml.
         self.assertIn('--base "origin/$BASE"', wf)
         self.assertNotIn("${BASE:+", wf)
+        # Git over HTTPS rejects a bearer token; it takes basic auth with x-access-token.
+        self.assertNotIn("bearer", wf)
+        self.assertIn("x-access-token:%s", wf)
         self.assertIn("types: [opened, synchronize, reopened, edited]", wf)  # retargeting re-judges
         self.assertIn("statuses: write", wf)
         # The gate lives in its own workflow, so a review event can never skip (= pass) it.
