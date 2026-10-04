@@ -698,7 +698,6 @@ class Tooling(Base):
 
         wf = (KIT / "adapters" / "github" / "sdlc-approval.yml").read_text(encoding="utf-8")
         self.assertIn("pull_request_target:", wf)  # the base branch's workflow, not the PR's
-        self.assertIn("ref: ${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}", wf)
         self.assertIn(".sdlc/bin/sdlc --root ../pr-head approval", wf)
         self.assertIn("--publish-status", wf)
         # The base is resolved from the event or the GitHub API, never from the PR's sdlc.toml.
@@ -714,6 +713,10 @@ class Tooling(Base):
         self.assertNotIn("pull_request_review", on)
         self.assertIn("  workflow_run:\n    workflows: [sdlc-approval-review]\n    types: [completed]\n", on)
         self.assertIn("*[!0-9]*", wf)  # the relayed PR number is data: digits only
+        # The PR and its base are known before the checkout, so the kit (and the config it
+        # judges by) come from the PR's own base branch, even when that is not the default.
+        self.assertLess(wf.index("- name: Which PR and base"), wf.index("uses: actions/checkout@v4"))
+        self.assertIn("ref: ${{ env.BASE }}", wf)
         relay = (KIT / "adapters" / "github" / "sdlc-approval-review.yml").read_text(encoding="utf-8")
         self.assertIn("\nname: sdlc-approval-review\n", relay)
         self.assertIn("\npermissions: {}\n", relay)

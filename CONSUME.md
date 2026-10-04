@@ -110,7 +110,9 @@ Set `[approval] mode = "forge"` (GitHub) or `"git"` (signed notes in `refs/notes
   check and the `sdlc/approval` status.
 - What branch protection can and cannot prove: the `gate` check and the `sdlc/approval` status
   come from GitHub Actions, and any workflow or token with write access can post a check or status
-  with the same name (a same-repository PR can add a workflow that does). Against that, post the
+  with the same name (a same-repository PR can add a workflow that does, or edit its copy of the
+  review relay so a dismissal is never relayed; `gate` fails a ticket PR that touches
+  `.github/workflows/`, and a PR without a ticket needs a lead). Against that, post the
   approval from a GitHub App and pin the app as the required check's source, and require review
   of `.github/workflows/`. Without it, the gate and the approval stop mistakes and confused
   agents, not someone with write access.
