@@ -236,6 +236,7 @@ class Repo:
         self._tickets: dict[str, Ticket] | None = None
         self._specs: list[Spec] | None = None
         self._contracts: Contracts | None = None
+        self._delivered: set[str] | None = None
 
     # -- tickets ----------------------------------------------------------
     @property
@@ -306,6 +307,28 @@ class Repo:
         if self._contracts is None:
             self._contracts = parse_contracts(self.cfg.path("contracts"), self.cfg)
         return self._contracts
+
+    # -- derived status (ADR-0001 section 5) -------------------------------
+    def delivered(self) -> set[str]:
+        """Tickets a commit on the base branch names in an `Sdlc-Ticket:` trailer: merged."""
+        if self._delivered is None:
+            from . import approval, gitutil
+
+            self._delivered = set()
+            if approval.records_mode(self.cfg):
+                base = str(self.cfg.section("vcs").get("base", "main"))
+                for ref in (base, f"origin/{base}"):
+                    if gitutil.git(self.cfg.root, "rev-parse", "--verify", "-q", ref, check=False).strip():
+                        self._delivered = set(gitutil.trailer_values(self.cfg.root, ref, "Sdlc-Ticket"))
+                        break
+        return self._delivered
+
+    def status_of(self, t: Ticket) -> str:
+        """The ticket's status: stored for lead decisions (draft, ready, blocked) and for tickets
+        shipped before status was derived (done); `done` once a merged commit names it."""
+        if t.status != "done" and t.id in self.delivered():
+            return "done"
+        return t.status
 
     # -- reviews ----------------------------------------------------------
     def review_for(self, tid: str) -> Review | None:

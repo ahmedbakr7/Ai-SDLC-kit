@@ -36,8 +36,16 @@ def reachable(frm: str, to: str, roles: tuple[str, ...]) -> bool:
     return False
 
 
+DERIVED = ("in_progress", "in_review", "done")
+
+
 def check_transition(repo: Repo, t: Ticket, to: str, role: str, reason: str = "") -> None:
+    from . import approval
+
     frm = t.status
+    if approval.records_mode(repo.cfg) and to in DERIVED:
+        raise TransitionError(f"{t.id}: {to} is derived, not stored: an open PR whose commits carry "
+                              f"`Sdlc-Ticket: {t.id}` is in progress, and merging it makes the ticket done")
     if to == "blocked":
         if role not in ANY_TO_BLOCKED:
             raise TransitionError(f"role {role} may not block tickets")
@@ -51,7 +59,7 @@ def check_transition(repo: Repo, t: Ticket, to: str, role: str, reason: str = ""
     if role not in allowed:
         raise TransitionError(f"{t.id}: {frm} -> {to} needs role {'/'.join(allowed)}, not {role}")
     if to == "in_progress" and frm == "ready":
-        pending = [d for d in t.depends_on if repo.tickets.get(d) and repo.tickets[d].status != "done"]
+        pending = [d for d in t.depends_on if repo.tickets.get(d) and repo.status_of(repo.tickets[d]) != "done"]
         if pending:
             raise TransitionError(f"{t.id}: depends_on not done: {', '.join(pending)}")
     if to == "done":
@@ -82,7 +90,9 @@ def ready_queue(repo: Repo) -> list[Ticket]:
         t = repo.tickets[tid]
         if t.status != "ready":
             continue
-        if all(repo.tickets.get(d) is not None and repo.tickets[d].status == "done" for d in t.depends_on):
+        if repo.status_of(t) == "done":
+            continue
+        if all(repo.tickets.get(d) is not None and repo.status_of(repo.tickets[d]) == "done" for d in t.depends_on):
             out.append(t)
     # Lower risk and fewer dependents last: unblock the graph first.
     dependents = {tid: 0 for tid in repo.tickets}
@@ -209,3 +219,40 @@ def strip_amendments(body: str) -> str:
     import re
 
     return re.sub(r"^## Amendments[ \t]*$.*?(?=^## |\Z)", "", body.replace("\r\n", "\n"), flags=re.M | re.S).strip()
+
+
+# -- step 2 migration and follow-ups -----------------------------------------
+def migrate_v2_text(text: str, areas: bool, derived: bool) -> str:
+    """`files:` -> `areas:` (when asked) and, when status is derived, stored delivery statuses
+    (in_progress, in_review) back to ready; `done` stays as a frozen fact."""
+    import re
+
+    nl = "\r\n" if "\r\n" in text else "\n"
+    head, sep, rest = text.partition(nl + "---")
+    lines = head.split(nl)
+    for i, ln in enumerate(lines):
+        if areas and re.fullmatch(r"files:[ \t]*(#.*)?", ln) and not any(x.startswith("areas:") for x in lines):
+            lines[i] = "areas:" + ln[len("files:"):]
+        if derived and re.fullmatch(r"status:[ \t]*(in_progress|in_review)[ \t]*", ln):
+            lines[i] = "status: ready"
+    return nl.join(lines) + sep + rest
+
+
+def next_id(repo: Repo, like: str) -> str:
+    """The next free ticket id in `like`'s series (T-001-07 -> T-001-NN)."""
+    series = like.rsplit("-", 1)[0]
+    width = len(like.rsplit("-", 1)[1])
+    used = [int(t.rsplit("-", 1)[1]) for t in repo.tickets if t.rsplit("-", 1)[0] == series]
+    return f"{series}-{str(max(used, default=0) + 1).zfill(width)}"
+
+
+def followup_text(src: Ticket, nid: str, finding: str, origin: str) -> str:
+    import json
+
+    d = src.data
+    return (f"---\nid: {nid}\ntitle: {json.dumps('Follow-up: ' + finding[:80])}\ntype: {src.type}\nstatus: draft\n"
+            f"risk: {src.risk}\ndepends_on: [{src.id}]\nareas: []\nskills: [build]\n"
+            f"requirements: [{', '.join(src.requirements)}]\nacceptance_criteria: []\n"
+            f"source_spec: {d.get('source_spec', '')}\nsource_plan: {d.get('source_plan', '')}\n"
+            f"source_review: {json.dumps(origin)}\n---\n\n{finding}\n\nFrom the approval of {src.id} ({origin}). "
+            "The lead fills in areas and acceptance criteria and makes it ready.\n")

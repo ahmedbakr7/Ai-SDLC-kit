@@ -115,3 +115,40 @@ def same_branch_change(root: Path, base: str, then: str, path: str, now: str | N
     merged = subprocess.run(["git", "hash-object", "--no-filters", "--stdin"], cwd=root,
                             input=r.stdout, capture_output=True)
     return merged.returncode == 0 and merged.stdout.decode().strip() == current
+
+
+def blob(root: Path, ref: str, path: str) -> str:
+    """The blob id of `path` at `ref`, or "" when it does not exist there."""
+    return git(root, "rev-parse", "--verify", "-q", f"{ref}:./{path}", check=False).strip()
+
+
+def covers(root: Path, base: str, reviewed: str, head: str) -> list[str]:
+    """Why an approval of `reviewed` does not cover `head` ([] when it does). The PR's own
+    change must be the same, location-exact: the same files, and each one either identical
+    or exactly `reviewed`'s version with the base branch's later change merged in cleanly
+    (same_branch_change). A base merge keeps an approval; moving or editing an approved
+    line, a conflict resolution, or any new change voids it (ADR-0001)."""
+    if subprocess.run(["git", "cat-file", "-e", f"{reviewed}^{{commit}}"], cwd=root,
+                      capture_output=True).returncode != 0:
+        return [f"reviewed commit {reviewed[:12]} is not in this repository's history"]
+    try:
+        mb_r, mb_h = merge_base(root, base, reviewed), merge_base(root, base, head)
+    except GitError as e:
+        return [str(e)]
+    then, now = set(committed_between(root, mb_r, reviewed)), set(committed_between(root, mb_h, head))
+    out = [f"{f}: changed after the review" for f in sorted(now - then)]
+    out += [f"{f}: the reviewed change to it is gone" for f in sorted(then - now)]
+    for f in sorted(then & now):
+        if blob(root, reviewed, f) == blob(root, head, f):
+            continue
+        if mb_r != mb_h and same_branch_change(root, base, reviewed, f, head):
+            continue
+        out.append(f"{f}: differs from the reviewed version beyond the base branch's change")
+    return out
+
+
+def trailer_values(root: Path, rev_range: str, key: str) -> list[str]:
+    """Values of a commit trailer (e.g. Sdlc-Ticket) across `rev_range`, oldest first."""
+    out = git(root, "log", "--reverse", f"--format=%(trailers:key={key},valueonly,separator=%x0A)", rev_range,
+              check=False)
+    return [v.strip() for v in out.splitlines() if v.strip()]

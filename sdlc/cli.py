@@ -72,7 +72,7 @@ def cmd_status(args) -> int:
     repo = Repo(cfg)
     t = repo.ticket(args.ticket)
     if not args.to:
-        print(t.status)
+        print(repo.status_of(t))
         return 0
     try:
         frm = tickets.set_status(repo, t, args.to, args.as_role, args.reason or "")
@@ -101,7 +101,9 @@ def cmd_gate(args) -> int:
     if args.play == "pr" and not args.ticket:
         # CI does not know which ticket a PR carries; the branch's changes say so.
         recover(cfg.root)
-        found = pr_tickets(cfg, args.base or cfg.section("vcs").get("base", "main"))
+        # Which tickets a PR serves is read the way the base branch's config says (trailers when
+        # status is derived), so a PR cannot change how it is found.
+        found = pr_tickets(Gate(cfg, "pr", None, args.base).cfg, args.base or cfg.section("vcs").get("base", "main"))
         if len(found) > 1:
             print(f"gate pr: this branch moves {len(found)} tickets ({', '.join(found)}); "
                   "a ticket PR carries exactly one", file=sys.stderr)
@@ -166,9 +168,22 @@ def cmd_adapters(args) -> int:
 
 
 def cmd_migrate(args) -> int:
+    from . import approval
+
     cfg = _cfg(args)
     total = 0
     repo = Repo(cfg)
+    if args.areas or approval.records_mode(cfg):
+        for t in repo.tickets.values():
+            text = t.path.read_bytes().decode("utf-8")
+            new = tickets.migrate_v2_text(text, areas=args.areas, derived=approval.records_mode(cfg))
+            if new != text:
+                t.path.write_text(new, encoding="utf-8", newline="")
+                print(f"{cfg.rel(t.path)}: " + ("files: -> areas:; " if args.areas else "")
+                      + "delivery status rewritten for derived status" * approval.records_mode(cfg))
+        repo = Repo(cfg)
+        if approval.records_mode(cfg):
+            return 0  # reviews/ and evidence/ stay as read-only history; v0 marking is a file-mode concern
     for t in repo.tickets.values():
         n = tickets.migrate_acs(t.path)
         if n:
@@ -186,6 +201,126 @@ def cmd_migrate(args) -> int:
                 t.path.write_text(marked, encoding="utf-8", newline="")
                 print(f"{cfg.rel(t.path)}: marked legacy: v0 (shipped without a v1 review)")
     print(f"{total} acceptance criteria numbered. Tests must now carry tags like T-001-01/AC-1.")
+    return 0
+
+
+def cmd_approval(args) -> int:
+    """CI's `sdlc/approval` check: an approval covers the PR's head for every role its lane needs."""
+    from . import approval, gitutil
+    from .gate import Gate, pr_tickets
+
+    branch_cfg = _cfg(args)
+    base = args.base or branch_cfg.section("vcs").get("base", "main")
+    # Judged by the base branch's sdlc.toml, like every gate: a PR cannot switch its own
+    # approval mode, roles or trust setting.
+    cfg = Gate(branch_cfg, "pr", None, args.base).cfg
+    m = approval.mode(cfg)
+    if m == "file":
+        print("approval: [approval] mode is file; reviews/<id>.md is checked by `sdlc gate pr`")
+        return 0
+    found = [args.ticket] if args.ticket else pr_tickets(cfg, base)
+    if len(found) > 1:
+        print(f"approval: this branch serves {len(found)} tickets ({', '.join(found)}); a ticket PR serves one",
+              file=sys.stderr)
+        return EXIT_FAIL
+    g = Gate(branch_cfg, "pr", found[0] if found else None, args.base)
+    head = gitutil.head(cfg.root)
+    pr = None
+    if m == "forge":
+        n = approval.pr_number(args.pr)
+        if not n:
+            print("approval: no PR number (pass --pr, or run on a pull_request event)", file=sys.stderr)
+            return EXIT_FAIL
+        pr, records = approval.forge_records(approval.forge_client(cfg), n)
+        if pr.head and not head.startswith(pr.head[:12]) and pr.head != head:
+            # A merge-ref checkout (refs/pull/N/merge) is not the PR head: judge the PR head.
+            head = pr.head
+    else:
+        if approval.notes_missing(cfg):
+            print(f"approval: {approval.NOTES_REF} is missing; fetch it "
+                  f"(git fetch origin {approval.NOTES_REF}:{approval.NOTES_REF})", file=sys.stderr)
+            return EXIT_FAIL
+        mb = gitutil.merge_base(cfg.root, base)
+        shas = gitutil.git(cfg.root, "rev-list", f"{mb}..{head}", check=False).split()
+        records = approval.git_records(cfg, shas)
+    res = approval.evaluate(cfg, g, records, pr, head)
+    out = {"result": "pass" if res.ok else "fail", "summary": res.summary, "details": res.details,
+           "trust_based": res.trust_based, "head": head, "ticket": found[0] if found else None}
+    dest = cfg.root / ".sdlc-run" / "approval.json"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
+    for d in res.details:
+        print(f"  {d}")
+    print(f"approval: {'PASS' if res.ok else 'FAIL'}  {res.summary}")
+    return 0 if res.ok else EXIT_FAIL
+
+
+def cmd_review(args) -> int:
+    """Publish the review agent's record (.sdlc-run/review-<id>.md): a PR comment in forge mode,
+    a note on the reviewed commit in git mode. Agents never need forge credentials."""
+    from . import approval, gitutil
+
+    cfg = _cfg(args)
+    p = cfg.root / ".sdlc-run" / f"review-{args.ticket}.md"
+    if not p.is_file():
+        raise SystemExit(f"no review record at {cfg.rel(p)}; run the review play first")
+    text = p.read_text(encoding="utf-8")
+    d = approval.parse(text)
+    if d is None or str(d.get("ticket", "")) != args.ticket:
+        raise SystemExit(f"{cfg.rel(p)} is not an approval record for {args.ticket}")
+    m = approval.mode(cfg)
+    if m == "forge":
+        n = approval.pr_number(args.pr)
+        if not n:
+            raise SystemExit("review publish: pass --pr N")
+        res = approval.forge_client(cfg).post(f"/issues/{n}/comments", {"body": text})
+        print(f"published to PR #{n}: {res.get('html_url', '')}")
+    elif m == "git":
+        gitutil.git(cfg.root, "notes", "--ref", approval.NOTES_REF, "add", "-f", "-F", str(p), str(d.get("commit")))
+        print(f"noted on {str(d.get('commit'))[:12]} in {approval.NOTES_REF}; "
+              f"push it: git push origin {approval.NOTES_REF}")
+    else:
+        raise SystemExit("review publish needs [approval] mode = forge or git")
+    return 0
+
+
+def cmd_followups(args) -> int:
+    """Turn the [follow-up] findings of a merged PR's approvals into draft tickets."""
+    from . import approval
+
+    cfg = _cfg(args)
+    if approval.mode(cfg) != "forge":
+        raise SystemExit("followups reads PR approvals: [approval] mode = forge")
+    _, records = approval.forge_records(approval.forge_client(cfg), args.pr)
+    repo = Repo(cfg)
+    made = 0
+    for rec in records:
+        if rec.verdict != "approve" or not rec.ticket or rec.ticket not in repo.tickets:
+            continue
+        for line in lint._section(rec.body, "## Findings").splitlines():
+            if "[follow-up]" not in line:
+                continue
+            made += 1
+            src = repo.tickets[rec.ticket]
+            nid = tickets.next_id(repo, src.id)
+            text = tickets.followup_text(src, nid, line.strip().lstrip("-* ").replace("[follow-up]", "").strip(),
+                                         f"PR #{args.pr}")
+            dest = src.path.parent / f"{nid}-follow-up.md"
+            dest.write_text(text, encoding="utf-8")
+            repo = Repo(cfg)
+            print(f"{cfg.rel(dest)}: draft follow-up from {rec.ticket}")
+    print(f"{made} follow-up ticket(s) drafted; the lead edits and makes them ready in a lead PR")
+    return 0
+
+
+def cmd_commit(args) -> int:
+    """`git commit` with the `Sdlc-Ticket:` trailer derived status reads."""
+    from . import gitutil
+
+    cfg = _cfg(args)
+    Repo(cfg).ticket(args.ticket)
+    gitutil.git(cfg.root, "commit", "-q", "-m", args.message, "-m", f"Sdlc-Ticket: {args.ticket}")
+    print(gitutil.head(cfg.root))
     return 0
 
 
@@ -363,6 +498,7 @@ def cmd_doctor(args) -> int:
                      f"commands.{'/'.join(suites)} is not set; routes and pages are never proven over the "
                      "real stack. Configure one, or set tests.real_stack = [] to accept unit-only proof")
     probs += lane_floor_problems(cfg)
+    probs += approval_problems(cfg)
     if "contracts" in required and not cfg.section("routes").get("extractor"):
         probs.append("routes.extractor is not set; contract drift cannot be checked")
     if not cfg.section("tests").get("globs"):
@@ -410,6 +546,26 @@ def lane_floor_problems(cfg: config.Config) -> list[str]:
         out.append(f"gate.spike drops {', '.join(missing)}: a spike's build must prove it changed documents only")
     if "contract-diff" not in g.get("strict", []):
         out.append("gate.strict drops contract-diff: the strict lane publishes the contract diff")
+    return out
+
+
+def approval_problems(cfg: config.Config) -> list[str]:
+    """An approval check that could pass on nobody's say-so is a vacuous gate."""
+    from . import approval
+
+    a = cfg.section("approval")
+    m = str(a.get("mode", "file"))
+    if m not in approval.MODES:
+        return [f"approval.mode must be one of {', '.join(approval.MODES)}, got {m!r}"]
+    trust = bool(a.get("trust_unsigned", False))
+    out = []
+    if m == "forge" and not trust and not a.get("reviewers"):
+        out.append("approval.mode = forge with no [approval] reviewers: no approval could count (list the "
+                   "reviewer identities, or set trust_unsigned = true for trust-based approvals)")
+    if m == "git" and not trust and not a.get("allowed_signers"):
+        out.append("approval.mode = git with no [approval] allowed_signers: no note could count")
+    if trust and m != "file":
+        print(f"note  [approval] trust_unsigned = true: approvals are trust-based (identities not verified)")
     return out
 
 
@@ -490,7 +646,29 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(fn=cmd_adapters)
 
     p = sp.add_parser("migrate", help="upgrade legacy tickets (number acceptance criteria)")
+    p.add_argument("--areas", action="store_true", help="rename files: to areas:")
     p.set_defaults(fn=cmd_migrate)
+
+    p = sp.add_parser("approval", help="CI: does an approval cover this PR's head for its lane?")
+    p.add_argument("ticket", nargs="?")
+    p.add_argument("--pr", type=int, help="PR number (default: the GitHub event's)")
+    p.add_argument("--base", help="base branch (default vcs.base)")
+    p.set_defaults(fn=cmd_approval)
+
+    p = sp.add_parser("review", help="publish a review record (forge comment or git note)")
+    p.add_argument("action", choices=["publish"])
+    p.add_argument("ticket")
+    p.add_argument("--pr", type=int)
+    p.set_defaults(fn=cmd_review)
+
+    p = sp.add_parser("followups", help="draft tickets from a PR approval's [follow-up] findings")
+    p.add_argument("--pr", type=int, required=True)
+    p.set_defaults(fn=cmd_followups)
+
+    p = sp.add_parser("commit", help="git commit with the Sdlc-Ticket trailer")
+    p.add_argument("ticket")
+    p.add_argument("-m", "--message", required=True)
+    p.set_defaults(fn=cmd_commit)
 
     p = sp.add_parser("baseline", help="record a red base branch's known failures (or --prune fixed ones)")
     p.add_argument("--prune", action="store_true", help="drop entries that no longer fail; never adds")

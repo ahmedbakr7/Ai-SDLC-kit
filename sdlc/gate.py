@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Callable
 
-from . import baseline, config, extract, fm, gitutil, lanes, lint, paths, tickets
+from . import approval, baseline, config, extract, fm, gitutil, lanes, lint, paths, tickets
 from .artifacts import AC_RE, Repo, Ticket, normalize_path
 from .config import Config
 
@@ -76,6 +76,8 @@ class Gate:
         if play in ("ci", "pr") or (ticket_id and play in TICKET_PLAYS):
             cfg = self._trusted_config(cfg)
         self.cfg = cfg
+        # Approvals outside the tree (ADR-0001 step 2): no committed evidence, derived status.
+        self.records = approval.records_mode(cfg)
         self.repo = Repo(cfg)
         self.play = play
         self.ticket: Ticket | None = self.repo.ticket(ticket_id) if ticket_id else None
@@ -92,7 +94,9 @@ class Gate:
         # the HEAD it saw before the agent started; without it this falls back to the commit
         # history, which an agent with git access could shape (CI judges the whole PR instead).
         if since is None and self.ticket and play in ("test", "review"):
-            since = _evidence_commit(cfg, self.ticket.id, ("build",) if play == "test" else EVIDENCE_PLAYS)
+            plays = ("build",) if play == "test" else EVIDENCE_PLAYS
+            since = (_play_commit(cfg, self.base, plays) if self.records
+                     else _evidence_commit(cfg, self.ticket.id, plays))
         self.since = since
         # The branch's baseline; `immutable` proves it only shrinks against the base branch's.
         bl = baseline.path(cfg.root, cfg.data["paths"])
@@ -168,10 +172,17 @@ class Gate:
             raise SystemExit(f"no gate defined for play {self.play!r}")
         names = list(g[self.play])
         if self.ticket and self.play == "build":
-            if self.ticket.type == "spike":
-                names = list(g.get("spike", names))
-            elif self.lane and self.lane.name == "mechanical":
-                names = list(g.get("mechanical", names))
+            names = self._build_list(names)
+        if self.ticket and self.play == "pr" and self.records:
+            # Nothing trusts committed evidence: the PR runs the lane's build checks and, where
+            # the ticket has a test play, the test play's checks, on its own head. Approval is
+            # the separate `sdlc approval` check, re-run as reviews arrive.
+            names = self._build_list(list(g["build"]))
+            if self.ticket.test_play and not (self.lane and self.lane.name == "mechanical"):
+                # The test play's order (its suites run before ac-coverage reads them), then the
+                # build's own checks (ac-red, duplication) after.
+                names = list(g["test"]) + [n for n in names if n not in g["test"]]
+            names = [n for n in names if n != "review-file"]
         if self.lane and self.lane.name == "strict" and self.play in ("build", "test", "pr"):
             names += [n for n in g.get("strict", []) if n not in names]
         if self.lane:
@@ -180,6 +191,14 @@ class Gate:
         if self.only:
             names = [n for n in names if n in self.only]
         return names
+
+    def _build_list(self, default: list[str]) -> list[str]:
+        g = self.cfg.section("gate")
+        if self.ticket.type == "spike":
+            return list(g.get("spike", default))
+        if self.lane and self.lane.name == "mechanical":
+            return list(g.get("mechanical", default))
+        return default
 
     def changed(self) -> list[str]:
         if self._changed is None:
@@ -231,7 +250,7 @@ class Gate:
             "started": started,
             "result": "pass" if ok else "fail",
             "checks": [asdict(c) for c in self.checks],
-            "ac": self.ac_matrix() if self.ticket else {},
+            "ac": self.ac_matrix() if self.ticket else self._shipped_matrix(),
             "config_note": self.config_note,
             "lane": self.lane.name if self.lane else "",
             "baseline": self.baseline_rel if self.baseline else "",
@@ -277,10 +296,21 @@ class Gate:
                          f"commit {self.baseline_rel} (it only shrinks)")
             c.details = [f"fixed: {k}" for k in stale] + c.details
 
+    def _shipped_matrix(self) -> dict:
+        """gate ci's AC proof for every shipped ticket: CI evidence `sdlc trace` reads when status
+        is derived (nothing is committed under evidence/ then)."""
+        if self.play != "ci" or not self.records:
+            return {}
+        out: dict = {}
+        for _, t in sorted(self.repo.tickets.items()):
+            if self.repo.status_of(t) == "done":
+                out.update(self.ac_matrix(t))
+        return out
+
     def write_evidence(self, ev: dict) -> Path:
         name = f"{self.ticket.id}.{self.play}.json" if self.ticket else f"{self.play}.json"
         dest = self.run_dir / name
-        if self.ticket and self.play in EVIDENCE_PLAYS and not ev.get("partial"):
+        if self.ticket and self.play in EVIDENCE_PLAYS and not ev.get("partial") and not self.records:
             dest = self.cfg.path("evidence") / name
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(json.dumps(ev, indent=2) + "\n", encoding="utf-8")
@@ -298,10 +328,17 @@ class Gate:
             c.summary = f"artifacts valid ({len(issues)} warning(s))"
         if self.ticket and self.play == "build":
             t = self.ticket
-            if t.status not in ("in_progress", "in_review"):
+            if self.records:
+                # Status is derived: the lead made the ticket ready (or a mechanical ticket is
+                # created in its own PR); merged means done, and done tickets are not rebuilt.
+                if self.repo.status_of(t) == "done" or t.status not in ("ready",):
+                    c.status = "fail"
+                    c.details.append(f"{t.id} is {self.repo.status_of(t)}; a build starts from a ready ticket")
+            elif t.status not in ("in_progress", "in_review"):
                 c.status = "fail"
                 c.details.append(f"{t.id} status is {t.status}; run `sdlc status {t.id} in_progress --as build` first")
-            pending = [d for d in t.depends_on if self.repo.tickets.get(d) and self.repo.tickets[d].status != "done"]
+            pending = [d for d in t.depends_on if self.repo.tickets.get(d)
+                       and self.repo.status_of(self.repo.tickets[d]) != "done"]
             if pending:
                 c.status = "fail"
                 c.details.append(f"depends_on not done: {', '.join(pending)}")
@@ -343,7 +380,8 @@ class Gate:
         anchors = {"test": f"{self.cfg.data['paths']['evidence']}/{t.id}.test.json",
                    "review": f"{self.cfg.data['paths']['reviews']}/{t.id}.md"}
         for play, anchor in anchors.items():
-            done_at = gitutil.git(self.cfg.root, "log", "-1", "--format=%H", "--", anchor, check=False).strip()
+            done_at = (_play_commit(self.cfg, self.base, (play,)) or "" if self.records else
+                       gitutil.git(self.cfg.root, "log", "-1", "--format=%H", "--", anchor, check=False).strip())
             if not done_at:
                 continue
             touched = set(gitutil.changed_since(self.cfg.root, done_at))
@@ -418,6 +456,43 @@ class Gate:
         return [f for f in gitutil.changed_files(self.cfg.root, self.base)
                 if f not in exact and not any(_glob(f, g) for g in globs) and f not in (own, contracts)
                 and not self._test_beside_area(f) and not self._split_ticket(f) and not self._hard(f)]
+
+    def _review_record(self, c: Check) -> None:
+        """Records mode, review play: the agent's record at .sdlc-run/review-<id>.md (the runner
+        publishes it) names this commit and everything the reviewer must judge."""
+        t = self.ticket
+        p = self.run_dir / f"review-{t.id}.md"
+        if not p.is_file():
+            c.status, c.summary = "fail", f"missing {self.cfg.rel(p)} (write the review record there)"
+            return
+        d = approval.parse(p.read_text(encoding="utf-8"))
+        if d is None:
+            c.status, c.summary = "fail", f"{self.cfg.rel(p)} has no approval front matter (sdlc: approval)"
+            return
+        problems = []
+        if str(d.get("ticket", "")) != t.id:
+            problems.append(f"ticket must be {t.id}")
+        if str(d.get("verdict", "")) not in approval.VERDICTS:
+            problems.append(f"verdict must be one of {approval.VERDICTS}")
+        if str(d.get("role", "review")) not in approval.ROLES:
+            problems.append(f"role must be one of {approval.ROLES}")
+        if not _same_commit(str(d.get("commit", "")), gitutil.head(self.cfg.root)):
+            problems.append(f"commit must be the reviewed HEAD {gitutil.head(self.cfg.root)[:12]}")
+        for h in ("## Acceptance criteria", "## Findings", "## Gate"):
+            if h not in {ln.strip() for ln in str(d["_body"]).split("\n")}:
+                problems.append(f"missing section '{h}'")
+        if d.get("verdict") == "request_changes" and not re.search(
+                r"^\s*[-*]\s+\S", lint._section(str(d["_body"]), "## Findings"), re.M):
+            problems.append("request_changes needs at least one finding")
+        rec = approval.Record(sha=gitutil.head(self.cfg.root), who="", role=str(d.get("role", "review")),
+                              verdict=str(d.get("verdict", "")), body=str(d["_body"]))
+        problems += approval._content_problems(rec, rec.role, t, self.lane.name if self.lane else "standard",
+                                               self.out_of_area(), self.new_amendments(), _review_entries, _glob)
+        c.details = problems
+        if problems:
+            c.status, c.summary = "fail", f"review record invalid ({len(problems)} problem(s))"
+        else:
+            c.summary = f"review record valid, verdict {d.get('verdict')}; publish it with `sdlc review publish {t.id}`"
 
     def new_amendments(self) -> list[tuple[str, str, str]]:
         """Amendment lines this branch adds to its ticket."""
@@ -581,10 +656,10 @@ class Gate:
                             "whole diff may be. Otherwise the lead makes the ticket ready on the base branch first")
         if ln.name == "mechanical" and self.play == "test":
             problems.append("the mechanical lane has no test play: the build gate's full suite is its proof")
-        if ln.name == "strict" and not str((old or {}).get("accepted_by", "") or "").strip():
+        if ln.name == "strict" and not self.records and not str((old or {}).get("accepted_by", "") or "").strip():
             problems.append(f"the strict lane needs lead sign-off: accepted_by on {self.base}'s version of {t.id} "
                             "(set in a lead PR)")
-        if self.play == "pr":
+        if self.play == "pr" and not self.records:
             for play in EVIDENCE_PLAYS:
                 ev = self.cfg.path("evidence") / f"{t.id}.{play}.json"
                 if not ev.is_file():
@@ -805,7 +880,8 @@ class Gate:
     def check_ac_coverage(self, c: Check) -> None:
         # A ticket play proves its own AC. Without a ticket (gate ci) every shipped ticket's
         # AC must still be proven, so a later change that deletes or breaks those tests fails.
-        shipped = [t for _, t in sorted(self.repo.tickets.items()) if t.status in ("in_review", "done")]
+        shipped = [t for _, t in sorted(self.repo.tickets.items())
+                   if (self.repo.status_of(t) == "done" if self.records else t.status in ("in_review", "done"))]
         # The mechanical lane proves nothing new; it proves every shipped AC still holds.
         whole = not self.ticket or bool(self.lane and self.lane.name == "mechanical")
         targets = [self.ticket] if not whole else [t for t in shipped if not self.ticket or t.id != self.ticket.id]
@@ -829,7 +905,8 @@ class Gate:
             c.summary = f"all {len(matrix)} AC of {len(targets)} ticket(s) proven by passing tests"
         suites = real_stack_suites(self.cfg)
         names = "/".join(suites)
-        if self.play == "test" and self.ticket and suites:
+        if (self.play == "test" or (self.play == "pr" and self.records)) and self.ticket and suites \
+                and self.ticket.test_play and not whole:
             # The test play exists to prove AC through the real stack; unit proof alone is the build's.
             if not self._real_stack_proof(self.ticket.id):
                 c.status = "fail"
@@ -962,7 +1039,7 @@ class Gate:
         pages = [pg for pg in contracts.pages
                  if not (owner := contracts.page_attrs.get(pg, {}).get("owner"))
                  or (self.ticket is not None and owner == self.ticket.id)
-                 or (owner in self.repo.tickets and self.repo.tickets[owner].status in live)]
+                 or (owner in self.repo.tickets and self.repo.status_of(self.repo.tickets[owner]) in live)]
         if not cmd:
             c.status, c.summary = "fail", "commands.start not configured; the app was never started"
             return
@@ -1057,6 +1134,7 @@ class Gate:
                 if old is not None and old.get("status") not in ("draft", None):
                     problems.append(f"{f}: {old.get('status')} ticket deleted; supersede it with a new ticket instead")
         reqs_now = {r: v.text for r, v in self.repo.requirements().items()}
+        lead_only: list[str] = []
         for t in self.repo.tickets.values():
             rel = cfg.rel(t.path)
             if rel not in changed:
@@ -1086,6 +1164,11 @@ class Gate:
                     continue
                 if ac not in new_acs and self._split_off(t, ac, text, by_kind.get("split", set())):
                     continue
+                if self.records and ac in by_kind.get("weaken" if ac in new_acs else "remove", set()):
+                    # Allowed here; `sdlc approval` then requires a lead's approval of the head.
+                    lead_only.append(f"{rel}: {ac} {'weakened' if ac in new_acs else 'removed'} by amendment: "
+                                     "needs a lead approval")
+                    continue
                 what = "removed" if ac not in new_acs else "reworded"
                 hint = ("an amendment: `- split AC-n -> T-id: why` with the AC verbatim in a new draft ticket"
                         if what == "removed" else "a `- strengthen AC-n: why` amendment the reviewer judges")
@@ -1100,7 +1183,7 @@ class Gate:
                         and ac not in by_kind.get("add", set())):
                     problems.append(f"{rel}: {ac} added without an `- add {ac}: why` amendment")
         problems += self._baseline_growth(mb, changed)
-        c.details = problems
+        c.details = problems + lead_only
         if problems:
             c.status, c.summary = "fail", f"{len(problems)} immutable artifact(s) changed"
         else:
@@ -1149,6 +1232,9 @@ class Gate:
                 c.status, c.summary = "skip", "lead PR: no ticket to review"
             else:
                 c.status, c.summary = "fail", "review needs a ticket"
+            return
+        if self.records:
+            self._review_record(c)
             return
         p = self.cfg.path("reviews") / f"{self.ticket.id}.md"
         if self.play == "pr" and self.ticket.status != "done":
@@ -1260,6 +1346,14 @@ def pr_tickets(cfg: Config, base: str) -> list[str]:
     """Tickets a branch moves: in progress or later, with their ticket, evidence or review
     file changed against the base. `gate pr` without an id judges the one it finds."""
     repo = Repo(cfg)
+    if approval.records_mode(cfg):
+        # Status is derived: a PR serves the tickets its commits name in Sdlc-Ticket trailers.
+        try:
+            mb = gitutil.merge_base(cfg.root, base)
+        except gitutil.GitError:
+            return []
+        named = gitutil.trailer_values(cfg.root, f"{mb}..HEAD", "Sdlc-Ticket")
+        return sorted({t for t in named if t in repo.tickets})
     p = cfg.data["paths"]
     dirs = (p["tickets"], p["evidence"], p["reviews"])
     ids = set()
@@ -1288,6 +1382,22 @@ def proven_commit(cfg: Config, tid: str, plays: tuple[str, ...]) -> str | None:
             ev = json.loads(p.read_text(encoding="utf-8"))
             if ev.get("result") == "pass" and ev.get("commit") and not ev.get("partial"):
                 return ev["commit"]
+    return None
+
+
+def _play_commit(cfg: Config, base: str, plays: tuple[str, ...]) -> str | None:
+    """The newest commit on the branch a play made (its Sdlc-Play trailer): where the next play
+    starts when evidence is not committed."""
+    try:
+        mb = gitutil.merge_base(cfg.root, base)
+    except gitutil.GitError:
+        return None
+    log = gitutil.git(cfg.root, "log", f"{mb}..HEAD", "--format=%H %(trailers:key=Sdlc-Play,valueonly,separator=%x2C)",
+                      check=False)
+    for line in log.splitlines():
+        sha, _, play = line.partition(" ")
+        if play.strip() in plays:
+            return sha
     return None
 
 

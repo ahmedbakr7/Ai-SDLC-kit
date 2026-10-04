@@ -22,6 +22,9 @@ if not m:
 play, tid = m.group(1).lower(), m.group(2)
 repo = Path.cwd()
 solution = Path(__file__).resolve().parent / "solutions" / f"{play}-{tid}"
+records = f".sdlc-run/review-{tid}.md" in text  # approvals outside the tree (ADR-0001 step 2)
+if play == "review" and records:
+    solution = Path(__file__).resolve().parent / "solutions" / f"review-records-{tid}"
 if not solution.is_dir():
     sys.exit(f"fake agent: no solution for {play} {tid}")
 
@@ -34,13 +37,14 @@ elif stray.exists():
 
 commit = ""  # a reviewer names the commit the latest evidence proved
 for name in (f"{tid}.build.json", f"{tid}.test.json"):
-    ev = repo / "evidence" / name
+    ev = repo / (".sdlc-run" if records else "evidence") / name
     if ev.is_file():
         commit = json.loads(ev.read_text(encoding="utf-8"))["commit"]
 
 for src in solution.rglob("*"):
     if src.is_file():
-        dest = repo / src.relative_to(solution)
+        # A review record goes to the run directory (gitignored), never into the tree.
+        dest = (repo / ".sdlc-run" if play == "review" and records else repo) / src.relative_to(solution)
         dest.parent.mkdir(parents=True, exist_ok=True)
         if src.suffix == ".md":
             dest.write_text(src.read_text(encoding="utf-8").replace("{commit}", commit), encoding="utf-8")
