@@ -203,6 +203,9 @@ def resolve(cfg: Config, t: Ticket, changed: list[str], mb: str | None, override
     contracts = cfg.data["paths"]["contracts"]
     if contracts in changed:
         raise_to("strict", f"{contracts} changed (a contract change is strict, even as a rename)")
+    waived = cfg.data["paths"].get("waivers", "sdlc-waivers.toml")
+    if waived in changed:
+        raise_to("strict", f"{waived} changed (only the lead adds or renews a waiver)")
     for f in changed:
         hit = next((g for g in cfg.section("lanes").get("strict_paths", []) if paths.match(f, g)), None)
         if hit:

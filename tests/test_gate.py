@@ -970,5 +970,229 @@ class BaselineRenames(unittest.TestCase):
         self.assertNotEqual(code, 0, out)
         self.assertIn("new: app/legacy.py: TS2345", out)
 
+
+
+class Waivers(unittest.TestCase):
+    """ADR-0002 step 4b: sdlc-waivers.toml. A waiver on the base branch covers up to its count
+    of a failure main already has; it is owned, dated from git, and expires."""
+
+    def setUp(self) -> None:
+        import datetime as dt
+
+        from helpers import git
+
+        self.git, self.dt = git, dt
+        self.today = dt.date.today()
+        self.p = ProductRepo()
+        self.p.write("tools/fake_tsc.py", BaselineRenames.TSC)
+        cfg = self.p.read("sdlc.toml").replace('typecheck = "python tools/lint.py --types"',
+                                                f"typecheck = '\"{Path(sys.executable).as_posix()}\" tools/fake_tsc.py'")
+        self.p.write("sdlc.toml", cfg)
+        self.p.write("app/legacy.py", "A = 1  # TYPEERR\nB = 2  # TYPEERR\n")
+        self.p.commit("main is red: two type errors the lead cannot fix today")
+
+    def tearDown(self) -> None:
+        self.p.close()
+
+    def waive(self, *entries: dict) -> None:
+        out = []
+        for e in entries:
+            w = {"id": "W-1", "check": "typecheck", "key": "app/legacy.py: TS2345", "count": 2,
+                 "owner": "lead", "reason": "vendor types land next sprint",
+                 "expires": self.today + self.dt.timedelta(days=30), **e}
+            out.append("[[waiver]]\n" + "".join(
+                f"{k} = {v.isoformat() if isinstance(v, self.dt.date) else json.dumps(v)}\n" for k, v in w.items()))
+        self.p.write("sdlc-waivers.toml", "\n".join(out))
+
+    def typecheck(self, *extra: str) -> tuple[int, str]:
+        return self.p.sdlc("gate", "ci", "--only", "typecheck", *extra)
+
+    def test_a_waiver_on_main_covers_its_count_and_says_who_owns_it(self) -> None:
+        self.assertNotEqual(self.typecheck()[0], 0)
+        self.waive({})
+        self.p.commit("lead: waive the vendor type errors")
+        code, out = self.typecheck()
+        self.assertEqual(code, 0, out)
+        self.assertIn("WAIVED: 2 failure(s) under sdlc-waivers.toml, none new", out)
+        exp = (self.today + self.dt.timedelta(days=30)).isoformat()
+        self.assertIn(f"waived: app/legacy.py: TS2345: W-1 (owner lead, expires {exp})", out)  # shown on a pass
+        ev = json.loads(self.p.read(".sdlc-run/ci.json"))
+        tc = {c["name"]: c for c in ev["checks"]}["typecheck"]
+        self.assertEqual(len(tc["waived"]), 2)
+
+    def test_one_more_occurrence_than_the_count_fails(self) -> None:
+        self.waive({})
+        self.p.commit("lead: waive")
+        self.p.write("app/legacy.py", self.p.read("app/legacy.py") + "C = 3  # TYPEERR\n")
+        code, out = self.typecheck()
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("1 new failure(s) not in sdlc-baseline.json", out)
+
+    def test_a_branch_cannot_waive_its_own_failure(self) -> None:
+        self.git(self.p.root, "checkout", "-q", "-b", "lead/waive")
+        self.waive({})
+        self.p.commit("waive on a branch")
+        code, out = self.typecheck("--base", "main")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("pending: W-1 applies once it is on main", out)
+        # Raising a count on a branch is a change too: neither version applies there.
+        self.git(self.p.root, "checkout", "-q", "main")
+        self.git(self.p.root, "merge", "-q", "--no-ff", "-m", "merge", "lead/waive")
+        self.assertEqual(self.typecheck()[0], 0)
+        self.git(self.p.root, "checkout", "-q", "-b", "build/more")
+        self.p.write("app/legacy.py", self.p.read("app/legacy.py") + "C = 3  # TYPEERR\n")
+        self.waive({"count": 3})
+        self.p.commit("raise the count with the new failure")
+        code, out = self.typecheck("--base", "main")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("pending: W-1 applies once it is on main", out)
+
+    def test_a_waiver_that_covers_nothing_fails_gate_ci_until_removed(self) -> None:
+        self.waive({})
+        self.p.commit("lead: waive")
+        self.p.write("app/legacy.py", "A = 1\nB = 2\n")
+        self.p.commit("fix the type errors")
+        code, out = self.p.sdlc("gate", "ci")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("1 waiver(s) cover nothing; remove them from sdlc-waivers.toml", out)
+        self.assertIn("stale waiver: W-1 (app/legacy.py: TS2345)", out)
+        (self.p.root / "sdlc-waivers.toml").unlink()
+        self.p.commit("lead: drop the waiver")
+        code, out = self.p.sdlc("gate", "ci")
+        self.assertEqual(code, 0, out)
+
+    def test_an_expired_waiver_fails_gate_ci_and_ticket_gates_only_report_it(self) -> None:
+        self.waive({"expires": self.today - self.dt.timedelta(days=1)})
+        self.p.commit("lead: a waiver that has run out")
+        code, out = self.p.sdlc("gate", "ci")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn(f"ERROR W-1: expired on {self.today - self.dt.timedelta(days=1)} (owner lead: vendor types "
+                      "land next sprint)", out)
+        self.git(self.p.root, "checkout", "-q", "-b", "lead/notes")
+        self.p.write("decisions/notes.md", "notes\n")
+        self.p.commit("a lead doc")
+        code, out = self.p.sdlc("gate", "pr", "--base", "main", "--verbose")
+        self.assertIn("WARN W-1: expired on", out)
+        waiver_line = next(line for line in out.splitlines() if " waivers " in line)
+        self.assertTrue(waiver_line.startswith("PASS"), out)
+
+    def test_the_gate_warns_14_days_before_expiry(self) -> None:
+        self.waive({"expires": self.today + self.dt.timedelta(days=10)})
+        self.p.commit("lead: a short waiver")
+        code, out = self.typecheck()
+        self.assertEqual(code, 0, out)
+        self.assertIn("WARN W-1: expires on", out)
+        self.assertIn("in 10 day(s) (owner lead); renew it or fix the failure", out)
+        code, out = self.p.sdlc("doctor")
+        self.assertIn("note  waiver: W-1: expires on", out)
+
+    def test_a_waiver_may_not_outlast_max_days_from_its_commit(self) -> None:
+        self.waive({"expires": self.today + self.dt.timedelta(days=91)})
+        self.p.commit("lead: too long")
+        code, out = self.p.sdlc("gate", "ci")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn(f"more than 90 days after it was added on {self.today}", out)
+
+    def test_a_backdated_commit_cannot_date_a_waiver(self) -> None:
+        import os
+        import subprocess
+
+        self.waive({})
+        self.git(self.p.root, "add", "-A")
+        env = dict(os.environ, GIT_COMMITTER_DATE="2020-01-01T00:00:00Z", GIT_AUTHOR_DATE="2020-01-01T00:00:00Z")
+        subprocess.run(["git", "commit", "-q", "-m", "backdated waiver"], cwd=self.p.root, env=env, check=True)
+        code, out = self.p.sdlc("gate", "ci")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("introduces W-1 dated before its parent", out)
+
+    def test_a_renewal_keeps_coverage_and_the_chain_is_capped(self) -> None:
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml") + "\n[waivers]\nmax_days = 10\n")
+        self.waive({"expires": self.today + self.dt.timedelta(days=5)})
+        self.p.commit("lead: a 10-day waiver policy and a short waiver")
+        self.git(self.p.root, "checkout", "-q", "-b", "lead/renew")
+        self.waive({"id": "W-2", "renews": "W-1", "expires": self.today + self.dt.timedelta(days=10)})
+        self.p.commit("renew W-1")
+        code, out = self.typecheck("--base", "main")
+        self.assertEqual(code, 0, out)  # the renewal keeps W-1's coverage in its own PR
+        self.git(self.p.root, "checkout", "-q", "main")
+        self.git(self.p.root, "merge", "-q", "--no-ff", "-m", "merge the renewal", "lead/renew")
+        code, out = self.p.sdlc("gate", "ci")
+        self.assertEqual(code, 0, out)
+        # A second renewal past twice max_days from W-1's date is refused.
+        self.git(self.p.root, "checkout", "-q", "-b", "lead/renew-again")
+        self.waive({"id": "W-3", "renews": "W-2", "expires": self.today + self.dt.timedelta(days=21)})
+        self.p.commit("renew again")
+        code, out = self.p.sdlc("gate", "ci", "--base", "main")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn(f"would make its renewal chain last past 20 days from {self.today}", out)
+
+    def test_an_expired_renewal_keeps_nothing(self) -> None:
+        self.waive({})
+        self.p.commit("lead: waive")
+        self.git(self.p.root, "checkout", "-q", "-b", "lead/renew")
+        self.waive({"id": "W-2", "renews": "W-1", "expires": self.today - self.dt.timedelta(days=1)})
+        self.p.commit("a renewal that has already run out")
+        code, out = self.p.sdlc("gate", "ci", "--base", "main")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("W-2 expires", out)
+        self.assertIn("which has already passed", out)
+        self.assertNotIn("WAIVED", out)
+
+    def test_two_renewals_of_one_waiver_do_not_double_its_coverage(self) -> None:
+        self.waive({})
+        self.p.commit("lead: waive")
+        self.git(self.p.root, "checkout", "-q", "-b", "lead/renew")
+        self.p.write("app/legacy.py", self.p.read("app/legacy.py") + "C = 3  # TYPEERR\nD = 4  # TYPEERR\n")
+        self.waive({"id": "W-2", "renews": "W-1"}, {"id": "W-3", "renews": "W-1"})
+        self.p.commit("renew twice, add two failures")
+        code, out = self.p.sdlc("gate", "ci", "--base", "main")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("W-3 renews W-1, which another entry already renews", out)
+        self.assertIn("2 new failure(s)", out)
+
+    def test_a_bad_date_stops_mattering_once_its_waiver_is_gone(self) -> None:
+        import os
+        import subprocess
+
+        self.waive({})
+        self.git(self.p.root, "add", "-A")
+        env = dict(os.environ, GIT_COMMITTER_DATE="2020-01-01T00:00:00Z", GIT_AUTHOR_DATE="2020-01-01T00:00:00Z")
+        subprocess.run(["git", "commit", "-q", "-m", "backdated waiver"], cwd=self.p.root, env=env, check=True)
+        self.assertIn("dated before its parent", self.p.sdlc("gate", "ci")[1])
+        self.p.write("sdlc-waivers.toml", "")
+        self.p.write("app/legacy.py", "A = 1\nB = 2\n")
+        self.p.commit("lead: fix the errors and drop the waiver")
+        code, out = self.p.sdlc("gate", "ci")
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("dated before its parent", out)
+
+    def test_trace_json_lists_a_waived_problem_once(self) -> None:
+        (self.p.root / "evidence/T-042-01.build.json").unlink()
+        self.p.commit("main loses a shipped ticket's evidence")
+        key = "T-042-01: done without passing build evidence"
+        self.waive({"check": "trace", "key": key, "count": 1})
+        self.p.commit("lead: waive it")
+        data = json.loads(self.p.sdlc("trace", "--json")[1])
+        self.assertTrue(any(w.startswith(key) for w in data["waived"]), data["waived"])
+        self.assertNotIn(key, data["known"])
+        self.assertNotIn(key, data["problems"])
+
+    def test_a_waiver_for_a_process_check_is_refused(self) -> None:
+        self.waive({"check": "scope"})
+        self.p.commit("lead: try to waive scope")
+        code, out = self.p.sdlc("gate", "ci")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("scope is never waivable", out)
+
+    def test_trace_problems_can_be_waived(self) -> None:
+        (self.p.root / "evidence/T-042-01.build.json").unlink()
+        self.p.commit("main loses a shipped ticket's evidence")
+        self.assertIn("ERROR T-042-01: done without passing build evidence", self.p.sdlc("trace")[1])
+        self.waive({"check": "trace", "key": "T-042-01: done without passing build evidence", "count": 1})
+        self.p.commit("lead: waive it")
+        code, out = self.p.sdlc("trace")
+        self.assertIn("WAIVED T-042-01: done without passing build evidence: W-1 (owner lead", out)
+        self.assertNotIn("ERROR T-042-01: done without passing build evidence", out)
+
 if __name__ == "__main__":
     unittest.main()

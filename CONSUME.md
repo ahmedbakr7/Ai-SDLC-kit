@@ -61,6 +61,14 @@ it, and `gate ci` fails until fixed entries are removed with `sdlc baseline --pr
 a ticket shipped after the baseline must still be proven. Scope, immutable, review-file,
 skills and ac-red are never baselined.
 
+A failure main already has that cannot be fixed yet (a flaky vendor test, a lint rule a hotfix
+cannot meet) gets a waiver in `sdlc-waivers.toml` (kit v1.4.0-rc1 or later), in a lead PR: an exact `key` and `count` as
+the gate prints it, an `owner`, a `reason` and an `expires` date at most `[waivers] max_days`
+(90) away. It applies once merged, and lists every waived failure with its owner and expiry.
+`gate ci` fails when it expires, when the failure is gone, or when its renewals (`renews`) reach
+twice `max_days`; fix the failure, or move it into the baseline. A ticket PR touching the file
+is strict.
+
 Commit, then mark the `gate` job required in branch protection.
 
 ## 3. Run the pipeline

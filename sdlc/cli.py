@@ -8,7 +8,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from . import __version__, adapters, config, fm, lint, prompt, skills, tickets, trace
+from . import __version__, adapters, config, fm, gitutil, lint, prompt, skills, tickets, trace
 from .artifacts import Repo
 
 EXIT_FAIL = 1
@@ -32,28 +32,44 @@ def cmd_lint(args) -> int:
 
 
 def cmd_trace(args) -> int:
-    from . import baseline
+    from . import baseline, waivers
 
     cfg = _cfg(args)
     m = trace.matrix(Repo(cfg))
     probs = trace.problems(m)
     # Problems sdlc-baseline.json lists are known debt; new ones fail, and so do entries that
-    # stopped failing (prune them), so the baseline only shrinks.
+    # stopped failing (prune them), so the baseline only shrinks. Waivers on the base branch
+    # cover their count of what is left; one that covers nothing is stale.
     bl = baseline.path(cfg.root, cfg.data["paths"])
     known = baseline.load(cfg.root, cfg.rel(bl)).get("trace", [])
     new, stale = baseline.compare(known, probs)
+    wrel = cfg.rel(waivers.path(cfg.root, cfg.data["paths"]))
+    try:
+        wbase: str | None = gitutil.merge_base(cfg.root, cfg.section("vcs").get("base", "main"))
+    except gitutil.GitError:
+        wbase = None
+    ws = waivers.state(cfg.root, wrel, wbase, waivers.max_days(cfg.section("waivers"))).for_check("trace")
+    new, covered, unused = waivers.apply(ws, new)
     if args.json:
-        print(json.dumps({"matrix": m, "problems": new, "known": sorted(set(probs) - set(new)),
-                          "fixed": stale}, indent=2))
+        from collections import Counter
+
+        known_now = Counter(probs) - Counter(new) - Counter(k for k, _ in covered)
+        print(json.dumps({"matrix": m, "problems": new, "known": sorted(known_now.elements()),
+                          "fixed": stale, "waived": [f"{k}: {w.label()}" for k, w in covered],
+                          "stale_waivers": [w.id for w in unused]}, indent=2))
     else:
         print(trace.render(m))
         for p in new:
             print(f"ERROR {p}")
         for p in stale:
             print(f"ERROR fixed, still in {cfg.rel(bl)}: {p}; run `sdlc baseline --prune`")
+        for w in unused:
+            print(f"ERROR waiver {w.id} covers nothing; remove it from {wrel}")
+        for k, w in covered:
+            print(f"WAIVED {k}: {w.label()}")
         if known and not new and not stale:
-            print(f"BASELINED: {len(probs)} known trace problem(s) from {cfg.rel(bl)}, none new")
-    return EXIT_FAIL if new or stale else 0
+            print(f"BASELINED: {len(probs) - len(covered)} known trace problem(s) from {cfg.rel(bl)}, none new")
+    return EXIT_FAIL if new or stale or unused else 0
 
 
 def cmd_next(args) -> int:
@@ -119,6 +135,9 @@ def cmd_gate(args) -> int:
         print(f"{mark}  {c.name:13} {c.summary}  ({c.ms} ms)", flush=True)
         if c.status == "fail" or args.verbose:
             for d in c.details[-40:]:
+                print(f"        {d}")
+        else:  # a waived failure is never silent: its owner and expiry show on every run
+            for d in [d for d in c.details if d.startswith(("waived: ", "WARN ", "pending: "))][-40:]:
                 print(f"        {d}")
 
     ev = g.run(on_check=show)
@@ -534,6 +553,7 @@ def cmd_doctor(args) -> int:
     if not (cfg.root / ".github" / "workflows").is_dir():
         notes.append("no .github/workflows: nothing enforces the gate on PRs unless your CI runs `sdlc gate ci`")
     probs += [f"skills: {p}" for p in skills.verify(cfg)]
+    notes += _waiver_notes(cfg)
     if not cfg.section("agents"):
         notes.append("no [agents.*] in sdlc.toml: `sdlc run` is unavailable (see adapters/AGENTS-RUNNER.md)")
     try:
@@ -546,6 +566,20 @@ def cmd_doctor(args) -> int:
         print(f"ERROR {p}")
     print("doctor: " + ("OK" if not probs else f"{len(probs)} problem(s)"))
     return EXIT_FAIL if probs else 0
+
+
+def _waiver_notes(cfg: config.Config) -> list[str]:
+    """Waiver problems and the 14-day expiry warning. Notes: `gate ci` fails on them, while a
+    ticket PR, which runs doctor too, must not."""
+    from . import waivers
+
+    rel = cfg.rel(waivers.path(cfg.root, cfg.data["paths"]))
+    try:
+        ref: str | None = gitutil.merge_base(cfg.root, cfg.section("vcs").get("base", "main"))
+    except gitutil.GitError:
+        ref = None
+    s = waivers.state(cfg.root, rel, ref, waivers.max_days(cfg.section("waivers")))
+    return [f"waiver: {p}" for p in s.problems] + [f"waiver: {w}" for w in s.warnings]
 
 
 # The checks a lane may never drop (ADR-0001): the floor `doctor` holds every product to.

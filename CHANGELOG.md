@@ -7,6 +7,24 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 
 ## Unreleased
 
+## v1.4.0-rc1 (2026-10-05)
+
+ADR-0002 step 4b: time-boxed waivers. Nothing changes for a product without `sdlc-waivers.toml`.
+
+- `sdlc-waivers.toml` (`[[waiver]]`: `id`, `check`, `key`, `count`, `owner`, `reason`, `expires`,
+  optional `ticket` and `renews`) waives up to `count` occurrences of one exact key, after the
+  baseline. A waiver applies only once it is on the base branch, unchanged, so a PR cannot waive
+  its own new failure; a renewal keeps the renewed waiver's coverage in its own PR.
+- The creation date is the committer date of the base branch's first-parent commit that
+  introduced the entry; a commit dated before its parent, or in the future, is refused. A waiver
+  lasts at most `[waivers] max_days` (90) from that date, a renewal chain at most twice that.
+- `gate ci` fails on an expired, stale (covers nothing), invalid or over-long waiver; every other
+  gate, and `doctor`, reports it, with a warning 14 days before expiry. Waived failures are listed
+  with owner and expiry in the gate output, the evidence and `sdlc trace`.
+- Scope, immutable, review-file, approval, mechanical, spike, contract-diff, ac-red and skills are
+  never waivable. A ticket PR that changes `sdlc-waivers.toml` is strict, so it needs a lead
+  approval.
+
 ## v1.3.0-rc1 (2026-10-05)
 
 ADR-0002 step 4a: a rename-proof baseline.

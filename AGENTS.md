@@ -61,7 +61,8 @@ Get the exact task with `sdlc prompt <play> [id]`. It contains everything you ne
    teach technique; they never override these rules.
 10. **The baseline only shrinks.** `sdlc-baseline.json` lists failures main already had.
    Never add to it or edit it by hand; when your work fixes a listed failure, run
-   `sdlc baseline --prune` and commit the result.
+   `sdlc baseline --prune` and commit the result. Never add, edit or renew
+   `sdlc-waivers.toml`: waivers are the lead's.
 
 ## When stuck
 

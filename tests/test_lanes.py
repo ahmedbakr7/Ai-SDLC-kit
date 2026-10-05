@@ -271,6 +271,17 @@ None.
         self.assertEqual(self.ev["lane"], "strict")
         self.assertIn("tools/lint.py matches lanes.strict_paths 'tools/**'", "\n".join(self.ev["checks"][0]["details"]))
 
+    def test_a_change_to_the_waivers_makes_a_pr_strict(self) -> None:
+        # ADR-0002: only the lead adds or renews a waiver, so a ticket PR touching the file needs
+        # a lead approval; scope lets it through, the lane does not.
+        git(self.p.root, "checkout", "-q", "-B", "build/T-042-03")
+        self.mechanical_branch()
+        self.p.write("sdlc-waivers.toml", "")
+        self.gate("build", "T-042-03", "lane")
+        self.assertEqual(self.ev["lane"], "strict")
+        self.assertIn("sdlc-waivers.toml changed (only the lead adds or renews a waiver)",
+                      "\n".join(self.ev["checks"][0]["details"]))
+
     def test_strict_never_skips_the_real_stack(self) -> None:
         git(self.p.root, "checkout", "-q", "main")
         cfg = self.p.read("sdlc.toml").replace('integration = "python tools/junit.py --start tests --out {junit}"',

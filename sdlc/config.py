@@ -30,7 +30,10 @@ DEFAULTS: dict[str, Any] = {
         "skills": "skills",
         "skills_lock": "skills.lock.json",
         "baseline": "sdlc-baseline.json",   # known failures a red base branch started with
+        "waivers": "sdlc-waivers.toml",     # dated, owned exceptions the lead adds (ADR-0002)
     },
+    # A waiver lasts at most max_days from the commit that added it; renewals at most twice that.
+    "waivers": {"max_days": 90},
     # Shell commands. Placeholders: {junit} (JUnit XML output path), {port}, {base_url}.
     "commands": {},
     "gate": {
