@@ -101,7 +101,7 @@ class Gate:
         # The branch's baseline; `immutable` proves it only shrinks against the base branch's.
         bl = baseline.path(cfg.root, cfg.data["paths"])
         self.baseline_rel = cfg.rel(bl)
-        self.baseline = {} if ignore_baseline or not bl.is_file() else baseline.parse(bl.read_text(encoding="utf-8"))
+        self.baseline = {} if ignore_baseline else baseline.load(cfg.root, self.baseline_rel)
         # The lane is judged on the whole branch against the base, whichever play runs.
         self.lane: lanes.Lane | None = None
         self.mb: str | None = None
@@ -1211,14 +1211,14 @@ class Gate:
         rel = self.baseline_rel
         if rel not in changed:
             return []
-        f = self.cfg.root / rel
-        branch = baseline.parse(f.read_text(encoding="utf-8")) if f.is_file() else {}
-        before = gitutil.show(self.cfg.root, mb, "./" + rel)
+        # Both sides with paths renamed up to HEAD, so a moved file's entries compare equal.
+        branch = baseline.load(self.cfg.root, rel)
+        before = baseline.load_at(self.cfg.root, mb, rel)
         if before is None:
             if self.ticket:
                 return [f"{rel}: created by a ticket; only the lead adds the baseline (`sdlc baseline` in a lead PR)"]
             return []
-        return [f"{rel}: may only shrink, but adds {e}" for e in baseline.grown(baseline.parse(before), branch)]
+        return [f"{rel}: may only shrink, but adds {e}" for e in baseline.grown(before, branch)]
 
     def check_skills(self, c: Check) -> None:
         from . import skills
@@ -1488,9 +1488,8 @@ def _changed_after_review(cfg: Config, t: Ticket, commit: str, base: str | None 
     # A prune after the review, such as one merged in from the base branch, makes the gates
     # stricter and cannot void the approval; an added entry hides a failure it never saw.
     bl = baseline.path(cfg.root, cfg.data["paths"])
-    reviewed = gitutil.show(cfg.root, commit, "./" + cfg.rel(bl))
-    if reviewed is not None and bl.is_file() and not baseline.grown(
-            baseline.parse(reviewed), baseline.parse(bl.read_text(encoding="utf-8"))):
+    reviewed = baseline.load_at(cfg.root, commit, cfg.rel(bl))
+    if reviewed is not None and bl.is_file() and not baseline.grown(reviewed, baseline.load(cfg.root, cfg.rel(bl))):
         ok.add(cfg.rel(bl))
     rel = cfg.rel(t.path)
     late = [f for f in changed if f not in ok and not (f == rel and _status_change(cfg, commit, f))]

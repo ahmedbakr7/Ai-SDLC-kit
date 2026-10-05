@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -136,6 +137,40 @@ class NextjsTestForbid(unittest.TestCase):
                     'const data = readJson("fixtures/plan.json");'):
             with self.subTest(src=src):
                 self.assertFalse(self.flagged(src))
+
+
+class BaselineVersions(unittest.TestCase):
+    """ADR-0002 step 4a: version 2 stores a count per key; version 1 is still read."""
+
+    def test_version_2_round_trips_counts(self) -> None:
+        from sdlc import baseline
+
+        checks = {"typecheck": ["a.ts: TS1", "a.ts: TS1", "b.ts: TS2"], "lint": []}
+        text = baseline.dump(checks)
+        self.assertEqual(json.loads(text), {"version": 2, "checks": {"typecheck": {"a.ts: TS1": 2, "b.ts: TS2": 1}}})
+        self.assertEqual(sorted(baseline.parse(text)["typecheck"]), checks["typecheck"])
+
+    def test_version_1_lists_count_once_per_line(self) -> None:
+        from sdlc import baseline
+
+        v1 = json.dumps({"version": 1, "checks": {"contracts": ["x", "x"], "scope": ["never"]}})
+        self.assertEqual(baseline.parse(v1), {"contracts": ["x", "x"]})
+
+    def test_a_count_that_is_not_a_positive_integer_carries_nothing(self) -> None:
+        from sdlc import baseline
+
+        v2 = json.dumps({"version": 2, "checks": {"lint": {"a": 0, "b": -1, "c": True, "d": "3", "e": 1.5, "f": 2}}})
+        self.assertEqual(baseline.parse(v2), {"lint": ["f", "f"]})
+
+    def test_a_renamed_path_is_replaced_only_where_it_stands_whole(self) -> None:
+        from sdlc import baseline
+
+        moved = {"app/a.py": "app/b.py"}
+        keys = ["app/a.py: TS1", "client calls /v1/x at app/a.py; y", "app/a.pyi: TS1",
+                "xapp/a.py: TS1", "app/a.py.bak/c.py: TS1", "test_a_py_works"]
+        self.assertEqual(baseline.remap({"lint": keys}, moved)["lint"],
+                         ["app/b.py: TS1", "client calls /v1/x at app/b.py; y", "app/a.pyi: TS1",
+                          "xapp/a.py: TS1", "app/a.py.bak/c.py: TS1", "test_a_py_works"])
 
 
 class BaselineKeys(unittest.TestCase):
