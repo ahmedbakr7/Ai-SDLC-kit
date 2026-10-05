@@ -1,7 +1,7 @@
 ---
 id: ADR-0002
 title: Rename-proof baseline counts, time-boxed waivers, and strictness presets
-status: proposed
+status: accepted
 date: 2026-10-05
 source: ADR-0001 section 7 (later steps); Hangout pilot (sdlc-baseline.json, PRs #58-#60)
 supersedes: none
@@ -47,37 +47,57 @@ What the kit does today, and what the Hangout pilot shows:
 
 ### 2. Waivers: explicit, owned, dated
 
-- A new lead artifact, `sdlc-waivers.toml`: a list of waivers, each with `check`, `match`
-  (a key, or a glob over keys), `owner` (who resolves it), `reason`, `expires` (a date), and
-  optionally `ticket` (the follow-up that removes it).
-- A failure a live waiver matches passes as `WAIVED` and is listed with its owner and expiry
-  in the evidence, the PR summary and `sdlc trace`. Waivers do not touch the baseline and do
-  not count toward its shrinking.
-- **Only the lead adds one.** The file is a lead artifact: a ticket PR that changes it fails
-  `scope`, and a PR without a ticket needs a lead approval (records mode) or is a lead PR
-  (file mode). Removing a waiver is allowed in any PR, like pruning the baseline.
-- **Expiry is enforced.** An expired waiver fails `gate ci` with its owner and reason, whether
-  or not its failure still occurs, so a forgotten waiver cannot outlive its date. `doctor` and
-  `gate ci` warn 14 days before. `expires` may be at most `[waivers] max_days` (default 90)
-  after the date the waiver was added on the base branch.
+- A new lead artifact, `sdlc-waivers.toml`: a list of waivers, each with `id`, `check`, `key`
+  and `count` (the same shape as a baseline entry: an exact key, no globs), `owner` (who
+  resolves it), `reason`, `expires` (a date), and optionally `ticket` (the follow-up that
+  removes it) and `renews` (the `id` of the waiver it renews).
+- **Where it applies.** Every gate honours waivers the way it honours the baseline. A waiver
+  covers only failures that already exist on the base branch: up to `count` occurrences of
+  its key pass as `WAIVED`, and any occurrence above that is new and fails, waiver or not. A
+  waiver whose key no longer fails is stale and fails `gate ci` until it is removed, like a
+  pruned baseline entry. Waivers never touch the baseline and do not count toward its
+  shrinking. Every `WAIVED` result is listed with its owner and expiry in the evidence, the
+  PR summary and `sdlc trace`.
+- **Dates come from git.** A waiver's creation date is the date of the commit that added its
+  entry to the base branch, never a typed field, so it cannot be backdated. `expires` may be
+  at most `[waivers] max_days` (default 90) after that date.
+- **Renewal.** A renewal is a new entry with `renews: <id>`; its expiry counts from its own
+  creation date, and the renewed entry is removed in the same change. A waiver's total
+  lifetime, along its chain of renewals, is capped at twice `max_days` from the original
+  entry's creation date. Past that the failure is fixed, or moved into the baseline in a lead
+  PR.
+- **Expiry.** An expired waiver fails `gate ci` with its owner and reason, whether or not its
+  failure still occurs; ticket gates (build, test, pr) report it without failing. `doctor` and
+  every gate warn 14 days before a waiver expires.
+- **Only the lead adds or renews one.** A ticket PR that changes `sdlc-waivers.toml` runs in
+  the strict lane, so it needs a lead approval; a PR without a ticket needs one already.
 - Never waivable: `scope`, `immutable`, `review-file`, approval, `mechanical`, `spike`,
   `contract-diff`, `ac-red` and `skills`. They judge the change, not the code it starts from
   (the same set the baseline excludes, plus the lane checks).
 
 ### 3. Strictness presets
 
-- `[gate] preset = "default"` names a set of lane lists and triggers. A product's own `[gate]`
-  and `[lanes]` keys still override the preset key by key. Stack profiles (`nextjs`, `node`,
-  `python`) are unchanged; a preset is about how much is proven, a stack profile about how.
+- `[gate] preset = "default"` names a set of lane lists, triggers and limits. A product's own
+  `[gate]`, `[lanes]` and `[waivers]` keys still override the preset key by key, except where a
+  preset forbids a setting (below). Stack profiles (`nextjs`, `node`, `python`) are unchanged:
+  a preset is about how much is proven, a stack profile about how.
 - Presets in this step:
-  - `default`: today's lists, unchanged.
-  - `hardened`: standard also runs `contract-diff`; `integration` and `e2e` stop being optional
-    for every lane; the mechanical lane needs a human reviewer (a bot alone no longer counts);
-    `lanes.strict_paths` gains `**/auth/**` and `**/payments/**` on top of the stack profile's.
+  - `default`: today's lists and limits, unchanged.
+  - `hardened`: tightens existing settings and adds no new checks.
+    - `[approval] trust_unsigned` is forbidden: `doctor` fails when it is set.
+    - The mechanical lane needs a human reviewer; a bot approval alone does not count.
+    - The strict lane also triggers on `.github/workflows/**`, `sdlc.toml`, the `.sdlc` pin,
+      and dependency manifests and lockfiles.
+    - Real-stack tests (`tests.real_stack`) are required in the standard and strict lanes; a
+      skipped real-stack suite is a failure.
+    - `[gate] optional` must be empty.
+    - Waivers: `max_days` is 30 and renewal is not allowed.
   - `floor`: exactly ADR-0001 section 6, for products adopting the kit: `duplication` and
     `smoke` leave every lane's lists.
 - `doctor` keeps failing any resolved list below the floor, whatever the preset and overrides.
   A preset can only be at or above the floor, and the floor is not configurable.
+- Hangout cannot use `hardened` while it runs with `trust_unsigned = true`: one account opens,
+  reviews and leads there. It needs separate identities for its agents first.
 
 ## Consequences
 
@@ -85,8 +105,9 @@ Easier:
 
 - Moving or renaming a file no longer fails its gate or forces a prune. Hangout's 556 lines
   become one entry per distinct key with a count.
-- A hotfix that must ship past a known failure gets a dated, owned waiver in a lead PR instead
-  of a baseline edit or a weakened command.
+- A failure main already has and cannot fix yet (a flaky vendor test, a lint rule a hotfix
+  cannot meet) gets a dated, owned waiver in a lead PR instead of an undated baseline entry or
+  a weakened command.
 - A product picks a strictness level in one line and sees it in `doctor`.
 
 Harder, or newly risky:
@@ -97,7 +118,11 @@ Harder, or newly risky:
 - **Expiry turns main red on a date.** `gate ci` on an untouched main fails the day a waiver
   expires. That is the point, and the 14-day warning is the mitigation; the lead renews or the
   owner fixes.
-- **Waivers are a bypass.** They are lead-only, dated, capped at `max_days` and listed in every
+- **A new failure cannot be waived.** A waiver covers only what the base branch already fails,
+  so a PR cannot ship a fresh failure under a waiver; it fixes it, or the lead decides the
+  failure belongs on main first.
+- **Waivers are a bypass.** They are lead-only, dated from git, capped at `max_days` (and twice
+  that across renewals), limited to failures the base branch already has, and listed in every
   summary; the process checks are never waivable.
 - **Presets add a layer.** A product's list is the preset plus its overrides; `doctor` prints
   the resolved lists so nobody has to compute them.
@@ -111,13 +136,10 @@ reference passes), a changelog entry and a release tag, then a Hangout lead PR t
 | Step | Contents |
 |---|---|
 | 4a | Baseline version 2 (counts), rename mapping, reading version 1, `sdlc baseline` writing version 2 |
-| 4b | `sdlc-waivers.toml`, `WAIVED` results, expiry in `gate ci`, the 14-day warning, `max_days`, lead-only scope |
-| 4c | `[gate] preset` with `default`, `hardened` and `floor`; `doctor` prints resolved lists |
+| 4b | `sdlc-waivers.toml`, `WAIVED` results bounded by count, creation dates from git, expiry (fails `gate ci`, reported by ticket gates), the 14-day warning, `max_days`, renewal and the lifetime cap, the strict trigger |
+| 4c | `[gate] preset` with `default`, `hardened` and `floor`; settings a preset forbids; `doctor` prints resolved lists |
 
 ## Not decided
 
-- [OPEN: `hardened` contents. Proposed above; the lead may add or drop items before 4c.]
-- [OPEN: `max_days` default of 90, and whether a renewal (a new `expires` on an existing
-  waiver) counts from the renewal date or the original one.]
-- [OPEN: whether ticket gates (build, test, pr) honour waivers, or only `gate ci`. Proposed:
-  all gates honour them, so a waiver added for main also unblocks open branches.]
+Nothing. The lead settled the `hardened` contents, waiver lifetimes and where waivers apply
+before acceptance.
