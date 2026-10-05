@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Callable
 
-from . import approval, baseline, config, extract, fm, gitutil, lanes, lint, paths, tickets, waivers
+from . import approval, baseline, config, extract, fm, gitutil, lanes, lint, paths, presets, tickets, waivers
 from .artifacts import AC_RE, Repo, Ticket, normalize_path
 from .config import Config
 
@@ -111,7 +111,8 @@ class Gate:
         except gitutil.GitError:
             wbase = None
         self.waivers = (waivers.State() if ignore_baseline else
-                        waivers.state(cfg.root, self.waivers_rel, wbase, waivers.max_days(cfg.section("waivers"))))
+                        waivers.state(cfg.root, self.waivers_rel, wbase, waivers.max_days(cfg.section("waivers")),
+                                      renewals=not presets.hardened(cfg.data)))
         # The lane is judged on the whole branch against the base, whichever play runs.
         self.lane: lanes.Lane | None = None
         self.mb: str | None = None

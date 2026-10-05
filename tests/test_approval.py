@@ -732,5 +732,38 @@ class Tooling(Base):
         self.assertNotIn("issue_comment", gate)
 
 
+class HardenedPreset(Base):
+    """ADR-0002 step 4c: under `[gate] preset = "hardened"` a mechanical PR needs a human
+    reviewer; a bot's approval alone, enough by default, does not count."""
+
+    def mechanical_pr(self) -> str:
+        from test_lanes import MECH, MECH_TICKET, rename
+
+        git(self.p.root, "checkout", "-q", "-b", "build/T-042-03")
+        self.p.write(MECH, MECH_TICKET)
+        rename(self.p)
+        return commit(self.p, "T-042-03 rename", ticket="T-042-03")
+
+    def test_a_bot_alone_passes_a_mechanical_pr_by_default(self) -> None:
+        head = self.mechanical_pr()
+        self.forge()
+        self.record("bot", head, role="bot", ticket="T-042-03")
+        code, out, res = self.approval()
+        self.assertEqual(code, 0, (out, res))
+        self.assertIn("(mechanical) approved", res["summary"])
+
+    def test_hardened_needs_a_human_reviewer(self) -> None:
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace("[approval]", '[gate]\npreset = "hardened"\n\n[approval]', 1))
+        self.p.commit("lead: hardened")
+        head = self.mechanical_pr()
+        self.forge()
+        self.record("bot", head, role="bot", ticket="T-042-03")
+        code, out, res = self.approval()
+        self.assertNotEqual(code, 0, (out, res))
+        self.assertIn("(mechanical) needs an approval from an independent reviewer", res["summary"])
+        self.record("rev", head, ticket="T-042-03")
+        self.assertEqual(self.approval()[0], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

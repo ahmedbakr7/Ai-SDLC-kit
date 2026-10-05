@@ -282,6 +282,18 @@ None.
         self.assertIn("sdlc-waivers.toml changed (only the lead adds or renews a waiver)",
                       "\n".join(self.ev["checks"][0]["details"]))
 
+    def test_hardened_makes_a_manifest_change_strict(self) -> None:
+        git(self.p.root, "checkout", "-q", "main")
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml") + '\n[gate]\npreset = "hardened"\n')
+        self.p.commit("lead: hardened")
+        git(self.p.root, "checkout", "-q", "-B", "build/T-042-03")
+        self.mechanical_branch()
+        self.p.write("package.json", "{}\n")
+        self.gate("build", "T-042-03", "lane")
+        self.assertEqual(self.ev["lane"], "strict")
+        self.assertIn("package.json matches lanes.strict_paths '**/package.json'",
+                      "\n".join(self.ev["checks"][0]["details"]))
+
     def test_strict_never_skips_the_real_stack(self) -> None:
         git(self.p.root, "checkout", "-q", "main")
         cfg = self.p.read("sdlc.toml").replace('integration = "python tools/junit.py --start tests --out {junit}"',

@@ -7,6 +7,21 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 
 ## Unreleased
 
+## v1.5.0-rc1 (2026-10-05)
+
+ADR-0002 step 4c: strictness presets. `[gate] preset` defaults to `"default"`, which changes nothing.
+
+- `[gate] preset = "hardened"` tightens existing settings and adds no check: no trust-based
+  approvals; a mechanical PR needs a human reviewer, not a bot alone; `.github/workflows/**`,
+  `sdlc.toml`, the `.sdlc` pin and dependency manifests and lockfiles make a PR strict; nothing
+  is optional and `tests.real_stack` may not be emptied; waivers last at most 30 days and are
+  not renewed. A product's own keys still override the preset key by key, except these: the
+  stricter value holds and `doctor` fails the setting.
+- `[gate] preset = "floor"` is exactly ADR-0001 section 6, for products adopting the kit:
+  `duplication` and `smoke` leave every lane's lists.
+- `doctor` prints the resolved lane lists, strict paths and waiver limit, and still fails any
+  list below the floor.
+
 ## v1.4.0-rc1 (2026-10-05)
 
 ADR-0002 step 4b: time-boxed waivers. Nothing changes for a product without `sdlc-waivers.toml`.

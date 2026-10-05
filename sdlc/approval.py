@@ -21,7 +21,7 @@ import re
 import urllib.request
 from dataclasses import dataclass, field
 
-from . import fm, gitutil
+from . import fm, gitutil, presets
 from .config import Config
 
 MODES = ("file", "forge", "git")
@@ -285,8 +285,10 @@ class Result:
     trust_based: bool = False
 
 
-def required_roles(lane: str, lead_amendments: list[str]) -> list[str]:
-    need = ["review"] if lane != "mechanical" else ["any"]
+def required_roles(lane: str, lead_amendments: list[str], human_review: bool = False) -> list[str]:
+    """Roles a ticket PR needs. A mechanical PR takes any reviewer or bot, unless the hardened
+    preset asks for a human reviewer (`human_review`)."""
+    need = ["review"] if lane != "mechanical" or human_review else ["any"]
     if lane == "strict" or lead_amendments:
         need.append("lead")
     return need
@@ -383,7 +385,7 @@ def evaluate(cfg: Config, gate, records: list[Record], pr: PullRequest | None, h
     else:
         lane = gate.lane.name if gate.lane else "standard"
         amendments = gate.new_amendments()
-        need = required_roles(lane, lead_lines)
+        need = required_roles(lane, lead_lines, human_review=presets.hardened(cfg.data))
     build_agents = _build_agents(cfg, gate.base, head)
     committers = commit_identities(cfg, gate.base, head) if mode(cfg) == "git" else set()
     flagged = gate.out_of_area() if t is not None else []
