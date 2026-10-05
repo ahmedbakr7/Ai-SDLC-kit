@@ -1,0 +1,93 @@
+# Changelog
+
+Releases are tags on `main` (`vMAJOR.MINOR.PATCH`, with `-rcN` while a version is in
+review); `sdlc --version` prints the same number. Products pin a tag (CONSUME.md, "Pin it").
+MAJOR moves when an upgrade can fail a product that passed before, MINOR for new checks and
+behaviour that existing products keep passing (or that sit behind a setting), PATCH for fixes.
+
+## Unreleased
+
+- CHANGELOG.md, and CONSUME.md on pinning a release tag and upgrading between tags.
+
+## v1.2.0-rc1 (2026-10-04)
+
+ADR-0001 step 2: approvals outside the tree, evidence in CI, derived status. Opt in with
+`[approval] mode = "forge"` (GitHub) or `"git"` (signed notes); the default `"file"` keeps v1.1.
+
+- Approvals are PR reviews or comments (forge) or notes in `refs/notes/sdlc` (git), each bound
+  to the commit it reviewed. They still count after later pushes only when replaying those
+  pushes cannot change what was reviewed (`git merge-file` per file).
+- `[approval] reviewers`, `leads`, `bots`: the identities whose approvals count. Review and lead
+  approvals may not come from the PR author, a commit author or the building agent.
+  `trust_unsigned = true` accepts declared roles from collaborators with write access, for a
+  single account; every result then says it is trust-based.
+- Roles per lane: mechanical needs any reviewer or bot, standard a review, strict a review and a
+  lead; weakening or removing an AC by amendment, and any PR without a ticket, need a lead.
+- `sdlc approval` (CI check, `--publish-status` posts `sdlc/approval`), `sdlc review publish`,
+  `sdlc followups`, `sdlc commit`, `sdlc migrate --areas`.
+- Evidence stays in `.sdlc-run/`; `gate pr` re-proves the lane's checks on the head and
+  `gate ci` records shipped AC proof for `trace`.
+- Ticket status is derived: `done` once a merged commit names the ticket in an `Sdlc-Ticket:`
+  trailer. Tickets store only `draft`, `ready` and `blocked`.
+- `sdlc init` installs `sdlc-approval.yml` and its review relay `sdlc-approval-review.yml`: the
+  check runs the base branch's kit against the PR head (read as data), from the default branch
+  on every trigger, one run per PR at a time. The forge token goes only to `GITHUB_API_URL`.
+- Fixes: a commit with several `Sdlc-Play` trailers counts for each; a local base behind
+  `origin/<base>` no longer hides merged tickets; front matter keeps an integer with a leading
+  zero as text (`commit: 0510682`).
+
+## v1.1.0-rc1 (2026-10-04)
+
+ADR-0001 step 1 (accepted in decisions/ADR-0001).
+
+- Risk lanes `mechanical < standard < strict`, resolved from the ticket and the diff and never
+  lowered. A mechanical ticket's `transforms:` (literal, identifier rename, move) must produce
+  the whole diff byte for byte; anything else raises it to standard. `risk: high`,
+  `type: contract`, a CONTRACTS change and `lanes.strict_paths` are strict.
+- Soft areas (`areas:` globs replace `files:`): a file outside them is flagged and the approving
+  review names it under `## Out of area`; lead artifacts, CI workflows, the kit pin, other
+  tickets and the test play's files still fail scope.
+- Ticket amendments (`## Amendments`, append only): `add`, `strengthen`, `split`, `widen` by the
+  build; `weaken` and `remove` need the spec (or, in records mode, a lead approval).
+- Spikes (`type: spike`, `questions:`): documents only, inside their areas.
+- `contract-diff` on strict PRs: route, page, table and event changes, narrowed keys marked
+  breaking, prose outside every key reported.
+- `ac-red` reverts only `tests.source_globs`; gates count only this branch's changes after a
+  base merge.
+
+## v1.0.0-rc4 (2026-10-03)
+
+- `trace` honours `sdlc-baseline.json`.
+
+## v1.0.0-rc3 (2026-10-03)
+
+- `sdlc baseline`: record a red main's known failures in a lead PR; gates fail only on new ones,
+  and `--prune` removes fixed entries.
+- CI workflow: clone a private kit with `SDLC_KIT_TOKEN`, upload `.sdlc-run/` evidence, and run
+  trace and the PR gate even when `gate ci` fails.
+
+## v1.0.0-rc2 (2026-10-02)
+
+- `tests.real_stack`: name the suites that prove a ticket over the real stack.
+- `legacy: v0` marks tickets that shipped under kit v0; `sdlc migrate` sets it.
+- Contracts: a UI call must hit a built route; v0 `## Tables` markdown tables are read as
+  declared tables; smoke fails when the app serves no route at a contract path.
+- nextjs profile: duplication scans production code only and `--threshold` decides it; tests
+  that read source through a helper are flagged.
+
+## v1.0.0-rc1 (2026-10-01)
+
+The kit's rules move from prose into `sdlc gate` (MIGRATION.md).
+
+- The `sdlc` CLI: deterministic gates per play, the conveyor (`sdlc run`), contracts drift,
+  trace, doctor, and a runnable example product.
+- Gates run with the base branch's `sdlc.toml`; evidence binds to the commit it proves; a play
+  may move its ticket's status only along its own role's moves.
+- `ac-red`: each AC needs a test that fails without the ticket's code. Test quality forbids
+  inverted and conditionally skipped tests.
+- Lead PRs (no ticket) report code changed without a ticket; the lead may mark a ticket
+  `test: none`.
+
+## v0.1.0 (2026-09-22)
+
+- First version: plays, templates and adapters, with the rules in prose.

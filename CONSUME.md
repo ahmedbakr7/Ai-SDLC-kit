@@ -3,10 +3,17 @@
 ## 1. Pin it
 
 ```bash
-git submodule add -b main https://github.com/ahmedbakr7/Ai-SDLC-kit.git .sdlc
-git -C .sdlc checkout <tag>          # pin a release
+git submodule add https://github.com/ahmedbakr7/Ai-SDLC-kit.git .sdlc
+git -C .sdlc checkout v1.2.0-rc1     # pin a release tag (CHANGELOG.md lists them)
+git add .gitmodules .sdlc && git commit -m "pin ai-sdlc kit v1.2.0-rc1"
 .sdlc/bin/sdlc init --profile nextjs # or node | python | (none)
 ```
+
+The product records the commit the tag names, so every clone and CI run gets the same kit.
+`git -C .sdlc describe --tags` and `.sdlc/bin/sdlc --version` show which release is pinned.
+Pin tags, not `main`: `git submodule update --remote` moves the pin to the newest commit on the
+kit's branch, released or not, so leave it out of scripts and CI (`actions/checkout` with
+`submodules: true` checks out the recorded commit).
 
 `init` creates (never overwrites):
 
@@ -135,10 +142,18 @@ T-001-03`, commit, then `sdlc status T-001-03 in_review --as build`.
 
 ## 4. Upgrade the kit
 
+Read the CHANGELOG.md entries between your tag and the new one first: a MAJOR bump can fail
+checks that passed, and an entry's new settings stay off until `sdlc.toml` turns them on.
+
 ```bash
 git -C .sdlc fetch --tags && git -C .sdlc checkout <new tag>
 .sdlc/bin/sdlc doctor && .sdlc/bin/sdlc adapters sync && .sdlc/bin/sdlc gate ci
 git add .sdlc && git commit -m "bump ai-sdlc kit to <tag>"
 ```
+
+The bump is a lead PR (it changes no ticket). If the kit's CI workflow templates changed
+(`adapters/github/*.yml`), copy them into `.github/workflows/` in the same PR. The approval
+check runs the base branch's kit, so a PR that both bumps the kit and relies on its new
+behaviour sees the old kit until it merges.
 
 Never edit `.sdlc/` inside a product: change the kit repo and bump the pin.

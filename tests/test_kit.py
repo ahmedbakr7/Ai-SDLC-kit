@@ -18,6 +18,15 @@ class KitConsistency(unittest.TestCase):
                 self.assertGreater(len(str(data.get("description", ""))), 40)
                 self.assertTrue(body.strip())
 
+    def test_the_changelog_names_the_current_version(self) -> None:
+        # A release is a tag plus a CHANGELOG entry; bumping __version__ without one fails here.
+        from sdlc import __version__
+
+        headings = re.findall(r"^## (v\S+) \(\d{4}-\d{2}-\d{2}\)$", (KIT / "CHANGELOG.md").read_text(encoding="utf-8"),
+                              re.MULTILINE)
+        self.assertIn(f"v{__version__}", headings)
+        self.assertEqual(headings[0], f"v{__version__}", "the newest entry is the current version")
+
     def test_every_play_has_a_skill(self) -> None:
         from sdlc.prompt import LEAD_PLAYS, TICKET_PLAYS
 
