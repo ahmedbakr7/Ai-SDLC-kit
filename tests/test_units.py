@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -136,6 +137,61 @@ class NextjsTestForbid(unittest.TestCase):
                     'const data = readJson("fixtures/plan.json");'):
             with self.subTest(src=src):
                 self.assertFalse(self.flagged(src))
+
+
+class BaselineVersions(unittest.TestCase):
+    """ADR-0002 step 4a: version 2 stores a count per key; version 1 is still read."""
+
+    def test_version_2_round_trips_counts(self) -> None:
+        from sdlc import baseline
+
+        checks = {"typecheck": ["a.ts: TS1", "a.ts: TS1", "b.ts: TS2"], "lint": []}
+        text = baseline.dump(checks)
+        self.assertEqual(json.loads(text), {"version": 2, "checks": {"typecheck": {"a.ts: TS1": 2, "b.ts: TS2": 1}}})
+        self.assertEqual(sorted(baseline.parse(text)["typecheck"]), checks["typecheck"])
+
+    def test_version_1_lists_count_once_per_line(self) -> None:
+        from sdlc import baseline
+
+        v1 = json.dumps({"version": 1, "checks": {"contracts": ["x", "x"], "scope": ["never"]}})
+        self.assertEqual(baseline.parse(v1), {"contracts": ["x", "x"]})
+
+    def test_a_count_that_is_not_a_positive_integer_carries_nothing(self) -> None:
+        from sdlc import baseline
+
+        v2 = json.dumps({"version": 2, "checks": {"lint": {"a": 0, "b": -1, "c": True, "d": "3", "e": 1.5, "f": 2,
+                                                            "g": baseline.MAX_COUNT + 1, "h": baseline.MAX_COUNT}}})
+        parsed = baseline.parse(v2)["lint"]  # above the cap: not expanded at all
+        self.assertEqual(parsed.count("f"), 2)
+        self.assertEqual(parsed.count("h"), baseline.MAX_COUNT)
+        self.assertEqual(set(parsed), {"f", "h"})
+
+    def test_dump_refuses_counts_parse_would_drop(self) -> None:
+        from sdlc import baseline
+
+        self.assertIn('"a": 10000', baseline.dump({"lint": ["a"] * baseline.MAX_COUNT}))
+        with self.assertRaises(ValueError):
+            baseline.dump({"lint": ["a"] * (baseline.MAX_COUNT + 1)})
+        with self.assertRaises(ValueError):
+            baseline.dump({"lint": [f"k{i}" for i in range(baseline.MAX_TOTAL + 1)]})
+
+    def test_occurrences_past_the_file_total_carry_nothing(self) -> None:
+        from sdlc import baseline
+
+        per = baseline.MAX_COUNT
+        keys = {f"k{i}": per for i in range(baseline.MAX_TOTAL // per + 5)}
+        parsed = baseline.parse(json.dumps({"version": 2, "checks": {"lint": keys}}))["lint"]
+        self.assertEqual(len(parsed), baseline.MAX_TOTAL)
+
+    def test_a_renamed_path_is_replaced_only_where_it_stands_whole(self) -> None:
+        from sdlc import baseline
+
+        moved = {"app/a.py": "app/b.py"}
+        keys = ["app/a.py: TS1", "client calls /v1/x at app/a.py; y", "app/a.pyi: TS1",
+                "xapp/a.py: TS1", "app/a.py.bak/c.py: TS1", "test_a_py_works"]
+        self.assertEqual(baseline.remap({"lint": keys}, moved)["lint"],
+                         ["app/b.py: TS1", "client calls /v1/x at app/b.py; y", "app/a.pyi: TS1",
+                          "xapp/a.py: TS1", "app/a.py.bak/c.py: TS1", "test_a_py_works"])
 
 
 class BaselineKeys(unittest.TestCase):

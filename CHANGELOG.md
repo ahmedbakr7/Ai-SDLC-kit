@@ -7,6 +7,17 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 
 ## Unreleased
 
+## v1.3.0-rc1 (2026-10-05)
+
+ADR-0002 step 4a: a rename-proof baseline.
+
+- `sdlc-baseline.json` version 2 stores a count per key (`{check: {key: count}}`); version 1
+  files are still read, each line counting once. `sdlc baseline` and `--prune` write version 2,
+  so the first prune converts the file.
+- Paths inside keys follow the renames git detects since the baseline was last committed, so
+  moving a file keeps its known failures known, on the branch and on main after the merge.
+  `--prune` writes the new paths; `immutable` and the review-file check compare both sides
+  renamed, so a move is not growth. A count above the baseline's is still a new failure.
 - CHANGELOG.md, and CONSUME.md on pinning a release tag and upgrading between tags.
 
 ## v1.2.0-rc1 (2026-10-04)

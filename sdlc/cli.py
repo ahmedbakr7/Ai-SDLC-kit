@@ -40,7 +40,7 @@ def cmd_trace(args) -> int:
     # Problems sdlc-baseline.json lists are known debt; new ones fail, and so do entries that
     # stopped failing (prune them), so the baseline only shrinks.
     bl = baseline.path(cfg.root, cfg.data["paths"])
-    known = baseline.parse(bl.read_text(encoding="utf-8")).get("trace", []) if bl.is_file() else []
+    known = baseline.load(cfg.root, cfg.rel(bl)).get("trace", [])
     new, stale = baseline.compare(known, probs)
     if args.json:
         print(json.dumps({"matrix": m, "problems": new, "known": sorted(set(probs) - set(new)),
@@ -361,13 +361,18 @@ def cmd_baseline(args) -> int:
     if probs := trace.problems(trace.matrix(Repo(cfg))):
         now["trace"] = probs
     if args.prune:
-        old = baseline.parse(p.read_text(encoding="utf-8"))
-        kept = {n: sorted((Counter(v) & Counter(now.get(n, []))).elements()) for n, v in old.items()}
-        removed = sum(len(v) for v in old.values()) - sum(len(v) for v in kept.values())
-        p.write_text(baseline.dump(kept), encoding="utf-8", newline="\n")
+        old = baseline.load(cfg.root, cfg.rel(p))  # paths moved since are written renamed
+        now = {n: sorted((Counter(v) & Counter(now.get(n, []))).elements()) for n, v in old.items()}
+    try:
+        text = baseline.dump(now)
+    except ValueError as e:  # nothing written: the file stays as it was
+        print(f"cannot write {cfg.rel(p)}: {e}", file=sys.stderr)
+        return EXIT_FAIL
+    p.write_text(text, encoding="utf-8", newline="\n")
+    if args.prune:
+        removed = sum(len(v) for v in old.values()) - sum(len(v) for v in now.values())
         print(f"{cfg.rel(p)}: pruned {removed} entr{'y' if removed == 1 else 'ies'} that no longer fail")
         return 0
-    p.write_text(baseline.dump(now), encoding="utf-8", newline="\n")
     total = sum(len(v) for v in now.values())
     print(f"{cfg.rel(p)}: {total} known failure(s) in {len(now)} check(s). Commit it in a lead PR; "
           "from then on gates fail only on new failures, and it may only shrink.")

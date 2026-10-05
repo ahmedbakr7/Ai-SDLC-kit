@@ -54,7 +54,8 @@ to today's level and lower it as clones are removed, so new copies fail from the
 An existing codebase whose main is already red: run `sdlc baseline` and commit
 `sdlc-baseline.json` in a lead PR. Every gate then fails only on failures it does not list
 (type errors keyed `file: code`, failing tests by name, other findings without line
-numbers). The file only shrinks: `immutable` refuses added entries, a ticket may not create
+numbers), each with a count. Paths in keys follow the renames git detects, so moving a file
+keeps its known failures known. The file only shrinks: `immutable` refuses added entries, a ticket may not create
 it, and `gate ci` fails until fixed entries are removed with `sdlc baseline --prune`.
 `sdlc trace` reads it too, so shipped tickets adopted without evidence do not keep CI red;
 a ticket shipped after the baseline must still be proven. Scope, immutable, review-file,

@@ -2,7 +2,9 @@
 in a real product built without them (routes mounted at the wrong prefix, tests that
 read source text, "green" suites that ran nothing, AC with no test, edited ADRs)."""
 import json
+import sys
 import unittest
+from pathlib import Path
 
 from helpers import FIXTURES as FIXTURES_DIR, ProductRepo
 
@@ -779,7 +781,7 @@ class Baseline(unittest.TestCase):
         self.red_main_with_baseline()
         git(self.p.root, "checkout", "-q", "-b", "lead/hide-more")
         data = json.loads(self.p.read("sdlc-baseline.json"))
-        data["checks"]["contracts"].append("route in code but not in CONTRACTS: PUT /api/orders/{} (routes.command)")
+        data["checks"]["contracts"]["route in code but not in CONTRACTS: PUT /api/orders/{} (routes.command)"] = 1
         self.p.write("sdlc-baseline.json", json.dumps(data))
         self.p.commit("hide a new failure")
         code, out = self.p.sdlc("gate", "ci", "--only", "immutable", "--base", "main")
@@ -861,6 +863,112 @@ class Baseline(unittest.TestCase):
         code, out = self.p.sdlc("gate", "ci", "--only", "immutable", "--base", "main")
         self.assertNotEqual(code, 0, out)
         self.assertIn("may only shrink, but adds trace: T-042-02: done without passing build evidence", out)
+
+
+
+class BaselineRenames(unittest.TestCase):
+    """ADR-0002 step 4a: Hangout's baseline keys embed paths, so moving a file turned every
+    known failure in it into a new one plus a stale one. Version 2 counts each key and follows
+    the renames git sees since the baseline was written."""
+
+    TSC = ("import sys\nfrom pathlib import Path\nbad = 0\n"
+           "for f in sorted(Path('app').rglob('*.py')):\n"
+           "    for n, line in enumerate(f.read_text().splitlines(), 1):\n"
+           "        if 'TYPEERR' in line:\n"
+           "            print(f'{f.as_posix()}({n},1): error TS2345: bad argument')\n"
+           "            bad += 1\n"
+           "sys.exit(1 if bad else 0)\n")
+
+    def setUp(self) -> None:
+        from helpers import git
+
+        self.git = git
+        self.p = ProductRepo()
+        self.p.write("tools/fake_tsc.py", self.TSC)
+        cfg = self.p.read("sdlc.toml").replace('typecheck = "python tools/lint.py --types"',
+                                                f"typecheck = '\"{Path(sys.executable).as_posix()}\" tools/fake_tsc.py'")
+        self.p.write("sdlc.toml", cfg)
+        self.p.write("app/legacy.py", "A = 1  # TYPEERR\nB = 2  # TYPEERR\n")
+        self.p.commit("main is red: two type errors in one file")
+        code, out = self.p.sdlc("baseline")
+        self.assertEqual(code, 0, out)
+        self.p.commit("lead: baseline")
+
+    def tearDown(self) -> None:
+        self.p.close()
+
+    def typecheck(self) -> tuple[int, str]:
+        return self.p.sdlc("gate", "ci", "--only", "typecheck")
+
+    def test_the_baseline_counts_each_key(self) -> None:
+        data = json.loads(self.p.read("sdlc-baseline.json"))
+        self.assertEqual(data["version"], 2)
+        self.assertEqual(data["checks"]["typecheck"], {"app/legacy.py: TS2345": 2})
+
+    def test_a_moved_file_keeps_its_known_failures_on_the_branch_and_after_the_merge(self) -> None:
+        self.git(self.p.root, "checkout", "-q", "-b", "lead/move")
+        self.git(self.p.root, "mv", "app/legacy.py", "app/old_legacy.py")
+        self.p.commit("move legacy")
+        code, out = self.typecheck()
+        self.assertEqual(code, 0, out)
+        self.assertIn("BASELINED: 2 known failure(s)", out)
+        self.git(self.p.root, "checkout", "-q", "main")
+        self.git(self.p.root, "merge", "-q", "--no-ff", "-m", "merge the move", "lead/move")
+        code, out = self.typecheck()  # main's gate ci: no prune asked for, nothing new
+        self.assertEqual(code, 0, out)
+        self.assertIn("BASELINED: 2 known failure(s)", out)
+
+    def test_one_more_failure_in_a_moved_file_still_fails(self) -> None:
+        self.git(self.p.root, "mv", "app/legacy.py", "app/old_legacy.py")
+        self.p.write("app/old_legacy.py", self.p.read("app/old_legacy.py") + "C = 3  # TYPEERR\n")
+        self.p.commit("move legacy and add an error")
+        code, out = self.typecheck()
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("1 new failure(s) not in sdlc-baseline.json", out)
+        self.assertIn("new: app/old_legacy.py: TS2345", out)
+
+    def test_a_prune_after_a_move_writes_the_new_path_and_does_not_grow(self) -> None:
+        self.git(self.p.root, "checkout", "-q", "-b", "lead/move-and-fix")
+        self.git(self.p.root, "mv", "app/legacy.py", "app/old_legacy.py")
+        self.p.write("app/old_legacy.py", "A = 1  # TYPEERR\nB = 2\n")
+        self.p.commit("move legacy, fix one error")
+        code, out = self.p.sdlc("baseline", "--prune")
+        self.assertEqual(code, 0, out)
+        self.assertIn("pruned 1 entry", out)
+        self.assertEqual(json.loads(self.p.read("sdlc-baseline.json"))["checks"]["typecheck"],
+                         {"app/old_legacy.py: TS2345": 1})
+        self.p.commit("prune")
+        code, out = self.p.sdlc("gate", "ci", "--only", "immutable,typecheck", "--base", "main")
+        self.assertEqual(code, 0, out)
+        # Raising a count is growth, under the new path as under the old.
+        data = json.loads(self.p.read("sdlc-baseline.json"))
+        data["checks"]["typecheck"]["app/old_legacy.py: TS2345"] = 3
+        self.p.write("sdlc-baseline.json", json.dumps(data))
+        self.p.commit("hide two more")
+        code, out = self.p.sdlc("gate", "ci", "--only", "immutable", "--base", "main")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("may only shrink, but adds typecheck: app/old_legacy.py: TS2345", out)
+
+    def test_an_uncommitted_edit_to_the_baseline_is_renamed_too(self) -> None:
+        self.git(self.p.root, "mv", "app/legacy.py", "app/old_legacy.py")
+        self.p.commit("move legacy")
+        # A hand edit that keeps the old path (here: back to the version 1 shape), not committed.
+        self.p.write("sdlc-baseline.json", json.dumps(
+            {"version": 1, "checks": {"typecheck": ["app/legacy.py: TS2345", "app/legacy.py: TS2345"]}}))
+        code, out = self.typecheck()
+        self.assertEqual(code, 0, out)
+        self.assertIn("BASELINED: 2 known failure(s)", out)
+
+    def test_a_version_1_baseline_is_still_read(self) -> None:
+        self.p.write("sdlc-baseline.json", json.dumps(
+            {"version": 1, "checks": {"typecheck": ["app/legacy.py: TS2345", "app/legacy.py: TS2345"]}}))
+        self.p.commit("lead: a v1 baseline")
+        code, out = self.typecheck()
+        self.assertEqual(code, 0, out)
+        self.p.write("app/legacy.py", self.p.read("app/legacy.py") + "C = 3  # TYPEERR\n")
+        code, out = self.typecheck()
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("new: app/legacy.py: TS2345", out)
 
 if __name__ == "__main__":
     unittest.main()
