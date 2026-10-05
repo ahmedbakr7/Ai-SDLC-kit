@@ -70,6 +70,15 @@ def enforce(data: dict[str, Any], before: dict[str, Any], user: dict[str, Any],
         probs.append(f"[tests] real_stack = {rs!r} is forbidden by the hardened preset: it must name integration "
                      "or e2e, because the standard and strict lanes prove tickets over the real stack")
         out["tests"]["real_stack"] = list(before.get("tests", {}).get("real_stack") or ["integration", "e2e"])
+    # The standard lane's test play runs every real-stack suite (strict adds no list of its own).
+    suites = [s for s in out.get("tests", {}).get("real_stack", []) if s in ("integration", "e2e")]
+    test = list(out["gate"].get("test", []))
+    dropped_suites = [s for s in suites if s not in test]
+    if dropped_suites:
+        at = test.index("ac-coverage") if "ac-coverage" in test else len(test)
+        out["gate"]["test"] = test[:at] + dropped_suites + test[at:]  # before ac-coverage reads their results
+        probs.append(f"[gate] test drops {', '.join(dropped_suites)}, a real-stack suite the hardened preset runs in "
+                     "the standard and strict lanes; it stays in")
     if ug.get("optional"):
         probs.append(f"[gate] optional = {ug['optional']} is forbidden by the hardened preset (nothing is optional)")
         out["gate"]["optional"] = []

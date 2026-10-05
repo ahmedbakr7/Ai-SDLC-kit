@@ -333,6 +333,9 @@ class Presets(unittest.TestCase):
                  "they stay strict"),
             '[gate]\npreset = "hardened"\n[tests]\nreal_stack = []\n':
                 (lambda d: d["tests"]["real_stack"] == ["integration", "e2e"], "real_stack = [] is forbidden"),
+            '[gate]\npreset = "hardened"\ntest = ["artifacts", "unit", "ac-coverage"]\n':
+                (lambda d: d["gate"]["test"] == ["artifacts", "unit", "integration", "e2e", "ac-coverage"],
+                 "[gate] test drops integration, e2e"),
             '[gate]\npreset = "hardened"\n[tests]\nreal_stack = ["unit"]\n':
                 (lambda d: d["tests"]["real_stack"] == ["integration", "e2e"], "real_stack = ['unit'] is forbidden"),
         }
