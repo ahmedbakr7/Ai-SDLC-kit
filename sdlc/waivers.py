@@ -225,6 +225,7 @@ def state(root: Path, rel: str, base_ref: str | None, days: int, today: dt.date 
     if not renewals:  # the hardened preset: a waiver runs out, then the failure is fixed or baselined
         s.problems += [f"{rel}: {e['id']} renews {e['renews']}; the hardened preset allows no renewal"
                        for e in by_branch.values() if e.get("renews")]
+        s.active = [w for w in s.active if not w.renews]  # and covers nothing, in any gate or in trace
     for wid in s.pending:
         e = by_branch[wid]
         w = _waiver(e)

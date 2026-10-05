@@ -592,10 +592,19 @@ MECHANICAL_FLOOR = ("artifacts", "scope", "immutable", "mechanical", "contracts"
                     "ac-coverage", "test-quality", "build")
 
 
+# What `gate ci` itself may never drop: it proves every shipped AC on main, and the mechanical
+# lane's floor is defined by it.
+CI_FLOOR = ("artifacts", "immutable", "contracts", "lint", "typecheck", "unit", "ac-coverage", "test-quality", "build")
+
+
 def lane_floor_problems(cfg: config.Config) -> list[str]:
     g = cfg.section("gate")
     out = []
     suites = [k for k in ("integration", "e2e") if cfg.commands.get(k)]
+    missing = [n for n in (*CI_FLOOR, *suites) if n not in g.get("ci", [])]
+    if missing:
+        out.append(f"gate.ci drops {', '.join(missing)}: gate ci must run every configured test suite and the checks "
+                   "that prove shipped ACs on the base branch")
     missing = [n for n in (*MECHANICAL_FLOOR, *suites) if n not in g.get("mechanical", [])]
     if missing:
         out.append(f"gate.mechanical drops {', '.join(missing)}: the mechanical lane must run every check gate ci "

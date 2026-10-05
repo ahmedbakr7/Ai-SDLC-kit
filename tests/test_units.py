@@ -333,6 +333,8 @@ class Presets(unittest.TestCase):
                  "they stay strict"),
             '[gate]\npreset = "hardened"\n[tests]\nreal_stack = []\n':
                 (lambda d: d["tests"]["real_stack"] == ["integration", "e2e"], "real_stack = [] is forbidden"),
+            '[gate]\npreset = "hardened"\n[tests]\nreal_stack = ["unit"]\n':
+                (lambda d: d["tests"]["real_stack"] == ["integration", "e2e"], "real_stack = ['unit'] is forbidden"),
         }
         for text, (holds, why) in cases.items():
             cfg = self.load(text)

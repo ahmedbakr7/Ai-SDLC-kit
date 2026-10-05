@@ -1191,6 +1191,20 @@ class Waivers(unittest.TestCase):
         self.assertIn("W-2 renews W-1; the hardened preset allows no renewal", out)
         self.assertNotIn("WAIVED", out)  # and it keeps no coverage meanwhile
 
+    def test_a_renewal_already_on_main_covers_nothing_once_hardened(self) -> None:
+        (self.p.root / "evidence/T-042-01.build.json").unlink()
+        key = "T-042-01: done without passing build evidence"
+        self.waive({"check": "trace", "key": key, "count": 1, "expires": self.today + self.dt.timedelta(days=5)})
+        self.p.commit("lead: waive a trace problem")
+        self.waive({"id": "W-2", "renews": "W-1", "check": "trace", "key": key, "count": 1})
+        self.p.commit("lead: renew it")
+        self.assertIn(f"WAIVED {key}", self.p.sdlc("trace")[1])  # by default the renewal covers it
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml") + '\n[gate]\npreset = "hardened"\n')
+        self.p.commit("lead: hardened")
+        code, out = self.p.sdlc("trace")
+        self.assertNotIn(f"WAIVED {key}", out)
+        self.assertIn(f"ERROR {key}", out)
+
     def test_the_hardened_preset_caps_waivers_at_30_days(self) -> None:
         self.p.write("sdlc.toml", self.p.read("sdlc.toml") + '\n[gate]\npreset = "hardened"\n[waivers]\nmax_days = 90\n')
         self.waive({"expires": self.today + self.dt.timedelta(days=45)})
@@ -1238,6 +1252,13 @@ class PresetDoctor(unittest.TestCase):
         self.assertNotIn("smoke", ci)
         self.assertNotIn("duplication", ci)
         self.assertNotIn("drops", out)  # the floor preset is at the floor, not below it
+
+    def test_doctor_fails_a_ci_list_below_the_floor(self) -> None:
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml") + '\n[gate]\npreset = "floor"\nci = ["artifacts"]\n')
+        code, out = self.p.sdlc("doctor")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("ERROR gate.ci drops immutable, contracts, lint, typecheck, unit, ac-coverage, test-quality, build",
+                      out)
 
     def test_doctor_fails_trust_unsigned_under_hardened(self) -> None:
         self.p.write("sdlc.toml", self.p.read("sdlc.toml") + '\n[gate]\npreset = "hardened"\n'

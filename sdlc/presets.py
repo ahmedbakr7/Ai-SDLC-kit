@@ -65,9 +65,10 @@ def enforce(data: dict[str, Any], before: dict[str, Any], user: dict[str, Any],
     out, probs = copy.deepcopy(data), []
     ug, ul, uw, ua, ut = (user.get(k, {}) if isinstance(user.get(k), dict) else {}
                           for k in ("gate", "lanes", "waivers", "approval", "tests"))
-    if "real_stack" in ut and not ut["real_stack"]:
-        probs.append("[tests] real_stack = [] is forbidden by the hardened preset: the standard and strict "
-                     "lanes prove tickets over the real stack")
+    rs = ut.get("real_stack")
+    if "real_stack" in ut and not (isinstance(rs, list) and {"integration", "e2e"} & set(rs)):
+        probs.append(f"[tests] real_stack = {rs!r} is forbidden by the hardened preset: it must name integration "
+                     "or e2e, because the standard and strict lanes prove tickets over the real stack")
         out["tests"]["real_stack"] = list(before.get("tests", {}).get("real_stack") or ["integration", "e2e"])
     if ug.get("optional"):
         probs.append(f"[gate] optional = {ug['optional']} is forbidden by the hardened preset (nothing is optional)")
