@@ -132,13 +132,14 @@ def _waiver(w: dict) -> Waiver:
                   w.get("ticket", ""), w.get("renews", ""))
 
 
-def history(root: Path, rel: str, ref: str) -> tuple[dict[str, tuple[dict, dt.datetime]], list[str]]:
+def history(root: Path, rel: str, ref: str) -> tuple[dict[str, tuple[dict, dt.datetime]], list[tuple[set[str], str]]]:
     """id -> (entry as first seen, committer date of the first-parent commit on `ref` that
     introduced it), across the file's whole first-parent history, plus problems with those
-    dates: a commit dated before its first parent, or in the future."""
+    dates (a commit dated before its first parent, or in the future), each with the ids whose
+    date it makes untrustworthy."""
     out = gitutil.git(root, "log", "--first-parent", "--reverse", "--format=%H %ct %P", ref, "--", rel, check=False)
     seen: dict[str, tuple[dict, dt.datetime]] = {}
-    probs: list[str] = []
+    probs: list[tuple[set[str], str]] = []
     now = dt.datetime.now(dt.timezone.utc)
     for line in out.splitlines():
         sha, ct, *parents = line.split()
@@ -147,13 +148,14 @@ def history(root: Path, rel: str, ref: str) -> tuple[dict[str, tuple[dict, dt.da
         fresh = [e for e in entries if e["id"] not in seen]
         if not fresh:
             continue
+        ids = {e["id"] for e in fresh}
         if when > now:
-            probs.append(f"{sha[:12]} introduces {', '.join(e['id'] for e in fresh)} dated in the future ({when:%Y-%m-%d})")
+            probs.append((ids, f"{sha[:12]} introduces {', '.join(sorted(ids))} dated in the future ({when:%Y-%m-%d})"))
         if parents:
             pct = gitutil.git(root, "log", "-1", "--format=%ct", parents[0], check=False).strip()
             if pct and int(pct) > int(ct):
-                probs.append(f"{sha[:12]} introduces {', '.join(e['id'] for e in fresh)} dated before its parent "
-                             f"{parents[0][:12]}: the date cannot be trusted")
+                probs.append((ids, f"{sha[:12]} introduces {', '.join(sorted(ids))} dated before its parent "
+                                   f"{parents[0][:12]}: the date cannot be trusted"))
         for e in fresh:
             seen[e["id"]] = (e, when)
     return seen, probs
@@ -169,12 +171,23 @@ def state(root: Path, rel: str, base_ref: str | None, days: int, today: dt.date 
     s.problems += [f"{rel}: {p}" for p in probs]
     if base_ref is None:
         s.pending = [e["id"] for e in branch_entries]
+        if branch_entries:
+            s.problems.append(f"{rel}: no base branch to check its waivers against (fetch it, or pass --base); "
+                              "none of them applies")
         return s
     base_entries, _ = parse(gitutil.show(root, base_ref, "./" + rel))
     seen, date_probs = history(root, rel, base_ref)
-    s.problems += [f"{rel}: {p}" for p in date_probs]
     by_branch = {e["id"]: e for e in branch_entries}
     by_base = {e["id"]: e for e in base_entries}
+    # A bad date matters while its waiver, or a renewal descended from it, is still in the file.
+    relevant: set[str] = set()
+    for wid in {*by_branch, *by_base}:
+        cur, hops = wid, 0
+        while cur and cur not in relevant and hops < 100:
+            relevant.add(cur)
+            e = by_branch.get(cur) or by_base.get(cur) or (seen[cur][0] if cur in seen else {})
+            cur, hops = e.get("renews", ""), hops + 1
+    s.problems += [f"{rel}: {p}" for ids, p in date_probs if ids & relevant]
 
     def dated(w: Waiver) -> Waiver:
         if w.id in seen:
@@ -189,13 +202,20 @@ def state(root: Path, rel: str, base_ref: str | None, days: int, today: dt.date 
     for wid, e in by_base.items():
         if by_branch.get(wid) == e:
             s.active.append(dated(_waiver(e)))
+    renewed: set[str] = set()
     for wid, e in by_branch.items():
         if by_base.get(wid) == e:
             continue
         s.pending.append(wid)
+        if e.get("renews") in renewed:
+            s.problems.append(f"{rel}: {wid} renews {e['renews']}, which another entry already renews")
+            continue
+        renewed.add(e.get("renews", ""))
         old = by_base.get(e.get("renews", ""))
-        # A renewal keeps the renewed waiver's coverage in its own PR, never more of it.
-        if old and old["id"] not in by_branch and (old["check"], old["key"]) == (e["check"], e["key"]):
+        # A renewal keeps the renewed waiver's coverage in its own PR, never more of it, and only
+        # while the renewal itself has not run out.
+        if (old and old["id"] not in by_branch and (old["check"], old["key"]) == (e["check"], e["key"])
+                and e["expires"] >= today):
             kept = dated(_waiver(old))
             kept.count, kept.renewed_by = min(kept.count, e["count"]), wid
             s.active.append(kept)
@@ -204,6 +224,8 @@ def state(root: Path, rel: str, base_ref: str | None, days: int, today: dt.date 
     for wid in s.pending:
         e = by_branch[wid]
         w = _waiver(e)
+        if w.expires < today:
+            s.problems.append(f"{rel}: {wid} expires {w.expires}, which has already passed")
         if w.expires > today + dt.timedelta(days=days):
             s.problems.append(f"{rel}: {wid} expires {w.expires}, more than {days} days from today")
         if w.renews and w.renews in by_branch:

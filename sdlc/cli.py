@@ -51,7 +51,10 @@ def cmd_trace(args) -> int:
     ws = waivers.state(cfg.root, wrel, wbase, waivers.max_days(cfg.section("waivers"))).for_check("trace")
     new, covered, unused = waivers.apply(ws, new)
     if args.json:
-        print(json.dumps({"matrix": m, "problems": new, "known": sorted(set(probs) - set(new)),
+        from collections import Counter
+
+        known_now = Counter(probs) - Counter(new) - Counter(k for k, _ in covered)
+        print(json.dumps({"matrix": m, "problems": new, "known": sorted(known_now.elements()),
                           "fixed": stale, "waived": [f"{k}: {w.label()}" for k, w in covered],
                           "stale_waivers": [w.id for w in unused]}, indent=2))
     else:

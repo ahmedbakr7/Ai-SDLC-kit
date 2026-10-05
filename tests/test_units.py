@@ -253,6 +253,17 @@ class WaiverFile(unittest.TestCase):
                                       created=today, origin=today), 90, today, s)
         self.assertEqual(s.problems, [])
 
+    def test_without_a_base_branch_no_waiver_applies_and_that_is_reported(self) -> None:
+        from sdlc import waivers
+
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "sdlc-waivers.toml").write_text("[[waiver]]\n" + self.OK, encoding="utf-8")
+            s = waivers.state(root, "sdlc-waivers.toml", None, 90)
+        self.assertEqual(s.active, [])
+        self.assertEqual(s.pending, ["W-1"])
+        self.assertTrue(any("no base branch" in p for p in s.problems), s.problems)
+
     def test_a_waiver_covers_at_most_its_count(self) -> None:
         import datetime as dt
 
