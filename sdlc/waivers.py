@@ -161,7 +161,8 @@ def history(root: Path, rel: str, ref: str) -> tuple[dict[str, tuple[dict, dt.da
     return seen, probs
 
 
-def state(root: Path, rel: str, base_ref: str | None, days: int, today: dt.date | None = None) -> State:
+def state(root: Path, rel: str, base_ref: str | None, days: int, today: dt.date | None = None,
+          renewals: bool = True) -> State:
     """The waivers that apply to a gate run on the working tree against `base_ref` (the merge
     base, or HEAD on the base branch itself). Without a base nothing applies."""
     today = today or dt.date.today()
@@ -214,13 +215,16 @@ def state(root: Path, rel: str, base_ref: str | None, days: int, today: dt.date 
         old = by_base.get(e.get("renews", ""))
         # A renewal keeps the renewed waiver's coverage in its own PR, never more of it, and only
         # while the renewal itself has not run out.
-        if (old and old["id"] not in by_branch and (old["check"], old["key"]) == (e["check"], e["key"])
+        if (renewals and old and old["id"] not in by_branch and (old["check"], old["key"]) == (e["check"], e["key"])
                 and e["expires"] >= today):
             kept = dated(_waiver(old))
             kept.count, kept.renewed_by = min(kept.count, e["count"]), wid
             s.active.append(kept)
     for w in s.active:
         _judge(w, days, today, s)
+    if not renewals:  # the hardened preset: a waiver runs out, then the failure is fixed or baselined
+        s.problems += [f"{rel}: {e['id']} renews {e['renews']}; the hardened preset allows no renewal"
+                       for e in by_branch.values() if e.get("renews")]
     for wid in s.pending:
         e = by_branch[wid]
         w = _waiver(e)

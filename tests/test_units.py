@@ -277,6 +277,85 @@ class WaiverFile(unittest.TestCase):
         self.assertEqual(unused, [other])
 
 
+class Presets(unittest.TestCase):
+    """ADR-0002 step 4c: `[gate] preset`. Product keys override a preset key by key, except
+    what it forbids; the stricter value then holds and doctor reports it."""
+
+    def load(self, text: str = ""):
+        from sdlc import config
+
+        with tempfile.TemporaryDirectory() as d:
+            return config.load(Path(d), text=text)
+
+    def test_default_changes_nothing(self) -> None:
+        from sdlc import config
+
+        cfg = self.load('[gate]\npreset = "default"\n')
+        for k in ("build", "test", "ci", "mechanical", "strict", "optional"):
+            self.assertEqual(cfg.data["gate"][k], config.DEFAULTS["gate"][k], k)
+        self.assertEqual(cfg.data["waivers"]["max_days"], 90)
+        self.assertEqual(cfg.preset_problems, [])
+
+    def test_floor_drops_duplication_and_smoke_from_every_lane_and_nothing_else(self) -> None:
+        from sdlc import config
+
+        cfg = self.load('[gate]\npreset = "floor"\n')
+        for k in ("build", "test", "ci", "mechanical"):
+            self.assertNotIn("duplication", cfg.data["gate"][k], k)
+            self.assertNotIn("smoke", cfg.data["gate"][k], k)
+            want = [n for n in config.DEFAULTS["gate"][k] if n not in ("duplication", "smoke")]
+            self.assertEqual(cfg.data["gate"][k], want, k)
+        # A product may still add a check back, key by key.
+        cfg = self.load('[gate]\npreset = "floor"\nci = ["artifacts", "smoke"]\n')
+        self.assertEqual(cfg.data["gate"]["ci"], ["artifacts", "smoke"])
+
+    def test_hardened_tightens_existing_settings(self) -> None:
+        from sdlc import presets
+
+        cfg = self.load('profile = "nextjs"\n[gate]\npreset = "hardened"\n')
+        self.assertEqual(cfg.data["gate"]["optional"], [])
+        paths = cfg.data["lanes"]["strict_paths"]
+        for p in ("drizzle/**", ".github/workflows/**", "sdlc.toml", ".sdlc", "**/package.json", "**/pnpm-lock.yaml"):
+            self.assertIn(p, paths)
+        self.assertEqual(cfg.data["waivers"]["max_days"], presets.HARDENED_MAX_DAYS)
+        self.assertEqual(cfg.preset_problems, [])
+
+    def test_hardened_keeps_the_stricter_value_of_each_forbidden_setting(self) -> None:
+        cases = {
+            '[gate]\npreset = "hardened"\noptional = ["e2e"]\n':
+                (lambda d: d["gate"]["optional"] == [], "[gate] optional"),
+            '[gate]\npreset = "hardened"\n[approval]\nmode = "forge"\ntrust_unsigned = true\n':
+                (lambda d: d["approval"]["trust_unsigned"] is False, "trust_unsigned is forbidden"),
+            '[gate]\npreset = "hardened"\n[waivers]\nmax_days = 90\n':
+                (lambda d: d["waivers"]["max_days"] == 30, "above the hardened preset's 30"),
+            '[gate]\npreset = "hardened"\n[lanes]\nstrict_paths = ["auth/**"]\n':
+                (lambda d: "auth/**" in d["lanes"]["strict_paths"] and "sdlc.toml" in d["lanes"]["strict_paths"],
+                 "they stay strict"),
+            '[gate]\npreset = "hardened"\n[tests]\nreal_stack = []\n':
+                (lambda d: d["tests"]["real_stack"] == ["integration", "e2e"], "real_stack = [] is forbidden"),
+        }
+        for text, (holds, why) in cases.items():
+            cfg = self.load(text)
+            self.assertTrue(holds(cfg.data), text)
+            self.assertTrue(any(why in p for p in cfg.preset_problems), (why, cfg.preset_problems))
+
+    def test_hardened_lets_a_product_tighten_further(self) -> None:
+        cfg = self.load('[gate]\npreset = "hardened"\n[waivers]\nmax_days = 10\n')
+        self.assertEqual(cfg.data["waivers"]["max_days"], 10)
+        self.assertEqual(cfg.preset_problems, [])
+
+    def test_an_unknown_preset_is_refused(self) -> None:
+        with self.assertRaises(SystemExit):
+            self.load('[gate]\npreset = "lenient"\n')
+
+    def test_hardened_mechanical_needs_a_human_reviewer(self) -> None:
+        from sdlc import approval
+
+        self.assertEqual(approval.required_roles("mechanical", []), ["any"])
+        self.assertEqual(approval.required_roles("mechanical", [], human_review=True), ["review"])
+        self.assertEqual(approval.required_roles("strict", [], human_review=True), ["review", "lead"])
+
+
 class BaselineKeys(unittest.TestCase):
     """Baseline keys must survive edits that only move a known failure to another line."""
 

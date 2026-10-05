@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import os
 import shutil
 import subprocess
 import sys
@@ -17,8 +18,16 @@ sys.path.insert(0, str(KIT))
 from sdlc import cli  # noqa: E402
 
 
+def git_env(**extra: str) -> dict[str, str]:
+    """The environment for git in a fixture: GIT_DIR / GIT_WORK_TREE from the caller's shell would
+    point git at another repository than the fixture `cwd` selects."""
+    env = {k: v for k, v in os.environ.items() if k not in ("GIT_DIR", "GIT_WORK_TREE")}
+    return {**env, **extra}
+
+
 def git(root: Path, *args: str) -> str:
-    return subprocess.run(["git", *args], cwd=root, check=True, capture_output=True, text=True).stdout
+    return subprocess.run(["git", *args], cwd=root, env=git_env(), check=True, capture_output=True,
+                          text=True).stdout
 
 
 class ProductRepo:

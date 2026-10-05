@@ -11,6 +11,8 @@ if sys.version_info < (3, 11):  # pragma: no cover
     sys.exit("sdlc needs Python >= 3.11 (tomllib)")
 import tomllib
 
+from . import presets  # noqa: E402 (after the version check)
+
 KIT_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_NAME = "sdlc.toml"
 
@@ -160,6 +162,7 @@ class Config:
     source: Path | None = None
     profile_name: str = ""
     warnings: list[str] = field(default_factory=list)
+    preset_problems: list[str] = field(default_factory=list)  # settings the preset forbids (doctor fails)
 
     def path(self, key: str) -> Path:
         return self.root / self.data["paths"][key]
@@ -224,8 +227,13 @@ def load(root: Path | None = None, text: str | None = None) -> Config:
     profile = user.get("profile", "")
     if profile:
         data = deep_merge(data, load_profile(profile))
-    data = deep_merge(data, user)
-    cfg = Config(root=root, data=data, source=src if src.is_file() else None, profile_name=profile)
+    # Strictness preset (ADR-0002): over the stack profile, under the product's own keys,
+    # except the ones it forbids the product to loosen.
+    preset = presets.name(user)
+    before = presets.apply(data, preset)
+    data, forbidden = presets.enforce(deep_merge(before, user), before, user, preset)
+    cfg = Config(root=root, data=data, source=src if src.is_file() else None, profile_name=profile,
+                 preset_problems=forbidden)
     unknown = set(user) - set(DEFAULTS)
     if unknown:
         cfg.warnings.append(f"{CONFIG_NAME}: unknown top-level keys: {', '.join(sorted(unknown))}")

@@ -8,7 +8,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from . import __version__, adapters, config, fm, gitutil, lint, prompt, skills, tickets, trace
+from . import __version__, adapters, config, fm, gitutil, lint, presets, prompt, skills, tickets, trace
 from .artifacts import Repo
 
 EXIT_FAIL = 1
@@ -48,7 +48,8 @@ def cmd_trace(args) -> int:
         wbase: str | None = gitutil.merge_base(cfg.root, cfg.section("vcs").get("base", "main"))
     except gitutil.GitError:
         wbase = None
-    ws = waivers.state(cfg.root, wrel, wbase, waivers.max_days(cfg.section("waivers"))).for_check("trace")
+    ws = waivers.state(cfg.root, wrel, wbase, waivers.max_days(cfg.section("waivers")),
+                       renewals=not presets.hardened(cfg.data)).for_check("trace")
     new, covered, unused = waivers.apply(ws, new)
     if args.json:
         from collections import Counter
@@ -539,6 +540,7 @@ def cmd_doctor(args) -> int:
                      f"commands.{'/'.join(suites)} is not set; routes and pages are never proven over the "
                      "real stack. Configure one, or set tests.real_stack = [] to accept unit-only proof")
     probs += lane_floor_problems(cfg)
+    probs += cfg.preset_problems  # the preset forbids them; the stricter value applies meanwhile
     probs += approval_problems(cfg)
     if "contracts" in required and not cfg.section("routes").get("extractor"):
         probs.append("routes.extractor is not set; contract drift cannot be checked")
@@ -562,6 +564,8 @@ def cmd_doctor(args) -> int:
         probs.append("not a git repository")
     for n in notes:
         print(f"note  {n}")
+    for line in presets.resolved(cfg.data):  # what the preset and overrides add up to
+        print(f"      {line}")
     for p in probs:
         print(f"ERROR {p}")
     print("doctor: " + ("OK" if not probs else f"{len(probs)} problem(s)"))
@@ -578,7 +582,8 @@ def _waiver_notes(cfg: config.Config) -> list[str]:
         ref: str | None = gitutil.merge_base(cfg.root, cfg.section("vcs").get("base", "main"))
     except gitutil.GitError:
         ref = None
-    s = waivers.state(cfg.root, rel, ref, waivers.max_days(cfg.section("waivers")))
+    s = waivers.state(cfg.root, rel, ref, waivers.max_days(cfg.section("waivers")),
+                      renewals=not presets.hardened(cfg.data))
     return [f"waiver: {p}" for p in s.problems] + [f"waiver: {w}" for w in s.warnings]
 
 

@@ -1094,12 +1094,13 @@ class Waivers(unittest.TestCase):
         self.assertIn(f"more than 90 days after it was added on {self.today}", out)
 
     def test_a_backdated_commit_cannot_date_a_waiver(self) -> None:
-        import os
         import subprocess
+
+        from helpers import git_env
 
         self.waive({})
         self.git(self.p.root, "add", "-A")
-        env = dict(os.environ, GIT_COMMITTER_DATE="2020-01-01T00:00:00Z", GIT_AUTHOR_DATE="2020-01-01T00:00:00Z")
+        env = git_env(GIT_COMMITTER_DATE="2020-01-01T00:00:00Z", GIT_AUTHOR_DATE="2020-01-01T00:00:00Z")
         subprocess.run(["git", "commit", "-q", "-m", "backdated waiver"], cwd=self.p.root, env=env, check=True)
         code, out = self.p.sdlc("gate", "ci")
         self.assertNotEqual(code, 0, out)
@@ -1151,12 +1152,13 @@ class Waivers(unittest.TestCase):
         self.assertIn("2 new failure(s)", out)
 
     def test_a_bad_date_stops_mattering_once_its_waiver_is_gone(self) -> None:
-        import os
         import subprocess
+
+        from helpers import git_env
 
         self.waive({})
         self.git(self.p.root, "add", "-A")
-        env = dict(os.environ, GIT_COMMITTER_DATE="2020-01-01T00:00:00Z", GIT_AUTHOR_DATE="2020-01-01T00:00:00Z")
+        env = git_env(GIT_COMMITTER_DATE="2020-01-01T00:00:00Z", GIT_AUTHOR_DATE="2020-01-01T00:00:00Z")
         subprocess.run(["git", "commit", "-q", "-m", "backdated waiver"], cwd=self.p.root, env=env, check=True)
         self.assertIn("dated before its parent", self.p.sdlc("gate", "ci")[1])
         self.p.write("sdlc-waivers.toml", "")
@@ -1177,6 +1179,29 @@ class Waivers(unittest.TestCase):
         self.assertNotIn(key, data["known"])
         self.assertNotIn(key, data["problems"])
 
+    def test_the_hardened_preset_allows_no_renewal(self) -> None:
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml") + '\n[gate]\npreset = "hardened"\n')
+        self.waive({"expires": self.today + self.dt.timedelta(days=5)})
+        self.p.commit("lead: hardened, and a short waiver")
+        self.git(self.p.root, "checkout", "-q", "-b", "lead/renew")
+        self.waive({"id": "W-2", "renews": "W-1", "expires": self.today + self.dt.timedelta(days=20)})
+        self.p.commit("try to renew")
+        code, out = self.p.sdlc("gate", "ci", "--base", "main")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("W-2 renews W-1; the hardened preset allows no renewal", out)
+        self.assertNotIn("WAIVED", out)  # and it keeps no coverage meanwhile
+
+    def test_the_hardened_preset_caps_waivers_at_30_days(self) -> None:
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml") + '\n[gate]\npreset = "hardened"\n[waivers]\nmax_days = 90\n')
+        self.waive({"expires": self.today + self.dt.timedelta(days=45)})
+        self.p.commit("lead: hardened with a 90-day override, and a 45-day waiver")
+        code, out = self.p.sdlc("gate", "ci")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn(f"more than 30 days after it was added on {self.today}", out)
+        code, out = self.p.sdlc("doctor")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("ERROR [waivers] max_days = 90 is above the hardened preset's 30; 30 applies", out)
+
     def test_a_waiver_for_a_process_check_is_refused(self) -> None:
         self.waive({"check": "scope"})
         self.p.commit("lead: try to waive scope")
@@ -1193,6 +1218,33 @@ class Waivers(unittest.TestCase):
         code, out = self.p.sdlc("trace")
         self.assertIn("WAIVED T-042-01: done without passing build evidence: W-1 (owner lead", out)
         self.assertNotIn("ERROR T-042-01: done without passing build evidence", out)
+
+
+
+class PresetDoctor(unittest.TestCase):
+    """ADR-0002 step 4c: doctor prints the resolved lists and fails a setting the preset forbids."""
+
+    def setUp(self) -> None:
+        self.p = ProductRepo()
+
+    def tearDown(self) -> None:
+        self.p.close()
+
+    def test_doctor_prints_what_the_preset_resolves_to(self) -> None:
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml") + '\n[gate]\npreset = "floor"\n')
+        code, out = self.p.sdlc("doctor")
+        self.assertIn("preset: floor", out)
+        ci = next(line for line in out.splitlines() if line.strip().startswith("gate.ci:"))
+        self.assertNotIn("smoke", ci)
+        self.assertNotIn("duplication", ci)
+        self.assertNotIn("drops", out)  # the floor preset is at the floor, not below it
+
+    def test_doctor_fails_trust_unsigned_under_hardened(self) -> None:
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml") + '\n[gate]\npreset = "hardened"\n'
+                     '\n[approval]\nmode = "forge"\nreviewers = ["rev"]\ntrust_unsigned = true\n')
+        code, out = self.p.sdlc("doctor")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("ERROR [approval] trust_unsigned is forbidden by the hardened preset", out)
 
 if __name__ == "__main__":
     unittest.main()
