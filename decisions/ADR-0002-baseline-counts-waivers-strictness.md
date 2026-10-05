@@ -58,9 +58,13 @@ What the kit does today, and what the Hangout pilot shows:
   pruned baseline entry. Waivers never touch the baseline and do not count toward its
   shrinking. Every `WAIVED` result is listed with its owner and expiry in the evidence, the
   PR summary and `sdlc trace`.
-- **Dates come from git.** A waiver's creation date is the date of the commit that added its
-  entry to the base branch, never a typed field, so it cannot be backdated. `expires` may be
-  at most `[waivers] max_days` (default 90) after that date.
+- **Dates come from the base branch's history.** A waiver's creation date is the committer
+  date of the commit on the base branch's first-parent history that introduced its entry:
+  the merge commit the forge creates and stamps when the PR merges. Never a typed field, and
+  never the author or committer date of a contributor's commit inside the PR, which anyone
+  can set. A first-parent commit dated before its own first parent, or after the gate's
+  clock, fails `gate ci`, so the date cannot be moved earlier than the base branch already
+  was. `expires` may be at most `[waivers] max_days` (default 90) after that date.
 - **Renewal.** A renewal is a new entry with `renews: <id>`; its expiry counts from its own
   creation date, and the renewed entry is removed in the same change. A waiver's total
   lifetime, along its chain of renewals, is capped at twice `max_days` from the original
@@ -91,7 +95,9 @@ What the kit does today, and what the Hangout pilot shows:
     - Real-stack tests (`tests.real_stack`) are required in the standard and strict lanes; a
       skipped real-stack suite is a failure.
     - `[gate] optional` must be empty.
-    - Waivers: `max_days` is 30 and renewal is not allowed.
+    - Waivers: `max_days` is at most 30 and renewal is not allowed. A product's
+      `[waivers] max_days` may lower it but not raise it; above 30, or any entry with
+      `renews`, fails `doctor` and `gate ci`.
   - `floor`: exactly ADR-0001 section 6, for products adopting the kit: `duplication` and
     `smoke` leave every lane's lists.
 - `doctor` keeps failing any resolved list below the floor, whatever the preset and overrides.
