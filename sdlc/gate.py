@@ -14,12 +14,13 @@ import time
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
+from collections import Counter
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Callable
 
-from . import approval, baseline, config, extract, fm, gitutil, lanes, lint, paths, tickets
+from . import approval, baseline, config, extract, fm, gitutil, lanes, lint, paths, tickets, waivers
 from .artifacts import AC_RE, Repo, Ticket, normalize_path
 from .config import Config
 
@@ -55,6 +56,7 @@ class Check:
     ms: int = 0
     log: str = ""
     known: list[str] = field(default_factory=list)  # baselined failures this run still has
+    waived: list[str] = field(default_factory=list)  # failures a waiver covered: "key: W-1 (owner, expires)"
 
 
 @dataclass
@@ -102,6 +104,14 @@ class Gate:
         bl = baseline.path(cfg.root, cfg.data["paths"])
         self.baseline_rel = cfg.rel(bl)
         self.baseline = {} if ignore_baseline else baseline.load(cfg.root, self.baseline_rel)
+        # Waivers apply once they are on the base branch, unchanged (ADR-0002).
+        self.waivers_rel = cfg.rel(waivers.path(cfg.root, cfg.data["paths"]))
+        try:
+            wbase: str | None = gitutil.merge_base(cfg.root, self.base)
+        except gitutil.GitError:
+            wbase = None
+        self.waivers = (waivers.State() if ignore_baseline else
+                        waivers.state(cfg.root, self.waivers_rel, wbase, waivers.max_days(cfg.section("waivers"))))
         # The lane is judged on the whole branch against the base, whichever play runs.
         self.lane: lanes.Lane | None = None
         self.mb: str | None = None
@@ -240,6 +250,10 @@ class Gate:
             self.checks.append(c)
             if on_check:
                 on_check(c)
+        if (w := self._check_waivers()) is not None:
+            self.checks.append(w)
+            if on_check:
+                on_check(w)
         ok = all(c.status != "fail" for c in self.checks)
         ev = {
             "kit_evidence": 1,
@@ -275,27 +289,58 @@ class Gate:
         return keys or [baseline.whole(c.name)]
 
     def _apply_baseline(self, c: Check) -> None:
-        """A check fails only on failures sdlc-baseline.json does not list. On the full scan
-        (gate ci), entries that stopped failing fail it too, so the baseline only shrinks."""
+        """A check fails only on failures sdlc-baseline.json does not list and no waiver on the
+        base branch covers. On the full scan (gate ci), entries that stopped failing fail it too,
+        so the baseline only shrinks, and so does a waiver that covers nothing."""
         known = self.baseline.get(c.name, [])
-        if not known or c.name not in baseline.BASELINE_CHECKS or c.status == "skip":
+        ws = self.waivers.for_check(c.name)
+        if (not known and not ws) or c.name not in baseline.BASELINE_CHECKS or c.status == "skip":
             return
         now = self.findings(c) if c.status == "fail" else []
         new, stale = baseline.compare(known, now)
+        new, covered, unused = waivers.apply(ws, new)
+        c.waived = [f"{k}: {w.label()}" for k, w in covered]
         if new:
             c.status = "fail"
             c.summary = f"{len(new)} new failure(s) not in {self.baseline_rel}; {c.summary}"
-            c.details = [f"new: {k}" for k in new] + c.details
+            c.details = [f"new: {k}" for k in new] + [f"waived: {x}" for x in c.waived] + c.details
             return
         if c.status == "fail":
-            c.status, c.known = "pass", now
-            c.summary = f"BASELINED: {len(now)} known failure(s) from {self.baseline_rel}, none new ({c.summary})"
-            c.details = [f"known: {k}" for k in now]
-        if stale and self.play == "ci" and not self.only:
+            waived_keys = Counter(k for k, _ in covered)
+            c.status, c.known = "pass", sorted((Counter(now) - waived_keys).elements())
+            parts = [f"BASELINED: {len(c.known)} known failure(s) from {self.baseline_rel}"] if c.known else []
+            parts += [f"WAIVED: {len(covered)} failure(s) under {self.waivers_rel}"] if covered else []
+            c.summary = f"{', '.join(parts)}, none new ({c.summary})"
+            c.details = [f"known: {k}" for k in c.known] + [f"waived: {x}" for x in c.waived]
+        if self.play == "ci" and not self.only and (stale or unused):
             c.status = "fail"
-            c.summary = (f"{len(stale)} baselined failure(s) no longer fail; run `sdlc baseline --prune` and "
-                         f"commit {self.baseline_rel} (it only shrinks)")
-            c.details = [f"fixed: {k}" for k in stale] + c.details
+            why = []
+            if stale:
+                why.append(f"{len(stale)} baselined failure(s) no longer fail; run `sdlc baseline --prune` and "
+                           f"commit {self.baseline_rel} (it only shrinks)")
+            if unused:
+                why.append(f"{len(unused)} waiver(s) cover nothing; remove them from {self.waivers_rel}")
+            c.summary = "; ".join(why)
+            c.details = ([f"fixed: {k}" for k in stale] + [f"stale waiver: {w.id} ({w.key})" for w in unused]
+                         + c.details)
+
+    def _check_waivers(self) -> Check | None:
+        """The waiver file itself: `gate ci` fails on an invalid, expired or over-long waiver;
+        every other gate reports it. Absent when there is no waiver file on either side."""
+        s = self.waivers
+        if not (s.active or s.pending or s.problems or s.warnings):
+            return None
+        c = Check("waivers")
+        strict = self.play == "ci" and not self.only
+        c.details = ([("ERROR " if strict else "WARN ") + p for p in s.problems] + [f"WARN {w}" for w in s.warnings]
+                     + [f"pending: {wid} applies once it is on {self.base}" for wid in s.pending])
+        if s.problems and strict:
+            c.status, c.summary = "fail", f"{len(s.problems)} waiver problem(s) in {self.waivers_rel}"
+        else:
+            c.summary = (f"{len(s.active)} waiver(s) apply" + (f", {len(s.problems)} problem(s) reported"
+                                                              if s.problems else "")
+                         + (f", {len(s.warnings)} expiring soon" if s.warnings else ""))
+        return c
 
     def _shipped_matrix(self) -> dict:
         """gate ci's AC proof for every shipped ticket: CI evidence `sdlc trace` reads when status
@@ -353,7 +398,9 @@ class Gate:
         cfg, t = self.cfg, self.ticket
         paths = cfg.section("paths")
         globs = list(cfg.section("scope").get("always_allowed", []))
-        exact: set[str] = {self.baseline_rel}  # any play may prune it; `immutable` refuses growth
+        # Any play may prune the baseline (`immutable` refuses growth). A change to the waivers
+        # makes the PR strict, so it needs a lead approval (lanes.resolve).
+        exact: set[str] = {self.baseline_rel, self.waivers_rel}
         if not t:
             if self.play == "pr":
                 globs += lead_write_set(cfg)
@@ -1335,7 +1382,8 @@ def lead_write_set(cfg: Config) -> list[str]:
 
     p = cfg.data["paths"]
     out = [f"{p[k]}/**" for k in ("intent", "design", "arch", "decisions", "tickets", "ops", "skills")]
-    out += [p["contracts"], p["skills_lock"], p.get("baseline", "sdlc-baseline.json"), config.CONFIG_NAME,
+    out += [p["contracts"], p["skills_lock"], p.get("baseline", "sdlc-baseline.json"),
+            p.get("waivers", waivers.DEFAULT_PATH), config.CONFIG_NAME,
             "AGENTS.md", *adapters.files(cfg),
             ".sdlc", ".sdlc/**", ".github/workflows/**"]  # the kit pin and CI that runs the gate
     return out + list(cfg.section("scope").get("lead_allowed", []))

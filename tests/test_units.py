@@ -194,6 +194,78 @@ class BaselineVersions(unittest.TestCase):
                           "xapp/a.py: TS1", "app/a.py.bak/c.py: TS1", "test_a_py_works"])
 
 
+class WaiverFile(unittest.TestCase):
+    """ADR-0002 step 4b: an invalid waiver waives nothing, and says why."""
+
+    OK = 'id = "W-1"\ncheck = "unit"\nkey = "k"\ncount = 1\nowner = "lead"\nreason = "r"\nexpires = 2026-11-01\n'
+
+    def problems(self, body: str) -> list[str]:
+        from sdlc import waivers
+
+        entries, probs = waivers.parse("[[waiver]]\n" + body)
+        self.assertEqual(entries, [] if probs else entries)
+        return probs
+
+    def test_a_complete_waiver_parses(self) -> None:
+        from sdlc import waivers
+
+        entries, probs = waivers.parse("[[waiver]]\n" + self.OK + 'ticket = "T-1-01"\n')
+        self.assertEqual(probs, [])
+        self.assertEqual(entries[0]["key"], "k")
+
+    def test_each_defect_is_refused(self) -> None:
+        cases = {
+            self.OK.replace('owner = "lead"\n', ""): "missing 'owner'",
+            self.OK + 'scope = "x"\n': "unknown field 'scope'",
+            self.OK.replace("count = 1", "count = 0"): "count must be an integer from 1",
+            self.OK.replace("count = 1", "count = 10001"): "count must be an integer from 1",
+            self.OK.replace("count = 1", "count = true"): "count must be an integer from 1",
+            self.OK.replace("expires = 2026-11-01", 'expires = "2026-11-01"'): "expires must be a date",
+            self.OK.replace("expires = 2026-11-01", "expires = 2026-11-01T00:00:00"): "expires must be a date",
+            self.OK.replace('check = "unit"', 'check = "scope"'): "scope is never waivable",
+            self.OK.replace('check = "unit"', 'check = "ac-red"'): "ac-red is never waivable",
+            self.OK.replace('check = "unit"', 'check = "approval"'): "approval is never waivable",
+            self.OK.replace('check = "unit"', 'check = "nonsense"'): "unknown check 'nonsense'",
+            self.OK.replace('reason = "r"', 'reason = ""'): "must be non-empty strings",
+        }
+        for body, why in cases.items():
+            probs = self.problems(body)
+            self.assertTrue(any(why in p for p in probs), (why, probs))
+
+    def test_a_duplicate_id_is_refused(self) -> None:
+        from sdlc import waivers
+
+        entries, probs = waivers.parse("[[waiver]]\n" + self.OK + "\n[[waiver]]\n" + self.OK)
+        self.assertEqual(len(entries), 1)
+        self.assertIn("duplicate id", probs[0])
+
+    def test_a_waiver_whose_age_cannot_be_checked_is_a_problem(self) -> None:
+        import datetime as dt
+
+        from sdlc import waivers
+
+        today = dt.date(2026, 10, 5)
+        s = waivers.State()
+        waivers._judge(waivers.Waiver("W-1", "unit", "k", 1, "lead", "r", dt.date(2026, 11, 1)), 90, today, s)
+        self.assertTrue(any("its age cannot be checked" in p for p in s.problems), s.problems)
+        s = waivers.State()
+        waivers._judge(waivers.Waiver("W-1", "unit", "k", 1, "lead", "r", dt.date(2026, 11, 1),
+                                      created=today, origin=today), 90, today, s)
+        self.assertEqual(s.problems, [])
+
+    def test_a_waiver_covers_at_most_its_count(self) -> None:
+        import datetime as dt
+
+        from sdlc import waivers
+
+        w = waivers.Waiver("W-1", "unit", "k", 2, "lead", "r", dt.date(2026, 11, 1))
+        other = waivers.Waiver("W-2", "unit", "gone", 1, "lead", "r", dt.date(2026, 11, 1))
+        new, covered, unused = waivers.apply([w, other], ["k", "k", "k", "j"])
+        self.assertEqual(new, ["j", "k"])
+        self.assertEqual([k for k, _ in covered], ["k", "k"])
+        self.assertEqual(unused, [other])
+
+
 class BaselineKeys(unittest.TestCase):
     """Baseline keys must survive edits that only move a known failure to another line."""
 
