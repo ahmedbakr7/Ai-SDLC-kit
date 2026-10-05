@@ -69,7 +69,11 @@ def parse(text: str | None) -> dict[str, list[str]]:
 
 
 def dump(checks: dict[str, list[str]]) -> str:
+    """Version 2 text. Raises ValueError rather than write counts `parse` would not carry."""
     body = {k: dict(sorted(Counter(v).items())) for k, v in sorted(checks.items()) if v}
+    counts = [n for entries in body.values() for n in entries.values()]
+    if any(n > MAX_COUNT for n in counts) or sum(counts) > MAX_TOTAL:
+        raise ValueError(f"more failures than a baseline carries ({MAX_COUNT} per key, {MAX_TOTAL} in all)")
     return json.dumps({"version": 2, "checks": body}, indent=2) + "\n"
 
 

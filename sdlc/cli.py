@@ -362,12 +362,17 @@ def cmd_baseline(args) -> int:
         now["trace"] = probs
     if args.prune:
         old = baseline.load(cfg.root, cfg.rel(p))  # paths moved since are written renamed
-        kept = {n: sorted((Counter(v) & Counter(now.get(n, []))).elements()) for n, v in old.items()}
-        removed = sum(len(v) for v in old.values()) - sum(len(v) for v in kept.values())
-        p.write_text(baseline.dump(kept), encoding="utf-8", newline="\n")
+        now = {n: sorted((Counter(v) & Counter(now.get(n, []))).elements()) for n, v in old.items()}
+    try:
+        text = baseline.dump(now)
+    except ValueError as e:  # nothing written: the file stays as it was
+        print(f"cannot write {cfg.rel(p)}: {e}", file=sys.stderr)
+        return EXIT_FAIL
+    p.write_text(text, encoding="utf-8", newline="\n")
+    if args.prune:
+        removed = sum(len(v) for v in old.values()) - sum(len(v) for v in now.values())
         print(f"{cfg.rel(p)}: pruned {removed} entr{'y' if removed == 1 else 'ies'} that no longer fail")
         return 0
-    p.write_text(baseline.dump(now), encoding="utf-8", newline="\n")
     total = sum(len(v) for v in now.values())
     print(f"{cfg.rel(p)}: {total} known failure(s) in {len(now)} check(s). Commit it in a lead PR; "
           "from then on gates fail only on new failures, and it may only shrink.")

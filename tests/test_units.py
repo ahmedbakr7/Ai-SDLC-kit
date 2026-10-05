@@ -166,6 +166,15 @@ class BaselineVersions(unittest.TestCase):
         self.assertEqual(parsed.count("h"), baseline.MAX_COUNT)
         self.assertEqual(set(parsed), {"f", "h"})
 
+    def test_dump_refuses_counts_parse_would_drop(self) -> None:
+        from sdlc import baseline
+
+        self.assertIn('"a": 10000', baseline.dump({"lint": ["a"] * baseline.MAX_COUNT}))
+        with self.assertRaises(ValueError):
+            baseline.dump({"lint": ["a"] * (baseline.MAX_COUNT + 1)})
+        with self.assertRaises(ValueError):
+            baseline.dump({"lint": [f"k{i}" for i in range(baseline.MAX_TOTAL + 1)]})
+
     def test_occurrences_past_the_file_total_carry_nothing(self) -> None:
         from sdlc import baseline
 
