@@ -166,6 +166,14 @@ class BaselineVersions(unittest.TestCase):
         self.assertEqual(parsed.count("h"), baseline.MAX_COUNT)
         self.assertEqual(set(parsed), {"f", "h"})
 
+    def test_occurrences_past_the_file_total_carry_nothing(self) -> None:
+        from sdlc import baseline
+
+        per = baseline.MAX_COUNT
+        keys = {f"k{i}": per for i in range(baseline.MAX_TOTAL // per + 5)}
+        parsed = baseline.parse(json.dumps({"version": 2, "checks": {"lint": keys}}))["lint"]
+        self.assertEqual(len(parsed), baseline.MAX_TOTAL)
+
     def test_a_renamed_path_is_replaced_only_where_it_stands_whole(self) -> None:
         from sdlc import baseline
 

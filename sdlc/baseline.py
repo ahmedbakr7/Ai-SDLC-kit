@@ -29,9 +29,11 @@ _RUFF = re.compile(r"^(?P<file>[^\s:]+):\d+:\d+: (?P<code>[A-Z]+\d+)\b")
 # eslint stylish: a path line, then "  12:3  error  message  rule-name"
 _ESLINT_ROW = re.compile(r"^\s+\d+:\d+\s+error\s+.*?\s{2,}(?P<rule>[\w@/-]+)\s*$")
 _LINE_NO = re.compile(r":\d+(?::\d+)?(?=[:;,\s]|$)")
-# A key's count above this is not a count a run produces: it carries nothing, so a hand-edited
-# file cannot make every gate expand it into memory.
+# A key's count above MAX_COUNT is not a count a run produces: it carries nothing. Past MAX_TOTAL
+# occurrences in the whole file, later keys carry nothing either. Either way a hand-edited file
+# cannot make every gate expand it into memory, and the gate only gets stricter.
 MAX_COUNT = 10_000
+MAX_TOTAL = 1_000_000
 # Characters a path is made of: a renamed path is replaced only where it stands whole.
 _PATH_CHAR = r"[\w./@+~-]"
 
@@ -48,15 +50,21 @@ def parse(text: str | None) -> dict[str, list[str]]:
     data = json.loads(text)
     checks = data.get("checks", {}) if isinstance(data, dict) else {}
     out: dict[str, list[str]] = {}
+    total = 0
     for name, v in checks.items():
         if name not in BASELINE_CHECKS:
             continue
         if isinstance(v, list):
-            out[name] = [str(x) for x in v]
-        elif isinstance(v, dict):
-            # A count that is not an integer from 1 to MAX_COUNT carries nothing: the gate gets stricter.
-            out[name] = [str(k) for k, n in v.items()
-                         if isinstance(n, int) and not isinstance(n, bool) and 0 < n <= MAX_COUNT for _ in range(n)]
+            v = Counter(map(str, v))
+        if not isinstance(v, dict):
+            continue
+        keys: list[str] = []
+        for k, n in v.items():
+            # A count that is not an integer from 1 to MAX_COUNT carries nothing.
+            if isinstance(n, int) and not isinstance(n, bool) and 0 < n <= MAX_COUNT and total + n <= MAX_TOTAL:
+                keys += [str(k)] * n
+                total += n
+        out[name] = keys
     return out
 
 
