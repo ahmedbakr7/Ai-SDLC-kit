@@ -949,6 +949,16 @@ class BaselineRenames(unittest.TestCase):
         self.assertNotEqual(code, 0, out)
         self.assertIn("may only shrink, but adds typecheck: app/old_legacy.py: TS2345", out)
 
+    def test_an_uncommitted_edit_to_the_baseline_is_renamed_too(self) -> None:
+        self.git(self.p.root, "mv", "app/legacy.py", "app/old_legacy.py")
+        self.p.commit("move legacy")
+        # A hand edit that keeps the old path (here: back to the version 1 shape), not committed.
+        self.p.write("sdlc-baseline.json", json.dumps(
+            {"version": 1, "checks": {"typecheck": ["app/legacy.py: TS2345", "app/legacy.py: TS2345"]}}))
+        code, out = self.typecheck()
+        self.assertEqual(code, 0, out)
+        self.assertIn("BASELINED: 2 known failure(s)", out)
+
     def test_a_version_1_baseline_is_still_read(self) -> None:
         self.p.write("sdlc-baseline.json", json.dumps(
             {"version": 1, "checks": {"typecheck": ["app/legacy.py: TS2345", "app/legacy.py: TS2345"]}}))

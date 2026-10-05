@@ -110,14 +110,14 @@ def _written(root: Path, rel: str, rev: str = "HEAD") -> str:
 
 
 def load(root: Path, rel: str) -> dict[str, list[str]]:
-    """The working tree's baseline, with paths moved since it was last committed renamed. An
-    uncommitted edit is read as written (`sdlc baseline --prune` writes current paths)."""
+    """The working tree's baseline, with paths moved since it was last committed renamed, also
+    when it has uncommitted edits (a path already current is not an old path, so it stays)."""
     f = root / rel
     if not f.is_file():
         return {}
     text = f.read_text(encoding="utf-8")
     since = _written(root, rel)
-    if not since or gitutil.show(root, "HEAD", "./" + rel) != text:
+    if not since:
         return parse(text)
     return remap(parse(text), renames(root, since))
 
