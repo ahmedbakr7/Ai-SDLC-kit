@@ -886,7 +886,7 @@ class BaselineRenames(unittest.TestCase):
         self.p = ProductRepo()
         self.p.write("tools/fake_tsc.py", self.TSC)
         cfg = self.p.read("sdlc.toml").replace('typecheck = "python tools/lint.py --types"',
-                                                f'typecheck = "{Path(sys.executable).as_posix()} tools/fake_tsc.py"')
+                                                f"typecheck = '\"{Path(sys.executable).as_posix()}\" tools/fake_tsc.py'")
         self.p.write("sdlc.toml", cfg)
         self.p.write("app/legacy.py", "A = 1  # TYPEERR\nB = 2  # TYPEERR\n")
         self.p.commit("main is red: two type errors in one file")

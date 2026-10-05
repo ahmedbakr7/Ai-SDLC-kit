@@ -29,6 +29,9 @@ _RUFF = re.compile(r"^(?P<file>[^\s:]+):\d+:\d+: (?P<code>[A-Z]+\d+)\b")
 # eslint stylish: a path line, then "  12:3  error  message  rule-name"
 _ESLINT_ROW = re.compile(r"^\s+\d+:\d+\s+error\s+.*?\s{2,}(?P<rule>[\w@/-]+)\s*$")
 _LINE_NO = re.compile(r":\d+(?::\d+)?(?=[:;,\s]|$)")
+# A key's count above this is not a count a run produces: it carries nothing, so a hand-edited
+# file cannot make every gate expand it into memory.
+MAX_COUNT = 10_000
 # Characters a path is made of: a renamed path is replaced only where it stands whole.
 _PATH_CHAR = r"[\w./@+~-]"
 
@@ -51,9 +54,9 @@ def parse(text: str | None) -> dict[str, list[str]]:
         if isinstance(v, list):
             out[name] = [str(x) for x in v]
         elif isinstance(v, dict):
-            # A count that is not a positive integer carries nothing: the gate gets stricter.
+            # A count that is not an integer from 1 to MAX_COUNT carries nothing: the gate gets stricter.
             out[name] = [str(k) for k, n in v.items()
-                         if isinstance(n, int) and not isinstance(n, bool) and n > 0 for _ in range(n)]
+                         if isinstance(n, int) and not isinstance(n, bool) and 0 < n <= MAX_COUNT for _ in range(n)]
     return out
 
 

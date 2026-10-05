@@ -159,8 +159,12 @@ class BaselineVersions(unittest.TestCase):
     def test_a_count_that_is_not_a_positive_integer_carries_nothing(self) -> None:
         from sdlc import baseline
 
-        v2 = json.dumps({"version": 2, "checks": {"lint": {"a": 0, "b": -1, "c": True, "d": "3", "e": 1.5, "f": 2}}})
-        self.assertEqual(baseline.parse(v2), {"lint": ["f", "f"]})
+        v2 = json.dumps({"version": 2, "checks": {"lint": {"a": 0, "b": -1, "c": True, "d": "3", "e": 1.5, "f": 2,
+                                                            "g": baseline.MAX_COUNT + 1, "h": baseline.MAX_COUNT}}})
+        parsed = baseline.parse(v2)["lint"]  # above the cap: not expanded at all
+        self.assertEqual(parsed.count("f"), 2)
+        self.assertEqual(parsed.count("h"), baseline.MAX_COUNT)
+        self.assertEqual(set(parsed), {"f", "h"})
 
     def test_a_renamed_path_is_replaced_only_where_it_stands_whole(self) -> None:
         from sdlc import baseline
