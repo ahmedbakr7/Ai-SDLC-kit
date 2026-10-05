@@ -69,6 +69,13 @@ the gate prints it, an `owner`, a `reason` and an `expires` date at most `[waive
 twice `max_days`; fix the failure, or move it into the baseline. A ticket PR touching the file
 is strict.
 
+A strictness preset sets the lane lists, triggers and limits in one line: `[gate] preset =
+"default"` (today's lists), `"hardened"` (no trust-based approvals, a human reviewer for
+mechanical PRs, workflows, config, the kit pin and dependency manifests make a PR strict, nothing
+optional, 30-day waivers without renewal), or `"floor"` (ADR-0001 section 6: no duplication or
+smoke checks, for adopting the kit). Your own `[gate]`, `[lanes]` and `[waivers]` keys still
+override it, except where `hardened` forbids loosening; `doctor` prints what results.
+
 Commit, then mark the `gate` job required in branch protection.
 
 ## 3. Run the pipeline
