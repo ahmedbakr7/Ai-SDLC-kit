@@ -179,7 +179,7 @@ class Lifecycle(unittest.TestCase):
         self.lead_pr("fix/types")
         out = self.assert_passes(self.gate_ci())
         self.assertNotIn("BASELINED", out)
-        self.assertNotIn("WAIVED", out)
+        self.assertNotIn("waived", out.lower())  # the summary (WAIVED) and the per-key lines (waived:)
         self.assertEqual(json.loads(p.read("sdlc-baseline.json"))["checks"].get("typecheck", {}), {})
 
 

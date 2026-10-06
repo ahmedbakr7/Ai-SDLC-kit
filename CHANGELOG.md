@@ -7,6 +7,13 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 
 ## Unreleased
 
+## v1.5.0 (2026-10-06)
+
+The first stable release: ADR-0001 (lanes, areas, approval records, evidence in CI, derived
+status) and ADR-0002 (baseline counts, waivers, strictness presets), as released in
+v1.0.0-rc1 to v1.5.0-rc1. No behaviour change since v1.5.0-rc1. Upgrading from an rc needs
+nothing; from an older pin, read each rc entry below.
+
 - Tests: `tests/test_lifecycle.py` takes the example product's main branch through a ticket
   (records-mode approval, derived status), baselined debt, a file move, a waiver and the fix,
   with the full gates at each step, under the default and the hardened preset. No behaviour change.
