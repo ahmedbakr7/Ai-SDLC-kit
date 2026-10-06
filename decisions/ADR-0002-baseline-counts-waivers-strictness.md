@@ -35,9 +35,14 @@ What the kit does today, and what the Hangout pilot shows:
   `<check>: fails` when the output names nothing. A count is how many times that key failed.
   The comparison is the same multiset comparison as today, stored compactly.
 - **Renames.** Before comparing, each key's file path is mapped through the renames git
-  detects between the base branch and the head (`git diff -M --name-status`, exact and
-  similar renames). A known failure in a moved file stays known. A file that is deleted takes
-  its entries with it; a file that is new starts with none.
+  detects between the commit that last wrote the baseline and the head (`git diff -M
+  --name-status`, exact and similar renames), so a baseline written before a rename still
+  matches after it, on a branch and on main after the merge alike (mapping from the base
+  branch instead would leave main's `gate ci` with stale and new entries for every rename
+  merged since the last prune). The checks that read the base branch's baseline as it was
+  (`immutable`, `review-file`) read it at that commit, unmapped. A known failure in a moved
+  file stays known. A file that is deleted takes its entries with it; a file that is new
+  starts with none.
 - Stable keys stay where the key is the failure: test names, `T-001-03/AC-2`, ticket ids.
   Only paths inside keys are remapped; nothing is coarsened to a per-file total. A per-file or
   per-check total would let a branch fix one failure and add a different one unseen.
@@ -52,6 +57,9 @@ What the kit does today, and what the Hangout pilot shows:
   resolves it), `reason`, `expires` (a date), and optionally `ticket` (the follow-up that
   removes it) and `renews` (the `id` of the waiver it renews).
 - **Where it applies.** Every gate honours waivers the way it honours the baseline. A waiver
+  applies only once it is on the base branch, unchanged on the branch: a PR cannot waive its
+  own failures, so a waiver for a failure on a red main lands in a lead PR that merges by
+  admin override, and applies from then on. A waiver
   covers only failures that already exist on the base branch: up to `count` occurrences of
   its key pass as `WAIVED`, and any occurrence above that is new and fails, waiver or not. A
   waiver whose key no longer fails is stale and fails `gate ci` until it is removed, like a
