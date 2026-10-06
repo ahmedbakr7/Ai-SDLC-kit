@@ -7,6 +7,10 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 
 ## Unreleased
 
+- Tests: `tests/test_lifecycle.py` takes the example product's main branch through a ticket
+  (records-mode approval, derived status), baselined debt, a file move, a waiver and the fix,
+  with the full gates at each step, under the default and the hardened preset. No behaviour change.
+
 ## v1.5.0-rc1 (2026-10-05)
 
 ADR-0002 step 4c: strictness presets. `[gate] preset` defaults to `"default"`, which changes nothing.
