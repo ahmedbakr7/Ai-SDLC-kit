@@ -304,5 +304,11 @@ the reference passes), a release tag, and a Hangout lead PR that bumps `.sdlc` a
 
 ## Not decided
 
-- [OPEN: The forge identity the agents use on Hangout (one app, or separate builder and
-  reviewer identities). Lead action in GitHub settings; needed before Hangout pins step 2.]
+Nothing. The one open item was settled after acceptance:
+
+- **Forge identity on Hangout** (decided 2026-10-06 by the lead): one identity, trust-based
+  by choice. Hangout is a solo pilot where the lead, the agents and the reviews all post as one
+  account, so it keeps `[approval] trust_unsigned = true`, and every approval says
+  "[trust-based: identities not verified]". Separate builder and reviewer identities, with
+  credentials kept apart, are the way back to verified approvals and to the `hardened` preset
+  (ADR-0002), which forbids trust-based approvals.
