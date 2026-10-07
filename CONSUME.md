@@ -4,8 +4,8 @@
 
 ```bash
 git submodule add https://github.com/ahmedbakr7/Ai-SDLC-kit.git .sdlc
-git -C .sdlc checkout v1.5.1     # pin a release tag (CHANGELOG.md lists them)
-git add .gitmodules .sdlc && git commit -m "pin ai-sdlc kit v1.5.1"
+git -C .sdlc checkout v1.5.2     # pin a release tag (CHANGELOG.md lists them)
+git add .gitmodules .sdlc && git commit -m "pin ai-sdlc kit v1.5.2"
 .sdlc/bin/sdlc init --profile nextjs # or node | python | (none)
 ```
 
@@ -155,7 +155,7 @@ Set `[approval] mode = "forge"` (GitHub) or `"git"` (signed notes in `refs/notes
 - Merge ticket PRs with a merge commit; turn off squash and rebase merging in the repository
   settings. A squash folds the trailers into the commit body, where derived status cannot read
   them, so the ticket stays `ready` and `sdlc next` offers it again. `gate ci` fails on such a
-  commit until it is reverted and the PR's own commits are merged.
+  commit until the PR's own commits are merged with a merge commit (no revert needed).
 - Weakening or removing an AC by amendment needs a lead approval; a strict ticket needs one too.
 
 Without `sdlc run` (agent in an IDE): `sdlc status T-001-03 in_progress --as build`,
