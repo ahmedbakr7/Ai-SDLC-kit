@@ -347,11 +347,14 @@ class Gate:
     def _check_trailers(self) -> Check | None:
         """`gate ci` fails when a merged commit names a ticket outside its trailers: a squash
         merge folds the PR's `Sdlc-Ticket:` trailers into the body, so derived status never sees
-        the ticket as done and `sdlc next` offers it again. Undo it: revert the commit, merge the
-        PR's own commits with a merge commit."""
+        the ticket as done and `sdlc next` offers it again. A ticket another commit delivers as a
+        trailer is visible, so it is not reported: merging the PR's own commits with a merge
+        commit is the fix, and needs no revert (one would regrow a baseline the PR pruned)."""
         if self.play != "ci" or self.only or not self.records:
             return None
-        buried = gitutil.buried_trailers(self.cfg.root, "HEAD", "Sdlc-Ticket")
+        delivered = set(gitutil.trailer_values(self.cfg.root, "HEAD", "Sdlc-Ticket"))
+        buried = [(sha, missed) for sha, ids in gitutil.buried_trailers(self.cfg.root, "HEAD", "Sdlc-Ticket")
+                  if (missed := [i for i in ids if i not in delivered])]
         if not buried:
             return None
         c = Check("trailers")
@@ -359,7 +362,7 @@ class Gate:
         c.summary = (f"{len(buried)} merged commit(s) name Sdlc-Ticket outside their trailers (a squash merge?): "
                      "status cannot see those tickets")
         c.details = [f"{sha[:12]} names {', '.join(ids)} in its body, not as a trailer" for sha, ids in buried]
-        c.details.append("fix: revert the commit, then merge the PR's own commits with a merge commit "
+        c.details.append("fix: merge the PR's own commits with a merge commit; no revert is needed "
                          "(never squash or rebase a ticket PR)")
         return c
 

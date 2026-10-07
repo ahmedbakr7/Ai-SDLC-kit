@@ -7,6 +7,16 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 
 ## Unreleased
 
+## v1.5.2 (2026-10-07)
+
+Found by the Hangout pilot recovering T-001-33 from a squash merge on kit v1.5.0.
+
+- `gate ci`'s `trailers` check reports only tickets that no commit delivers as a trailer.
+  Merging a squashed PR's own commits with a merge commit now clears it. Before, v1.5.1 kept
+  failing until the squash was reverted, and that revert cannot merge when the PR pruned the
+  baseline (the baseline only shrinks). The fix advice now says to merge the original commits;
+  a revert is not needed. It removes a false failure and cannot fail a product that passed.
+
 ## v1.5.1 (2026-10-07)
 
 Found by the Hangout pilot on kit v1.5.0 (T-001-33, PR #73). Both close a check that passed

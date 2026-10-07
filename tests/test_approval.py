@@ -837,6 +837,16 @@ class PilotGaps(Base):
         self.assertEqual(code, 0, out)
         self.assertNotIn("trailers", out)
 
+    def test_merging_the_original_commits_after_a_squash_clears_it_without_a_revert(self) -> None:
+        # Hangout T-001-33: the squash pruned the baseline, so a revert would regrow it. Merging
+        # the PR's own commits delivers the ticket as a trailer, and the squash is then harmless.
+        self.squash_merge()
+        git(self.p.root, "merge", "-q", "--no-ff", "--no-edit", "build/T-042-02")
+        self.assertEqual(self.p.sdlc("status", "T-042-02")[1].strip(), "done")
+        code, out = self.p.sdlc("gate", "ci")
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("outside their trailers", out)
+
     def test_a_revert_message_without_the_reverse_change_does_not_exempt_the_squash(self) -> None:
         self.squash_merge()
         squash = git(self.p.root, "rev-parse", "HEAD").strip()
