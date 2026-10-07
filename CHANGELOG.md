@@ -7,8 +7,13 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 
 ## Unreleased
 
+## v1.5.1 (2026-10-07)
+
 Found by the Hangout pilot on kit v1.5.0 (T-001-33, PR #73). Both close a check that passed
 without checking; a product whose PRs already follow the documented flow keeps passing.
+Released as a patch although it can turn a PR red that passed before: such a PR either has a
+commit naming no agent (`sdlc approval`) or a squash-merged ticket on its base (`gate ci`), and
+v1.5.0 accepted both only because the check did not run.
 
 - `sdlc approval` fails a ticket PR with a commit that has no `Sdlc-Agent` trailer ("needs
   Sdlc-Agent trailers on N commit(s) ... to check reviewer independence"). Before, the
