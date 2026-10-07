@@ -22,8 +22,9 @@ v1.5.0 accepted both only because the check did not run.
   `sdlc run`.
 - `gate ci` (records mode) fails with a `trailers` check when a merged commit names
   `Sdlc-Ticket` outside its trailers, as a squash merge leaves it: derived status cannot see the
-  ticket. A commit that a later commit reverts is exempt; the fix is to revert it and merge the
-  PR's own commits with a merge commit.
+  ticket. A commit is exempt only while a later commit reverses its diff exactly (same patch
+  id) and that revert is not itself reverted; a revert message alone exempts nothing. The fix is
+  to revert it and merge the PR's own commits with a merge commit.
 
 ## v1.5.0 (2026-10-06)
 

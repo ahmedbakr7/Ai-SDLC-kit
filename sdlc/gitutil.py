@@ -151,26 +151,50 @@ def covers(root: Path, base: str, reviewed: str, head: str) -> list[str]:
     return out
 
 
+def _patch_id(root: Path, a: str, b: str) -> str:
+    """The stable patch id of the diff from `a` to `b` ("" for an empty diff)."""
+    diff = git(root, "diff", "--no-renames", a, b, check=False)
+    if not diff.strip():
+        return ""
+    r = subprocess.run(["git", "patch-id", "--stable"], cwd=root, input=diff, capture_output=True,
+                       text=True, encoding="utf-8", errors="replace")
+    return r.stdout.split(" ", 1)[0].strip()
+
+
+def _undone(root: Path, reverts: dict[str, list[str]], sha: str, seen: frozenset[str] = frozenset()) -> bool:
+    """`sha` is undone: some commit reverses its diff exactly (the same patch id, inverted) and
+    that revert is not undone in turn. The "This reverts commit" line alone proves nothing."""
+    if sha in seen:
+        return False
+    inverse = _patch_id(root, sha, f"{sha}^")
+    return bool(inverse) and any(
+        _patch_id(root, f"{r}^", r) == inverse and not _undone(root, reverts, r, seen | {sha})
+        for r in reverts.get(sha, []))
+
+
 def buried_trailers(root: Path, rev: str, key: str) -> list[tuple[str, list[str]]]:
     """Commits reachable from `rev` whose message has `key:` lines git does not read as trailers,
     with the values it misses: a squash merge folds each commit's trailers into the body, where
-    `trailer_values` cannot see them. A commit a later commit reverts ("This reverts commit") is
-    left out: the revert is how it is undone."""
+    `trailer_values` cannot see them. A commit that a later commit reverts exactly, with that
+    revert still standing, is left out: the revert is how it is undone."""
     out = git(root, "log", f"--format=%H%x1f%(trailers:key={key},valueonly,separator=%x2C)%x1f%B%x1e", rev,
               check=False)
-    entries, reverted = [], set()
+    entries, reverts = [], {}
     for rec in out.split("\x1e"):
         parts = rec.strip("\n").split("\x1f")
         if len(parts) != 3:
             continue
         sha, parsed, body = parts
-        reverted |= set(re.findall(r"This reverts commit ([0-9a-f]{7,40})", body))
+        for target in re.findall(r"This reverts commit ([0-9a-f]{7,40})", body):
+            full = git(root, "rev-parse", "--verify", "-q", f"{target}^{{commit}}", check=False).strip()
+            if full:
+                reverts.setdefault(full, []).append(sha)
         named = re.findall(rf"(?m)^{re.escape(key)}:[ \t]*(\S+)", body)
         seen = {v.strip() for v in parsed.split(",") if v.strip()}
         missed = sorted(set(named) - seen)
         if missed:
             entries.append((sha, missed))
-    return [(sha, ids) for sha, ids in entries if not any(sha.startswith(r) for r in reverted)]
+    return [(sha, ids) for sha, ids in entries if not _undone(root, reverts, sha)]
 
 
 def trailer_values(root: Path, rev_range: str, key: str) -> list[str]:

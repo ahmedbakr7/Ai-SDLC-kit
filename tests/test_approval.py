@@ -837,6 +837,23 @@ class PilotGaps(Base):
         self.assertEqual(code, 0, out)
         self.assertNotIn("trailers", out)
 
+    def test_a_revert_message_without_the_reverse_change_does_not_exempt_the_squash(self) -> None:
+        self.squash_merge()
+        squash = git(self.p.root, "rev-parse", "HEAD").strip()
+        git(self.p.root, "commit", "-q", "--allow-empty", "-m", "Revert", "-m", f"This reverts commit {squash}.")
+        code, out = self.p.sdlc("gate", "ci")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("names T-042-02 in its body, not as a trailer", out)
+
+    def test_reverting_the_revert_brings_the_squash_back_into_the_report(self) -> None:
+        self.squash_merge()
+        git(self.p.root, "revert", "--no-edit", "HEAD")
+        self.assertEqual(self.p.sdlc("gate", "ci")[0], 0)
+        git(self.p.root, "revert", "--no-edit", "HEAD")  # the squash's change is back
+        code, out = self.p.sdlc("gate", "ci")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("names T-042-02 in its body, not as a trailer", out)
+
     def test_a_merge_commit_keeps_the_trailers_and_gate_ci_has_nothing_to_report(self) -> None:
         self.build()
         git(self.p.root, "checkout", "-q", "main")
