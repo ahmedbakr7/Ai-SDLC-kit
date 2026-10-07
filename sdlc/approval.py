@@ -387,6 +387,9 @@ def evaluate(cfg: Config, gate, records: list[Record], pr: PullRequest | None, h
         amendments = gate.new_amendments()
         need = required_roles(lane, lead_lines, human_review=presets.hardened(cfg.data))
     build_agents = _build_agents(cfg, gate.base, head)
+    # The independent-reviewer rule compares the record's agent with the agents named in the
+    # branch's Sdlc-Agent trailers; a commit that names none would make any agent look independent.
+    unnamed = _commits_without_agent(cfg, gate.base, head) if t is not None else []
     committers = commit_identities(cfg, gate.base, head) if mode(cfg) == "git" else set()
     flagged = gate.out_of_area() if t is not None else []
     details, granted = [], {}
@@ -407,7 +410,10 @@ def evaluate(cfg: Config, gate, records: list[Record], pr: PullRequest | None, h
         if not (rec.role in ROLES or any(rec.who in _list(cfg, x) for x in ROLES)):
             details.append(f"{rec.source} by {rec.who}: no role (declare role:, or list the identity in [approval])")
     missing = []
-    approvers = {role: {r.who for r in rs if r.verdict == "approve"} for role, rs in granted.items()}
+    if unnamed:
+        missing.append(f"Sdlc-Agent trailers on {len(unnamed)} commit(s) ({', '.join(s[:7] for s in unnamed[:5])}) "
+                       "to check reviewer independence")
+    approvers ={role: {r.who for r in rs if r.verdict == "approve"} for role, rs in granted.items()}
     for role in need:
         if role == "any":
             if not any(approvers.values()):
@@ -434,6 +440,17 @@ def evaluate(cfg: Config, gate, records: list[Record], pr: PullRequest | None, h
 
 def _list(cfg: Config, role: str) -> list[str]:
     return [str(x) for x in cfg.section("approval").get({"review": "reviewers", "lead": "leads", "bot": "bots"}[role], [])]
+
+
+def _commits_without_agent(cfg: Config, base: str, head: str) -> list[str]:
+    """The branch's own non-merge commits (oldest first) that carry no Sdlc-Agent trailer."""
+    try:
+        mb = gitutil.merge_base(cfg.root, base, head)
+    except gitutil.GitError:
+        return []
+    log = gitutil.git(cfg.root, "log", "--reverse", "--no-merges", f"{mb}..{head}",
+                      "--format=%H|%(trailers:key=Sdlc-Agent,valueonly,separator=%x2C)", check=False)
+    return [sha for sha, _, agent in (line.partition("|") for line in log.splitlines()) if sha and not agent.strip()]
 
 
 def _build_agents(cfg: Config, base: str, head: str) -> set[str]:

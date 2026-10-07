@@ -765,5 +765,104 @@ class HardenedPreset(Base):
         self.assertEqual(self.approval()[0], 0)
 
 
+
+class PilotGaps(Base):
+    """Hangout pilot, kit v1.5.0: what let a ticket through unnoticed."""
+
+    def unnamed_build(self) -> str:
+        # The build commit names its ticket but no agent, like Hangout #73's a11821e.
+        git(self.p.root, "checkout", "-q", "-b", "build/T-042-02")
+        copy_solution(self.p, "build-T-042-02")
+        copy_solution(self.p, "test-T-042-02")
+        git(self.p.root, "add", "-A")
+        git(self.p.root, "commit", "-q", "-m", "T-042-02: order page returns section", "-m", "Sdlc-Ticket: T-042-02")
+        return git(self.p.root, "rev-parse", "HEAD").strip()
+
+    def test_a_commit_without_an_agent_trailer_leaves_independence_unchecked(self) -> None:
+        # Nothing named the builder, so the builder's own record looked independent.
+        head = self.unnamed_build()
+        self.forge()
+        self.record("rev", head, agent="builder")
+        code, out, res = self.approval()
+        self.assertNotEqual(code, 0, (out, res))
+        self.assertIn(f"needs Sdlc-Agent trailers on 1 commit(s) ({head[:7]}) to check reviewer independence",
+                      res["summary"])
+
+    def test_every_commit_naming_its_agent_lets_the_independent_review_count(self) -> None:
+        head = self.build()
+        self.forge()
+        self.record("rev", head)
+        code, out, res = self.approval()
+        self.assertEqual(code, 0, (out, res))
+
+    def test_sdlc_commit_names_the_agent_so_its_review_is_checked(self) -> None:
+        # The IDE path: an agent commits with `sdlc commit`, and the builder's own record fails.
+        git(self.p.root, "checkout", "-q", "-b", "build/T-042-02")
+        copy_solution(self.p, "build-T-042-02")
+        copy_solution(self.p, "test-T-042-02")
+        git(self.p.root, "add", "-A")
+        code, out = self.p.sdlc("commit", "T-042-02", "-m", "T-042-02: order page", "--agent", "builder",
+                                "--play", "build")
+        self.assertEqual(code, 0, out)
+        head = git(self.p.root, "rev-parse", "HEAD").strip()
+        self.assertIn("Sdlc-Agent: builder\nSdlc-Play: build\nSdlc-Ticket: T-042-02", git(self.p.root, "log", "-1", "--format=%B"))
+        self.forge()
+        self.record("rev", head, agent="builder")
+        self.assertNotEqual(self.approval()[0], 0)
+        self.record("rev", head, at="2026-10-04T11:00:00Z")
+        self.assertEqual(self.approval()[0], 0)
+        self.assertNotEqual(self.p.sdlc("commit", "T-042-02", "-m", "no agent")[0], 0)
+
+    def squash_merge(self) -> None:
+        # What a forge's squash merge writes: every commit message folded into one body, the
+        # trailers no longer in the last paragraph.
+        self.build()
+        msg = git(self.p.root, "log", "-1", "--format=%B").strip()
+        git(self.p.root, "checkout", "-q", "main")
+        git(self.p.root, "merge", "-q", "--squash", "build/T-042-02")
+        git(self.p.root, "commit", "-q", "-m", "T-042-02: order page returns section (#7)",
+            "-m", "* " + msg, "-m", "---------", "-m", "Co-authored-by: someone <someone@example.com>")
+
+    def test_a_squash_merged_ticket_fails_gate_ci_until_it_is_reverted_and_merged(self) -> None:
+        self.squash_merge()
+        self.assertEqual(self.p.sdlc("status", "T-042-02")[1].strip(), "ready")  # what the trailers say
+        code, out = self.p.sdlc("gate", "ci")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("1 merged commit(s) name Sdlc-Ticket outside their trailers", out)
+        self.assertIn("names T-042-02 in its body, not as a trailer", out)
+        git(self.p.root, "revert", "--no-edit", "HEAD")
+        git(self.p.root, "merge", "-q", "--no-ff", "--no-edit", "build/T-042-02")
+        self.assertEqual(self.p.sdlc("status", "T-042-02")[1].strip(), "done")
+        code, out = self.p.sdlc("gate", "ci")
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("trailers", out)
+
+    def test_a_revert_message_without_the_reverse_change_does_not_exempt_the_squash(self) -> None:
+        self.squash_merge()
+        squash = git(self.p.root, "rev-parse", "HEAD").strip()
+        git(self.p.root, "commit", "-q", "--allow-empty", "-m", "Revert", "-m", f"This reverts commit {squash}.")
+        code, out = self.p.sdlc("gate", "ci")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("names T-042-02 in its body, not as a trailer", out)
+
+    def test_reverting_the_revert_brings_the_squash_back_into_the_report(self) -> None:
+        self.squash_merge()
+        git(self.p.root, "revert", "--no-edit", "HEAD")
+        self.assertEqual(self.p.sdlc("gate", "ci")[0], 0)
+        git(self.p.root, "revert", "--no-edit", "HEAD")  # the squash's change is back
+        code, out = self.p.sdlc("gate", "ci")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("names T-042-02 in its body, not as a trailer", out)
+
+    def test_a_merge_commit_keeps_the_trailers_and_gate_ci_has_nothing_to_report(self) -> None:
+        self.build()
+        git(self.p.root, "checkout", "-q", "main")
+        git(self.p.root, "merge", "-q", "--no-ff", "--no-edit", "build/T-042-02")
+        self.assertEqual(self.p.sdlc("status", "T-042-02")[1].strip(), "done")
+        code, out = self.p.sdlc("gate", "ci")
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("Sdlc-Ticket outside", out)
+
+
 if __name__ == "__main__":
     unittest.main()

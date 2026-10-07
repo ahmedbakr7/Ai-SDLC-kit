@@ -80,7 +80,7 @@ it never trusts committed evidence on its own.
 | `sdlc migrate` | upgrade v0.x tickets (number acceptance criteria) |
 | `sdlc approval [--pr N]` | CI (`[approval] mode = forge` or `git`): an approval covers the PR's head for every role its lane needs |
 | `sdlc review publish T-001-03 [--pr N]` | publish the review agent's record: a PR comment (forge) or a note on the reviewed commit (git) |
-| `sdlc commit T-001-03 -m "..."` | commit with the `Sdlc-Ticket:` trailer derived status reads |
+| `sdlc commit T-001-03 -m "..." --agent NAME --play build` | commit with the `Sdlc-Agent`, `Sdlc-Play` and `Sdlc-Ticket` trailers the approval and derived status read |
 | `sdlc followups --pr N` | draft tickets from an approval's `[follow-up]` findings |
 | `sdlc baseline [--prune]` | record the failures a red base branch already has; gates and `trace` then fail only on new ones, and the file only shrinks |
 

@@ -349,12 +349,14 @@ def cmd_followups(args) -> int:
 
 
 def cmd_commit(args) -> int:
-    """`git commit` with the `Sdlc-Ticket:` trailer derived status reads."""
+    """`git commit` with the trailers `sdlc run` writes: Sdlc-Agent and Sdlc-Play, which the
+    independent-reviewer rule reads, and Sdlc-Ticket, which derived status reads."""
     from . import gitutil
 
     cfg = _cfg(args)
     Repo(cfg).ticket(args.ticket)
-    gitutil.git(cfg.root, "commit", "-q", "-m", args.message, "-m", f"Sdlc-Ticket: {args.ticket}")
+    gitutil.git(cfg.root, "commit", "-q", "-m", args.message,
+                "-m", f"Sdlc-Agent: {args.agent}\nSdlc-Play: {args.play}\nSdlc-Ticket: {args.ticket}")
     print(gitutil.head(cfg.root))
     return 0
 
@@ -737,9 +739,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--pr", type=int, required=True)
     p.set_defaults(fn=cmd_followups)
 
-    p = sp.add_parser("commit", help="git commit with the Sdlc-Ticket trailer")
+    p = sp.add_parser("commit", help="git commit with the Sdlc-Agent, Sdlc-Play and Sdlc-Ticket trailers")
     p.add_argument("ticket")
     p.add_argument("-m", "--message", required=True)
+    p.add_argument("--agent", required=True, help="the agent that made the change (a reviewer must be another)")
+    p.add_argument("--play", required=True, choices=["build", "test"])
     p.set_defaults(fn=cmd_commit)
 
     p = sp.add_parser("baseline", help="record a red base branch's known failures (or --prune fixed ones)")
