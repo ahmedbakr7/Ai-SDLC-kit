@@ -147,9 +147,15 @@ Set `[approval] mode = "forge"` (GitHub) or `"git"` (signed notes in `refs/notes
 - List the reviewer, lead and bot identities in `[approval]`. They must differ from the identity
   that opens PRs. If one account does everything, set `trust_unsigned = true`: approvals then need
   write access only, and every result says they are trust-based.
-- Commits carry `Sdlc-Ticket: <id>` (`sdlc run` and `sdlc commit` add it). Tickets store only
+- Commits carry `Sdlc-Agent`, `Sdlc-Play` and `Sdlc-Ticket` trailers (`sdlc run` and
+  `sdlc commit --agent NAME --play build|test` add them). A ticket PR with a commit that names no
+  agent gets no approval: nothing would show the reviewer is not the builder. Tickets store only
   `draft`, `ready` or `blocked`; `sdlc migrate` rewrites old delivery statuses. `reviews/` and
   `evidence/` stay as read-only history.
+- Merge ticket PRs with a merge commit; turn off squash and rebase merging in the repository
+  settings. A squash folds the trailers into the commit body, where derived status cannot read
+  them, so the ticket stays `ready` and `sdlc next` offers it again. `gate ci` fails on such a
+  commit until it is reverted and the PR's own commits are merged.
 - Weakening or removing an AC by amendment needs a lead approval; a strict ticket needs one too.
 
 Without `sdlc run` (agent in an IDE): `sdlc status T-001-03 in_progress --as build`,

@@ -251,10 +251,11 @@ class Gate:
             self.checks.append(c)
             if on_check:
                 on_check(c)
-        if (w := self._check_waivers()) is not None:
-            self.checks.append(w)
-            if on_check:
-                on_check(w)
+        for extra in (self._check_waivers(), self._check_trailers()):
+            if extra is not None:
+                self.checks.append(extra)
+                if on_check:
+                    on_check(extra)
         ok = all(c.status != "fail" for c in self.checks)
         ev = {
             "kit_evidence": 1,
@@ -341,6 +342,25 @@ class Gate:
             c.summary = (f"{len(s.active)} waiver(s) apply" + (f", {len(s.problems)} problem(s) reported"
                                                               if s.problems else "")
                          + (f", {len(s.warnings)} expiring soon" if s.warnings else ""))
+        return c
+
+    def _check_trailers(self) -> Check | None:
+        """`gate ci` fails when a merged commit names a ticket outside its trailers: a squash
+        merge folds the PR's `Sdlc-Ticket:` trailers into the body, so derived status never sees
+        the ticket as done and `sdlc next` offers it again. Undo it: revert the commit, merge the
+        PR's own commits with a merge commit."""
+        if self.play != "ci" or self.only or not self.records:
+            return None
+        buried = gitutil.buried_trailers(self.cfg.root, "HEAD", "Sdlc-Ticket")
+        if not buried:
+            return None
+        c = Check("trailers")
+        c.status = "fail"
+        c.summary = (f"{len(buried)} merged commit(s) name Sdlc-Ticket outside their trailers (a squash merge?): "
+                     "status cannot see those tickets")
+        c.details = [f"{sha[:12]} names {', '.join(ids)} in its body, not as a trailer" for sha, ids in buried]
+        c.details.append("fix: revert the commit, then merge the PR's own commits with a merge commit "
+                         "(never squash or rebase a ticket PR)")
         return c
 
     def _shipped_matrix(self) -> dict:

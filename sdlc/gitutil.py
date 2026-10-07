@@ -1,6 +1,7 @@
 """Thin git helpers (subprocess, no libraries)."""
 from __future__ import annotations
 
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -148,6 +149,28 @@ def covers(root: Path, base: str, reviewed: str, head: str) -> list[str]:
             continue
         out.append(f"{f}: differs from the reviewed version beyond the base branch's change")
     return out
+
+
+def buried_trailers(root: Path, rev: str, key: str) -> list[tuple[str, list[str]]]:
+    """Commits reachable from `rev` whose message has `key:` lines git does not read as trailers,
+    with the values it misses: a squash merge folds each commit's trailers into the body, where
+    `trailer_values` cannot see them. A commit a later commit reverts ("This reverts commit") is
+    left out: the revert is how it is undone."""
+    out = git(root, "log", f"--format=%H%x1f%(trailers:key={key},valueonly,separator=%x2C)%x1f%B%x1e", rev,
+              check=False)
+    entries, reverted = [], set()
+    for rec in out.split("\x1e"):
+        parts = rec.strip("\n").split("\x1f")
+        if len(parts) != 3:
+            continue
+        sha, parsed, body = parts
+        reverted |= set(re.findall(r"This reverts commit ([0-9a-f]{7,40})", body))
+        named = re.findall(rf"(?m)^{re.escape(key)}:[ \t]*(\S+)", body)
+        seen = {v.strip() for v in parsed.split(",") if v.strip()}
+        missed = sorted(set(named) - seen)
+        if missed:
+            entries.append((sha, missed))
+    return [(sha, ids) for sha, ids in entries if not any(sha.startswith(r) for r in reverted)]
 
 
 def trailer_values(root: Path, rev_range: str, key: str) -> list[str]:

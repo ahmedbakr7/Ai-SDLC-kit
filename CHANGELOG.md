@@ -7,6 +7,19 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 
 ## Unreleased
 
+Found by the Hangout pilot on kit v1.5.0 (T-001-33, PR #73). Both close a check that passed
+without checking; a product whose PRs already follow the documented flow keeps passing.
+
+- `sdlc approval` fails a ticket PR with a commit that has no `Sdlc-Agent` trailer ("needs
+  Sdlc-Agent trailers on N commit(s) ... to check reviewer independence"). Before, the
+  independent-reviewer rule had no agent to compare, so the builder's own record counted.
+- `sdlc commit` takes `--agent` and `--play` (both required) and writes the same trailers as
+  `sdlc run`.
+- `gate ci` (records mode) fails with a `trailers` check when a merged commit names
+  `Sdlc-Ticket` outside its trailers, as a squash merge leaves it: derived status cannot see the
+  ticket. A commit that a later commit reverts is exempt; the fix is to revert it and merge the
+  PR's own commits with a merge commit.
+
 ## v1.5.0 (2026-10-06)
 
 The first stable release: ADR-0001 (lanes, areas, approval records, evidence in CI, derived
