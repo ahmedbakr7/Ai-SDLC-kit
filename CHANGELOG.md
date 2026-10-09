@@ -7,6 +7,17 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 
 ## Unreleased
 
+## v1.5.4 (2026-10-09)
+
+Found in the separate-session review of v1.5.3.
+
+- `sdlc baseline --prune` drops a known `unit`, `integration` or `e2e` failure only when the
+  JUnit reports that test as passed. A test that is missing from the report (its file failed to
+  import, a filter left it out) or skipped keeps its entry, and the prune says how many it kept.
+  Before, a suite that ran only in part still named its other failures, so the tests that did
+  not run looked fixed and were pruned for good. It keeps more than before and cannot fail a
+  product that passed.
+
 ## v1.5.3 (2026-10-09)
 
 Found by the Hangout pilot (finding 15).
