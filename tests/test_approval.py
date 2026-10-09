@@ -847,6 +847,22 @@ class PilotGaps(Base):
         self.assertEqual(code, 0, out)
         self.assertNotIn("outside their trailers", out)
 
+    def test_a_squash_of_two_tickets_still_fails_for_the_one_not_delivered(self) -> None:
+        # CodeRabbit on kit #28: delivering one buried ticket must not clear the squash's other.
+        self.build()
+        msg = git(self.p.root, "log", "-1", "--format=%B").strip()
+        git(self.p.root, "checkout", "-q", "main")
+        git(self.p.root, "merge", "-q", "--squash", "build/T-042-02")
+        git(self.p.root, "commit", "-q", "-m", "two tickets in one squash (#8)", "-m", "* " + msg,
+            "-m", "* other work\n\nSdlc-Ticket: T-042-09", "-m", "---------",
+            "-m", "Co-authored-by: someone <someone@example.com>")
+        git(self.p.root, "merge", "-q", "--no-ff", "--no-edit", "build/T-042-02")
+        self.assertEqual(self.p.sdlc("status", "T-042-02")[1].strip(), "done")
+        code, out = self.p.sdlc("gate", "ci")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("names T-042-09 in its body, not as a trailer", out)
+        self.assertNotIn("names T-042-02", out)
+
     def test_a_revert_message_without_the_reverse_change_does_not_exempt_the_squash(self) -> None:
         self.squash_merge()
         squash = git(self.p.root, "rev-parse", "HEAD").strip()

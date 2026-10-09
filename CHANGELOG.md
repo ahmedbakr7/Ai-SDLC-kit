@@ -7,6 +7,18 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 
 ## Unreleased
 
+## v1.5.3 (2026-10-09)
+
+Found by the Hangout pilot (finding 15).
+
+- `sdlc baseline --prune` drops a check's entries only when that check ran and named its
+  failures. A check that was skipped, left out of the run, or failed as a whole (it crashed, or
+  wrote no results, so its only finding is `<check>: fails`) keeps its entries, and the prune
+  says which and why. Before, such a prune emptied that check's baseline: Hangout's dropped all
+  241 `ac-coverage` entries when no test command wrote JUnit, and since the baseline only
+  shrinks the commit could not be undone. It keeps more than before and cannot fail a product
+  that passed.
+
 ## v1.5.2 (2026-10-07)
 
 Found by the Hangout pilot recovering T-001-33 from a squash merge on kit v1.5.0.

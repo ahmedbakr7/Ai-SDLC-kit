@@ -382,9 +382,23 @@ def cmd_baseline(args) -> int:
     now = {c.name: g.findings(c) for c in g.checks if c.name in baseline.BASELINE_CHECKS and c.status == "fail"}
     if probs := trace.problems(trace.matrix(Repo(cfg))):
         now["trace"] = probs
+    kept: dict[str, str] = {}
     if args.prune:
         old = baseline.load(cfg.root, cfg.rel(p))  # paths moved since are written renamed
-        now = {n: sorted((Counter(v) & Counter(now.get(n, []))).elements()) for n, v in old.items()}
+        # Only a check that ran and named its failures proves which entries stopped failing.
+        # One that was skipped, or failed as a whole (it crashed, or wrote no results), proves
+        # nothing: Hangout's prune dropped 241 ac-coverage entries when its JUnit was missing.
+        ran = {c.name: c for c in g.checks}
+        for n in old:
+            c = ran.get(n)
+            if n == "trace":
+                continue
+            if c is None or c.status == "skip":
+                kept[n] = "it did not run"
+            elif c.status == "fail" and now.get(n) == [baseline.whole(n)] and old[n] != [baseline.whole(n)]:
+                kept[n] = f"it failed as a whole ({c.summary})"
+        now = {n: sorted((Counter(v) & Counter(now.get(n, []))).elements()) if n not in kept else v
+               for n, v in old.items()}
     try:
         text = baseline.dump(now)
     except ValueError as e:  # nothing written: the file stays as it was
@@ -394,6 +408,9 @@ def cmd_baseline(args) -> int:
     if args.prune:
         removed = sum(len(v) for v in old.values()) - sum(len(v) for v in now.values())
         print(f"{cfg.rel(p)}: pruned {removed} entr{'y' if removed == 1 else 'ies'} that no longer fail")
+        for n, why in kept.items():
+            print(f"kept all {len(old[n])} {n} entr{'y' if len(old[n]) == 1 else 'ies'}: {why}, so this run "
+                  f"cannot tell which still fail; fix the check and prune again", file=sys.stderr)
         return 0
     total = sum(len(v) for v in now.values())
     print(f"{cfg.rel(p)}: {total} known failure(s) in {len(now)} check(s). Commit it in a lead PR; "
