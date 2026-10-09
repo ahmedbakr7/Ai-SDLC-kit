@@ -949,6 +949,38 @@ class BaselineRenames(unittest.TestCase):
         self.assertNotEqual(code, 0, out)
         self.assertIn("may only shrink, but adds typecheck: app/old_legacy.py: TS2345", out)
 
+    def test_a_prune_keeps_the_entries_of_a_check_that_failed_as_a_whole(self) -> None:
+        # Hangout pilot finding 15: ac-coverage errored ("no test command wrote JUnit"), its only
+        # finding was "ac-coverage: fails", and the prune dropped all 241 entries.
+        self.p.write("tools/fake_tsc.py", "import sys\nsys.exit(2)  # crashed: names no failure\n")
+        self.p.commit("the type checker crashes")
+        code, out = self.p.sdlc("baseline", "--prune")
+        self.assertEqual(code, 0, out)
+        self.assertIn("pruned 0 entries", out)
+        self.assertIn("kept all 2 typecheck entries: it failed as a whole", out)
+        self.assertEqual(json.loads(self.p.read("sdlc-baseline.json"))["checks"]["typecheck"],
+                         {"app/legacy.py: TS2345": 2})
+
+    def test_a_prune_keeps_the_entries_of_a_check_that_did_not_run(self) -> None:
+        cfg = self.p.read("sdlc.toml")
+        self.p.write("sdlc.toml", cfg + '\n[gate]\nci = ["artifacts", "immutable"]\n')
+        self.p.commit("ci runs no type check")
+        code, out = self.p.sdlc("baseline", "--prune")
+        self.assertEqual(code, 0, out)
+        self.assertIn("kept all 2 typecheck entries: it did not run", out)
+        self.assertEqual(json.loads(self.p.read("sdlc-baseline.json"))["checks"]["typecheck"],
+                         {"app/legacy.py: TS2345": 2})
+
+    def test_a_prune_still_drops_what_a_check_that_ran_no_longer_reports(self) -> None:
+        self.p.write("app/legacy.py", "A = 1\nB = 2  # TYPEERR\n")
+        self.p.commit("fix one error")
+        code, out = self.p.sdlc("baseline", "--prune")
+        self.assertEqual(code, 0, out)
+        self.assertIn("pruned 1 entry", out)
+        self.assertNotIn("kept all", out)
+        self.assertEqual(json.loads(self.p.read("sdlc-baseline.json"))["checks"]["typecheck"],
+                         {"app/legacy.py: TS2345": 1})
+
     def test_an_uncommitted_edit_to_the_baseline_is_renamed_too(self) -> None:
         self.git(self.p.root, "mv", "app/legacy.py", "app/old_legacy.py")
         self.p.commit("move legacy")
