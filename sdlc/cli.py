@@ -406,8 +406,8 @@ def cmd_baseline(args) -> int:
         for n in JUNIT_CHECKS:
             if n not in old or n in kept:
                 continue
-            passed = {tc.name for tc in g.testcases if tc.source == n and tc.status == "passed"}
-            back = [k for k in old[n] if k not in passed and k not in now[n]]
+            passed = Counter(tc.name for tc in g.testcases if tc.source == n and tc.status == "passed")
+            back = sorted((Counter(old[n]) - Counter(now[n]) - passed).elements())  # counts: names repeat
             if back:
                 unseen[n] = len(back)
                 now[n] = sorted(now[n] + back)

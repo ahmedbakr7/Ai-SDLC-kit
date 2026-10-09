@@ -1056,6 +1056,17 @@ class BaselineJUnit(unittest.TestCase):
         self.p.sdlc("baseline", "--prune")
         self.assertEqual(self.unit(), {"T a": 1, "T b": 1})
 
+    def test_a_prune_counts_tests_that_share_a_name(self) -> None:
+        # CodeRabbit on #30: one of two same-named failures still fails, the other did not run.
+        self.p.write("sdlc-baseline.json", json.dumps({"version": 2, "checks": {"unit": {"T a": 2, "T b": 1}}}))
+        self.p.commit("lead: baseline counts a twice")
+        self.cases("a failed", "a skipped", "b failed", "c passed")
+        self.p.commit("one a is skipped")
+        code, out = self.p.sdlc("baseline", "--prune")
+        self.assertEqual(code, 0, out)
+        self.assertIn("kept 1 known unit failure(s) whose tests the JUnit did not report as passed", out)
+        self.assertEqual(self.unit(), {"T a": 2, "T b": 1})
+
     def test_a_prune_drops_a_known_failure_whose_test_now_passes(self) -> None:
         self.cases("a failed", "b passed", "c passed")
         self.p.commit("fix b")
