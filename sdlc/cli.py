@@ -407,7 +407,10 @@ def cmd_baseline(args) -> int:
             if n not in old or n in kept:
                 continue
             passed = Counter(tc.name for tc in g.testcases if tc.source == n and tc.status == "passed")
-            back = sorted((Counter(old[n]) - Counter(now[n]) - passed).elements())  # counts: names repeat
+            # Counts, since names repeat. "<check>: fails" names no test: it goes once the suite
+            # no longer fails as a whole, never kept alive by the absence of a test of that name.
+            back = sorted(k for k in (Counter(old[n]) - Counter(now[n]) - passed).elements()
+                          if k != baseline.whole(n))
             if back:
                 unseen[n] = len(back)
                 now[n] = sorted(now[n] + back)

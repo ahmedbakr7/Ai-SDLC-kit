@@ -1067,6 +1067,18 @@ class BaselineJUnit(unittest.TestCase):
         self.assertIn("kept 1 known unit failure(s) whose tests the JUnit did not report as passed", out)
         self.assertEqual(self.unit(), {"T a": 2, "T b": 1})
 
+    def test_a_prune_drops_a_whole_suite_entry_once_the_suite_reports_its_tests(self) -> None:
+        # CodeRabbit on #30: "unit: fails" names no test, so no passed test ever matched it and
+        # the restore kept it forever, ready to absorb a later crash of the suite.
+        self.p.write("sdlc-baseline.json", json.dumps({"version": 2, "checks": {"unit": {"unit: fails": 1}}}))
+        self.p.commit("lead: the suite used to crash")
+        self.cases("a passed", "b passed", "c passed")
+        self.p.commit("the suite runs and passes")
+        code, out = self.p.sdlc("baseline", "--prune")
+        self.assertEqual(code, 0, out)
+        self.assertIn("pruned 1 entry", out)
+        self.assertNotIn("unit", json.loads(self.p.read("sdlc-baseline.json"))["checks"])
+
     def test_a_prune_drops_a_known_failure_whose_test_now_passes(self) -> None:
         self.cases("a failed", "b passed", "c passed")
         self.p.commit("fix b")
