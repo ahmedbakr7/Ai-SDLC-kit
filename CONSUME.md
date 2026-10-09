@@ -4,8 +4,8 @@
 
 ```bash
 git submodule add https://github.com/ahmedbakr7/Ai-SDLC-kit.git .sdlc
-git -C .sdlc checkout v1.5.3     # pin a release tag (CHANGELOG.md lists them)
-git add .gitmodules .sdlc && git commit -m "pin ai-sdlc kit v1.5.3"
+git -C .sdlc checkout v1.5.4     # pin a release tag (CHANGELOG.md lists them)
+git add .gitmodules .sdlc && git commit -m "pin ai-sdlc kit v1.5.4"
 .sdlc/bin/sdlc init --profile nextjs # or node | python | (none)
 ```
 

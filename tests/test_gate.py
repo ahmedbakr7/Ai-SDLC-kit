@@ -957,7 +957,7 @@ class BaselineRenames(unittest.TestCase):
         code, out = self.p.sdlc("baseline", "--prune")
         self.assertEqual(code, 0, out)
         self.assertIn("pruned 0 entries", out)
-        self.assertIn("kept all 2 typecheck entries: it failed as a whole", out)
+        self.assertIn("kept all 2 known typecheck failure(s): it failed as a whole", out)
         self.assertEqual(json.loads(self.p.read("sdlc-baseline.json"))["checks"]["typecheck"],
                          {"app/legacy.py: TS2345": 2})
 
@@ -967,7 +967,7 @@ class BaselineRenames(unittest.TestCase):
         self.p.commit("ci runs no type check")
         code, out = self.p.sdlc("baseline", "--prune")
         self.assertEqual(code, 0, out)
-        self.assertIn("kept all 2 typecheck entries: it did not run", out)
+        self.assertIn("kept all 2 known typecheck failure(s): it did not run", out)
         self.assertEqual(json.loads(self.p.read("sdlc-baseline.json"))["checks"]["typecheck"],
                          {"app/legacy.py: TS2345": 2})
 
@@ -1002,6 +1002,91 @@ class BaselineRenames(unittest.TestCase):
         self.assertNotEqual(code, 0, out)
         self.assertIn("new: app/legacy.py: TS2345", out)
 
+
+class BaselineJUnit(unittest.TestCase):
+    """Review of kit #29: a suite that only partly ran (one test file failed to import) still
+    names other failures, so its baselined tests that did not run looked fixed to a prune."""
+
+    JUNIT = ("import sys\nfrom pathlib import Path\n"
+             "out = sys.argv[sys.argv.index('--out') + 1]\n"
+             "cases = [l.split() for l in Path('cases.txt').read_text().splitlines() if l.strip()]\n"
+             "xml = ['<testsuite>']\n"
+             "for name, status in cases:\n"
+             "    body = {'failed': '<failure/>', 'skipped': '<skipped/>'}.get(status, '')\n"
+             "    xml.append(f'<testcase classname=\"T\" name=\"{name}\">{body}</testcase>')\n"
+             "Path(out).write_text(''.join(xml) + '</testsuite>')\n"
+             "sys.exit(1 if any(s == 'failed' for _, s in cases) else 0)\n")
+
+    def setUp(self) -> None:
+        self.p = ProductRepo()
+        self.p.write("tools/fake_junit.py", self.JUNIT)
+        cfg = self.p.read("sdlc.toml").replace(
+            'unit = "python tools/junit.py --start app --out {junit}"',
+            f"unit = '\"{Path(sys.executable).as_posix()}\" tools/fake_junit.py --out {{junit}}'")
+        self.p.write("sdlc.toml", cfg)
+        self.cases("a failed", "b failed", "c passed")
+        self.p.commit("main is red: two failing unit tests")
+        code, out = self.p.sdlc("baseline")
+        self.assertEqual(code, 0, out)
+        self.p.commit("lead: baseline")
+
+    def tearDown(self) -> None:
+        self.p.close()
+
+    def cases(self, *lines: str) -> None:
+        self.p.write("cases.txt", "\n".join(lines) + "\n")
+
+    def unit(self) -> dict:
+        return json.loads(self.p.read("sdlc-baseline.json"))["checks"]["unit"]
+
+    def test_the_baseline_names_each_failing_test(self) -> None:
+        self.assertEqual(self.unit(), {"T a": 1, "T b": 1})
+
+    def test_a_prune_keeps_a_known_failure_whose_test_did_not_run(self) -> None:
+        self.cases("a failed", "c passed")  # b's file failed to import: b is simply absent
+        self.p.commit("b does not run")
+        code, out = self.p.sdlc("baseline", "--prune")
+        self.assertEqual(code, 0, out)
+        self.assertIn("kept 1 known unit failure(s) whose tests the JUnit did not report as passed", out)
+        self.assertEqual(self.unit(), {"T a": 1, "T b": 1})
+
+    def test_a_prune_keeps_a_known_failure_whose_test_was_skipped(self) -> None:
+        self.cases("a failed", "b skipped", "c passed")
+        self.p.commit("b is skipped")
+        self.p.sdlc("baseline", "--prune")
+        self.assertEqual(self.unit(), {"T a": 1, "T b": 1})
+
+    def test_a_prune_counts_tests_that_share_a_name(self) -> None:
+        # CodeRabbit on #30: one of two same-named failures still fails, the other did not run.
+        self.p.write("sdlc-baseline.json", json.dumps({"version": 2, "checks": {"unit": {"T a": 2, "T b": 1}}}))
+        self.p.commit("lead: baseline counts a twice")
+        self.cases("a failed", "a skipped", "b failed", "c passed")
+        self.p.commit("one a is skipped")
+        code, out = self.p.sdlc("baseline", "--prune")
+        self.assertEqual(code, 0, out)
+        self.assertIn("kept 1 known unit failure(s) whose tests the JUnit did not report as passed", out)
+        self.assertEqual(self.unit(), {"T a": 2, "T b": 1})
+
+    def test_a_prune_drops_a_whole_suite_entry_once_the_suite_reports_its_tests(self) -> None:
+        # CodeRabbit on #30: "unit: fails" names no test, so no passed test ever matched it and
+        # the restore kept it forever, ready to absorb a later crash of the suite.
+        self.p.write("sdlc-baseline.json", json.dumps({"version": 2, "checks": {"unit": {"unit: fails": 1}}}))
+        self.p.commit("lead: the suite used to crash")
+        self.cases("a passed", "b passed", "c passed")
+        self.p.commit("the suite runs and passes")
+        code, out = self.p.sdlc("baseline", "--prune")
+        self.assertEqual(code, 0, out)
+        self.assertIn("pruned 1 entry", out)
+        self.assertNotIn("unit", json.loads(self.p.read("sdlc-baseline.json"))["checks"])
+
+    def test_a_prune_drops_a_known_failure_whose_test_now_passes(self) -> None:
+        self.cases("a failed", "b passed", "c passed")
+        self.p.commit("fix b")
+        code, out = self.p.sdlc("baseline", "--prune")
+        self.assertEqual(code, 0, out)
+        self.assertIn("pruned 1 entry", out)
+        self.assertNotIn("kept", out)
+        self.assertEqual(self.unit(), {"T a": 1})
 
 
 class Waivers(unittest.TestCase):
