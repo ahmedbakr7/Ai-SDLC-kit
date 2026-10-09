@@ -399,6 +399,18 @@ def cmd_baseline(args) -> int:
                 kept[n] = f"it failed as a whole ({c.summary})"
         now = {n: sorted((Counter(v) & Counter(now.get(n, []))).elements()) if n not in kept else v
                for n, v in old.items()}
+        # A test suite proves a known failure fixed only by reporting that test as passed. One
+        # missing from the JUnit (a file that failed to import, a filter) or skipped proves nothing.
+        from .gate import JUNIT_CHECKS
+        unseen: dict[str, int] = {}
+        for n in JUNIT_CHECKS:
+            if n not in old or n in kept:
+                continue
+            passed = {tc.name for tc in g.testcases if tc.source == n and tc.status == "passed"}
+            back = [k for k in old[n] if k not in passed and k not in now[n]]
+            if back:
+                unseen[n] = len(back)
+                now[n] = sorted(now[n] + back)
     try:
         text = baseline.dump(now)
     except ValueError as e:  # nothing written: the file stays as it was
@@ -409,8 +421,11 @@ def cmd_baseline(args) -> int:
         removed = sum(len(v) for v in old.values()) - sum(len(v) for v in now.values())
         print(f"{cfg.rel(p)}: pruned {removed} entr{'y' if removed == 1 else 'ies'} that no longer fail")
         for n, why in kept.items():
-            print(f"kept all {len(old[n])} {n} entr{'y' if len(old[n]) == 1 else 'ies'}: {why}, so this run "
-                  f"cannot tell which still fail; fix the check and prune again", file=sys.stderr)
+            print(f"kept all {len(old[n])} known {n} failure(s): {why}, so this run cannot tell which "
+                  f"still fail; fix the check and prune again", file=sys.stderr)
+        for n, k in unseen.items():
+            print(f"kept {k} known {n} failure(s) whose tests the JUnit did not report as passed "
+                  f"(missing or skipped); run them and prune again", file=sys.stderr)
         return 0
     total = sum(len(v) for v in now.values())
     print(f"{cfg.rel(p)}: {total} known failure(s) in {len(now)} check(s). Commit it in a lead PR; "
