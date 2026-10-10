@@ -85,7 +85,7 @@ def run(cfg: Config, play: str, tid: str, agent: str, attempts: int | None, base
                 raise SystemExit(f"refused: {tid} must be ready with its dependencies done"
                                  + (f" (pending: {', '.join(pending)})" if pending else f" (it is {t.status})"))
         elif play == "test" and not t.test_play:
-            raise SystemExit(f"{tid} is marked test: none; review it after the build")
+            raise SystemExit(f"{tid} has no test play ({_no_test_play(t)}); review it after the build")
     elif play == "build":
         if t.status == "ready":
             try:
@@ -97,7 +97,7 @@ def run(cfg: Config, play: str, tid: str, agent: str, attempts: int | None, base
     elif t.status != "in_review":
         raise SystemExit(f"{play} runs on tickets in_review; {tid} is {t.status}")
     elif play == "test" and not t.test_play:
-        raise SystemExit(f"{tid} is marked test: none; review it after the build")
+        raise SystemExit(f"{tid} has no test play ({_no_test_play(t)}); review it after the build")
 
     if play == "review" and cfg.section("review").get("require_distinct_agent", True):
         authors = _authors(root, base)
@@ -230,6 +230,10 @@ def _commit(root: Path, msg: str, agent: str, play: str, tid: str) -> None:
     # --trailer, as `sdlc commit` does: a message's own trailers stay in the same block.
     gitutil.git(root, "commit", "-q", "-m", msg, "--trailer", f"Sdlc-Agent: {agent}",
                 "--trailer", f"Sdlc-Play: {play}", "--trailer", f"Sdlc-Ticket: {tid}")
+
+
+def _no_test_play(t) -> str:
+    return "a test ticket: its build ran the real-stack suites" if t.type == "test" else "marked test: none"
 
 
 def _authors(root: Path, base: str) -> set[str]:

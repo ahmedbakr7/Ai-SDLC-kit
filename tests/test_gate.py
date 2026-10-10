@@ -720,6 +720,98 @@ class GateCatches(unittest.TestCase):
 
 
 
+class TestTickets(unittest.TestCase):
+    """Pilot finding 19: a ticket that changes tests only, with an AC only an integration test
+    can prove, could not pass `gate build` (unit alone; integration files refused)."""
+
+    TICKET = """---
+id: T-042-03
+title: Returns route answers an unknown order over HTTP
+type: test
+status: in_progress
+risk: low
+depends_on: [T-042-01]
+files:
+  - tests/test_http_unknown.py
+skills:
+  - build
+contracts: []
+requirements:
+  - F-042-4
+acceptance_criteria:
+  - "AC-1: an integration test proves GET /api/orders/nope/returns answers 404 over HTTP"
+source_intent: intent/intent-042-return-status.md
+source_spec: design/spec-042-return-status.md
+source_plan: arch/plan-042-return-status.md
+---
+
+Add the HTTP test.
+"""
+    TEST = (
+        '"""Integration: an unknown order over HTTP."""\n'
+        "import threading\nimport unittest\nimport urllib.error\nimport urllib.request\n\n"
+        "from app.server import Handler, Server\n\n\n"
+        "class UnknownOrder(unittest.TestCase):\n"
+        "    def test_unknown_order(self) -> None:\n"
+        '        """T-042-03/AC-1"""\n'
+        '        server = Server(("127.0.0.1", 0), Handler)\n'
+        "        threading.Thread(target=server.serve_forever, daemon=True).start()\n"
+        "        try:\n"
+        "            with self.assertRaises(urllib.error.HTTPError) as e:\n"
+        '                urllib.request.urlopen(f"http://127.0.0.1:{server.server_address[1]}/api/orders/nope/returns")\n'
+        "            self.assertEqual(e.exception.code, 404)\n"
+        "        finally:\n"
+        "            server.shutdown()\n")
+
+    def setUp(self) -> None:
+        self.p = ProductRepo()
+        self.p.write("tickets/T-042-03-unknown-order-http.md", self.TICKET)
+        self.p.commit("lead: test ticket T-042-03")
+        from helpers import git
+
+        self.git = git
+
+    def tearDown(self) -> None:
+        self.p.close()
+
+    def checks(self, ticket: str, *only: str) -> dict:
+        self.code, self.out = self.p.sdlc("gate", "build", ticket, "--only", ",".join(only))
+        ev = json.loads((self.p.root / ".sdlc-run" / f"{ticket}.build.json").read_text(encoding="utf-8"))
+        return {c["name"]: c for c in ev["checks"]}
+
+    def test_a_test_ticket_builds_with_an_integration_test_alone(self) -> None:
+        self.git(self.p.root, "checkout", "-q", "-b", "build/T-042-03")
+        self.p.write("tests/test_http_unknown.py", self.TEST)
+        c = self.checks("T-042-03", "scope", "unit", "integration", "ac-coverage")
+        self.assertEqual(list(c), ["scope", "unit", "integration", "ac-coverage"])
+        self.assertEqual(c["scope"]["status"], "pass", c["scope"])
+        self.assertEqual(c["integration"]["status"], "pass", c["integration"])
+        self.assertEqual(c["ac-coverage"]["status"], "pass", c["ac-coverage"])
+
+    def test_a_test_ticket_has_no_test_play_and_lints_clean(self) -> None:
+        from sdlc import config
+        from sdlc.artifacts import Repo
+        from sdlc.lint import lint_repo
+
+        repo = Repo(config.load(self.p.root))
+        self.assertFalse(repo.ticket("T-042-03").test_play)
+        self.assertTrue(repo.ticket("T-042-02").test_play)
+        self.assertEqual([str(i) for i in lint_repo(repo) if "T-042-03" in str(i)], [])
+
+    def test_other_tickets_still_build_on_unit_alone_and_may_not_write_integration_tests(self) -> None:
+        code, out = self.p.sdlc("status", "T-042-02", "in_progress", "--as", "build")
+        self.assertEqual(code, 0, out)
+        self.p.commit("start T-042-02")
+        self.git(self.p.root, "checkout", "-q", "-b", "build/T-042-02")
+        self.p.write("tests/test_http_unknown.py", self.TEST)
+        self.code, self.out = self.p.sdlc("gate", "build", "T-042-02", "--only", "scope,integration")
+        ev = json.loads((self.p.root / ".sdlc-run" / "T-042-02.build.json").read_text(encoding="utf-8"))
+        c = {x["name"]: x for x in ev["checks"]}
+        self.assertNotIn("integration", c)
+        self.assertEqual(c["scope"]["status"], "fail")
+        self.assertIn("outside build write set: tests/test_http_unknown.py", c["scope"]["details"])
+
+
 class Baseline(unittest.TestCase):
     """Hangout pilot: a product adopting the kit with a red main could not pass any ticket
     gate, because every gate also runs the repo-wide checks. sdlc-baseline.json carries the
@@ -880,6 +972,8 @@ class BaselineRenames(unittest.TestCase):
            "sys.exit(1 if bad else 0)\n")
 
     def setUp(self) -> None:
+        from helpers import git
+
         from helpers import git
 
         self.git = git

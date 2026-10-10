@@ -67,9 +67,10 @@ class Ticket:
 
     @property
     def test_play(self) -> bool:
-        """False when the lead marked the ticket `test: none` (no real-stack test play), and for
-        spikes, which deliver findings, not behaviour."""
-        return str(self.data.get("test", "required")) != "none" and self.type != "spike"
+        """False when the lead marked the ticket `test: none` (no real-stack test play), for
+        spikes, which deliver findings, not behaviour, and for test tickets, whose build runs
+        the real-stack suites itself (Gate.plan)."""
+        return str(self.data.get("test", "required")) != "none" and self.type not in ("spike", "test")
 
     @property
     def lane(self) -> str:

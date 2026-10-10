@@ -210,6 +210,14 @@ class Gate:
             return list(g.get("spike", default))
         if self.lane and self.lane.name == "mechanical":
             return list(g.get("mechanical", default))
+        if self.ticket.type == "test":
+            # A test ticket changes tests only: its AC may be provable by a real-stack suite alone,
+            # so its build runs those suites before ac-coverage reads the results. It has no test
+            # play (Ticket.test_play): the build is that play.
+            names = list(default)
+            suites = [s for s in real_stack_suites(self.cfg) if s not in names]
+            at = names.index("ac-coverage") if "ac-coverage" in names else len(names)
+            return names[:at] + suites + names[at:]
         return default
 
     def changed(self) -> list[str]:
@@ -579,8 +587,9 @@ class Gate:
         """Files no ticket PR may change, areas or not: lead artifacts, config, other tickets,
         and any evidence or review file the ticket's plays do not own."""
         p = self.cfg.data["paths"]
-        # The test play's files are the red-proof's other half: the build never writes them.
-        test_play_files = (self.play == "build"
+        # The test play's files are the red-proof's other half: the build never writes them,
+        # unless the ticket has no test play because it is a test ticket (its build is that play).
+        test_play_files = (self.play == "build" and not (self.ticket and self.ticket.type == "test")
                            and any(_glob(f, g) for g in self.cfg.section("tests").get("integration_globs", [])))
         return (test_play_files or any(_glob(f, g) for g in lead_write_set(self.cfg))
                 or any(f.startswith(p[k].rstrip("/") + "/") for k in ("evidence", "reviews")))
