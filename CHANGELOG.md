@@ -15,6 +15,10 @@ trailers; no check changes.
 - `sdlc commit` adds `Sdlc-Agent`, `Sdlc-Play` and `Sdlc-Ticket` to the message's own trailer
   block (`git commit --trailer`, git 2.32 or later). Before, they went into a paragraph of their
   own, so a `Co-Authored-By` above them was no longer a trailer.
+- `sdlc approval` and `sdlc run review` read each repeated `Sdlc-Agent` trailer as its own
+  agent. Before, "other" and "builder" on one commit read as one agent "other,builder", so the
+  builder's own review record looked independent. Keeping the message's trailers made this
+  reachable through `sdlc commit`; found in review of this release.
 - A build, test or review gate run on uncommitted changes says it proves no commit: its evidence
   names HEAD, which does not hold them. The build skill says to commit first when no runner does.
 - With approval records, the review prompt names one commit for the record: the HEAD reviewed.

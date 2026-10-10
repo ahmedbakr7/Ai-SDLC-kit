@@ -51,6 +51,21 @@ def changed_files(root: Path, base: str) -> list[str]:
     return sorted(names)
 
 
+def build_agents(root: Path, revs: str) -> set[str]:
+    """Agents named by the Sdlc-Agent trailers of commits in `revs` that are not review-only.
+    Each repeated trailer is its own agent: joined, "other" and "builder" would read as one
+    agent "other,builder", and the builder would look independent of its own commit."""
+    # Repeated trailers are joined with US (0x1f), which no value contains.
+    log = git(root, "log", revs, "--format=%(trailers:key=Sdlc-Agent,valueonly,separator=%x1F)|"
+              "%(trailers:key=Sdlc-Play,valueonly,separator=%x1F)", check=False)
+    out: set[str] = set()
+    for line in log.splitlines():
+        agents, _, plays = line.partition("|")
+        if {p.strip() for p in plays.split("\x1f")} != {"review"}:
+            out |= {a.strip() for a in agents.split("\x1f") if a.strip()}
+    return out
+
+
 def is_ancestor(root: Path, older: str, newer: str) -> bool:
     return subprocess.run(["git", "merge-base", "--is-ancestor", older, newer], cwd=root,
                           capture_output=True).returncode == 0

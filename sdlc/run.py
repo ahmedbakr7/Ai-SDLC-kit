@@ -232,15 +232,7 @@ def _commit(root: Path, msg: str, agent: str, play: str, tid: str) -> None:
 
 def _authors(root: Path, base: str) -> set[str]:
     """Agents with a non-review commit on this branch (a commit with no Sdlc-Play counts)."""
-    log = gitutil.git(root, "log", f"{gitutil.merge_base(root, base)}..HEAD",
-                      "--format=%(trailers:key=Sdlc-Agent,valueonly,separator=%x2C)|"
-                      "%(trailers:key=Sdlc-Play,valueonly,separator=%x2C)", check=False)
-    out = set()
-    for line in log.splitlines():
-        agent, _, play = line.partition("|")
-        if agent.strip() and play.strip() != "review":
-            out.add(agent.strip())
-    return out
+    return gitutil.build_agents(root, f"{gitutil.merge_base(root, base)}..HEAD")
 
 
 def _open_pr(cfg: Config, branch: str, base: str, tid: str, play: str) -> None:
