@@ -13,6 +13,7 @@ class Conveyor(unittest.TestCase):
 
     def tearDown(self) -> None:
         os.environ.pop("FAKE_AGENT_STRAY", None)
+        os.environ.pop("FAKE_AGENT_LOCKFILE", None)
         self.p.close()
 
     def test_build_retries_on_gate_failure_then_review_then_merge(self) -> None:
@@ -58,6 +59,46 @@ class Conveyor(unittest.TestCase):
         code, out = p.sdlc("gate", "pr", "--base", "main")
         self.assertEqual(code, 0, out)
         self.assertIn("gate pr: ticket T-042-02", out)
+
+    def test_test_and_review_runs_leave_a_rewritten_lockfile_uncommitted(self) -> None:
+        # Kit v3 judges a committed always_allowed file by the write set. The runner commits
+        # everything an agent leaves, so a lockfile `npm install` rewrote in the test play failed
+        # scope on every attempt; it now stays in the working tree, and the next run may start.
+        p = self.p
+        p.write("sdlc.toml", p.read("sdlc.toml") + '\n[scope]\nalways_allowed = ["package-lock.json"]\n')
+        p.commit("lead: lockfiles in scope")
+        self.assertEqual(p.sdlc("run", "build", "T-042-02", "--agent", "fake")[0], 0)
+        os.environ["FAKE_AGENT_LOCKFILE"] = "1"
+        code, out = p.sdlc("run", "test", "T-042-02", "--agent", "fake")
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("attempt 2", out)
+        self.assertIn("left untracked (scope.always_allowed, outside the test write set): package-lock.json", out)
+        code, out = p.sdlc("run", "review", "T-042-02", "--agent", "fake-reviewer")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(git(p.root, "log", "--format=%H", "--", "package-lock.json").strip(), "")
+        self.assertIn('"installed by": "review"', p.read("package-lock.json"))
+
+    def test_a_test_run_still_commits_and_judges_a_tracked_lockfile(self) -> None:
+        p = self.p
+        p.write("sdlc.toml", p.read("sdlc.toml") + '\n[scope]\nalways_allowed = ["package-lock.json"]\n')
+        p.write("package-lock.json", "{}\n")
+        p.commit("lead: lockfiles in scope, lockfile committed")
+        self.assertEqual(p.sdlc("run", "build", "T-042-02", "--agent", "fake")[0], 0)
+        os.environ["FAKE_AGENT_LOCKFILE"] = "1"
+        code, out = p.sdlc("run", "test", "T-042-02", "--agent", "fake", "--attempts", "1")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("outside test write set: package-lock.json", out)
+
+    def test_a_dirty_file_outside_always_allowed_still_stops_a_run(self) -> None:
+        p = self.p
+        p.write("sdlc.toml", p.read("sdlc.toml") + '\n[scope]\nalways_allowed = ["package-lock.json"]\n')
+        p.commit("lead: lockfiles in scope")
+        self.assertEqual(p.sdlc("run", "build", "T-042-02", "--agent", "fake")[0], 0)
+        p.write("package-lock.json", "{}\n")
+        p.write("notes.txt", "uncommitted\n")
+        code, out = p.sdlc("run", "test", "T-042-02", "--agent", "fake")
+        self.assertNotEqual(code, 0)
+        self.assertIn("working tree is dirty", out)
 
     def test_approval_does_not_cover_code_changed_after_review(self) -> None:
         p = self.p

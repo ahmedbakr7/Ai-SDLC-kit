@@ -14,11 +14,12 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Callable
 
-from . import approval, gitutil, prompt, tickets
+from . import approval, gitutil, paths, prompt, tickets
 from .artifacts import Repo
 from .config import Config
-from .gate import Gate, recover
+from .gate import Gate, always_allowed, dirty_tree, recover
 
 INSTRUCTION = ("You are running one play of the ai-sdlc kit. Read the file {prompt_file} completely "
                "and do exactly what it says. It is your entire task. When you are done, stop.")
@@ -65,7 +66,7 @@ def run(cfg: Config, play: str, tid: str, agent: str, attempts: int | None, base
     restored = recover(root)
     if restored:
         _say(f"restored {len(restored)} file(s) an interrupted ac-red check had reverted: {', '.join(restored)}")
-    if gitutil.is_dirty(root):
+    if dirty_tree(cfg):
         raise SystemExit("working tree is dirty; commit or stash first so every change is attributable")
     if play != "build" and not dry_run:
         # test and review continue the ticket's branch: read its status and history there,
@@ -113,6 +114,7 @@ def run(cfg: Config, play: str, tid: str, agent: str, attempts: int | None, base
 
     if play == "build":
         _checkout(root, branch, base, create=True)
+    leave = _leave(cfg, play, tid, base)
     # test and review are judged on what changed after this point. Taken before any agent
     # runs, so no file the agent can write (e.g. evidence) can move it.
     since = gitutil.head(root) if play != "build" else None
@@ -135,21 +137,21 @@ def run(cfg: Config, play: str, tid: str, agent: str, attempts: int | None, base
             # Never commit onto a branch the agent switched to, or over history it rewrote.
             _say(f"stopped: {problem}")
             return 1
-        _commit(root, f"{play} {tid}: {t.data.get('title')} (attempt {n})", agent, play, tid)
+        _commit(root, f"{play} {tid}: {t.data.get('title')} (attempt {n})", agent, play, tid, leave)
         g = Gate(cfg, play, tid, base, since=since)
         ev = g.run(on_check=_report)
         if ev["result"] == "pass":
             repo = Repo(cfg)
             if play == "build" and not records:
                 tickets.set_status(repo, repo.ticket(tid), "in_review", "build")
-            _commit(root, f"evidence {tid}: {play} gate pass", agent, play, tid)
+            _commit(root, f"evidence {tid}: {play} gate pass", agent, play, tid, leave)
             if records and play == "review":
                 _say(f"review record at .sdlc-run/review-{tid}.md; publish it: sdlc review publish {tid} --pr <n>")
             _say(f"gate passed; evidence at {ev['path']}")
             _open_pr(cfg, branch, base, tid, play)
             return 0
         feedback = _feedback(ev)
-        _commit(root, f"evidence {tid}: {play} gate fail (attempt {n})", agent, play, tid)
+        _commit(root, f"evidence {tid}: {play} gate fail (attempt {n})", agent, play, tid, leave)
 
     repo = Repo(cfg)
     failed = [c["name"] for c in ev["checks"] if c["status"] == "fail"]
@@ -222,8 +224,26 @@ def _checkout(root: Path, branch: str, base: str, create: bool) -> None:
         raise SystemExit(f"branch {branch} does not exist; run build first")
 
 
-def _commit(root: Path, msg: str, agent: str, play: str, tid: str) -> None:
+def _leave(cfg: Config, play: str, tid: str, base: str) -> Callable[[str], bool] | None:
+    """What the runner leaves uncommitted. The test and review write sets are hard, so an
+    untracked always_allowed file a tool wrote there (`npm install` and a lockfile the product
+    does not commit) would fail scope once committed; it stays untracked unless the play's write
+    set covers it. A change to a tracked one is committed and judged: it changes what the commit
+    ships. A build commits both: a dependency change ships with the PR, and the review names it."""
+    if play == "build" or not cfg.section("scope").get("always_allowed"):
+        return None
+    globs, exact = Gate(cfg, play, tid, base).allowed()
+    return lambda f: (always_allowed(cfg, f) and f not in exact
+                      and not any(paths.match(f, g) for g in globs))
+
+
+def _commit(root: Path, msg: str, agent: str, play: str, tid: str,
+            leave: Callable[[str], bool] | None = None) -> None:
+    kept = [f for f in gitutil.untracked(root) if leave(f)] if leave else []
     gitutil.git(root, "add", "-A")
+    if kept:
+        gitutil.git(root, "reset", "-q", "--", *(f":(literal){f}" for f in kept))
+        _say(f"left untracked (scope.always_allowed, outside the {play} write set): {', '.join(kept)}")
     if not gitutil.git(root, "diff", "--cached", "--name-only").strip():
         return
     # Sdlc-Ticket is what derived status reads once the commit reaches the base branch.
