@@ -1852,6 +1852,18 @@ class HardenedLeadCode(unittest.TestCase):
         self.assertEqual(c.status, "fail", c.summary)
         self.assertIn("outside the lead write set: app/returns.py", c.details)
 
+    def test_a_file_the_revert_deletes_and_the_tree_recreates_is_not_excused(self) -> None:
+        # `git diff HEAD` cannot see a file HEAD does not have: only the untracked list does.
+        self.p.write("app/hotfix.py", "X = 1\n")
+        self.p.commit("bad hotfix adds a module")
+        bad = self.git(self.p.root, "rev-parse", "HEAD").strip()
+        self.git(self.p.root, "checkout", "-q", "-b", "undo")
+        self.git(self.p.root, "revert", "--no-edit", bad)
+        self.p.write("app/hotfix.py", "X = 2\n")
+        code, out = self.lead_pr()
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("outside the lead write set: app/hotfix.py", out)
+
     def test_a_revert_with_an_extra_change_fails(self) -> None:
         self.edit("app/returns.py", "\n# a bad hotfix\n")
         self.p.commit("bad hotfix")
