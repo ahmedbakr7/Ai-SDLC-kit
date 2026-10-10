@@ -198,9 +198,12 @@ def _inverts(root: Path, sha: str, target: str) -> bool:
                           cwd=root, capture_output=True)
     if diff.returncode != 0 or not diff.stdout.strip():
         return False
+    # From the work tree's top: a product nested in a monorepo still reverts whole commits, and
+    # `git apply` run in a subdirectory skips the paths outside it.
+    top = git(root, "rev-parse", "--show-toplevel", check=False).strip() or str(root)
     with tempfile.TemporaryDirectory() as tmp:
         env = {**os.environ, "GIT_INDEX_FILE": str(Path(tmp) / "index")}
-        run = lambda *a, **k: subprocess.run(["git", *a], cwd=root, env=env, capture_output=True, **k)
+        run = lambda *a, **k: subprocess.run(["git", *a], cwd=top, env=env, capture_output=True, **k)
         if run("read-tree", f"{sha}^").returncode != 0:
             return False
         if run("apply", "--cached", "--whitespace=nowarn", "-", input=diff.stdout).returncode != 0:
