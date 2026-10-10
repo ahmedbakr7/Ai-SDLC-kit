@@ -771,7 +771,7 @@ class Baseline(unittest.TestCase):
         self.assertNotEqual(code, 0, out)
         self.assertIn("1 baselined failure(s) no longer fail; run `sdlc baseline --prune`", out)
         code, out = self.p.sdlc("baseline", "--prune")
-        self.assertIn("pruned 1 entry that no longer fail", out)
+        self.assertIn("pruned 1 failure(s) across 1 key(s) that no longer fail", out)
         code, out = self.p.sdlc("gate", "ci")
         self.assertEqual(code, 0, out)
 
@@ -934,7 +934,7 @@ class BaselineRenames(unittest.TestCase):
         self.p.commit("move legacy, fix one error")
         code, out = self.p.sdlc("baseline", "--prune")
         self.assertEqual(code, 0, out)
-        self.assertIn("pruned 1 entry", out)
+        self.assertIn("pruned 1 failure(s) across 1 key(s)", out)
         self.assertEqual(json.loads(self.p.read("sdlc-baseline.json"))["checks"]["typecheck"],
                          {"app/old_legacy.py: TS2345": 1})
         self.p.commit("prune")
@@ -956,7 +956,7 @@ class BaselineRenames(unittest.TestCase):
         self.p.commit("the type checker crashes")
         code, out = self.p.sdlc("baseline", "--prune")
         self.assertEqual(code, 0, out)
-        self.assertIn("pruned 0 entries", out)
+        self.assertIn("pruned 0 failure(s) across 0 key(s)", out)
         self.assertIn("kept all 2 known typecheck failure(s): it failed as a whole", out)
         self.assertEqual(json.loads(self.p.read("sdlc-baseline.json"))["checks"]["typecheck"],
                          {"app/legacy.py: TS2345": 2})
@@ -976,10 +976,19 @@ class BaselineRenames(unittest.TestCase):
         self.p.commit("fix one error")
         code, out = self.p.sdlc("baseline", "--prune")
         self.assertEqual(code, 0, out)
-        self.assertIn("pruned 1 entry", out)
+        self.assertIn("pruned 1 failure(s) across 1 key(s)", out)
         self.assertNotIn("kept all", out)
         self.assertEqual(json.loads(self.p.read("sdlc-baseline.json"))["checks"]["typecheck"],
                          {"app/legacy.py: TS2345": 1})
+
+    def test_a_prune_counts_failures_and_keys_apart(self) -> None:
+        # Pilot finding 6: "pruned 14 entries" was 7 keys that each failed twice.
+        self.p.write("app/legacy.py", "A = 1\nB = 2\n")
+        self.p.commit("fix both errors")
+        code, out = self.p.sdlc("baseline", "--prune")
+        self.assertEqual(code, 0, out)
+        self.assertIn("pruned 2 failure(s) across 1 key(s) that no longer fail", out)
+        self.assertNotIn("typecheck", json.loads(self.p.read("sdlc-baseline.json"))["checks"])
 
     def test_an_uncommitted_edit_to_the_baseline_is_renamed_too(self) -> None:
         self.git(self.p.root, "mv", "app/legacy.py", "app/old_legacy.py")
@@ -1076,7 +1085,7 @@ class BaselineJUnit(unittest.TestCase):
         self.p.commit("the suite runs and passes")
         code, out = self.p.sdlc("baseline", "--prune")
         self.assertEqual(code, 0, out)
-        self.assertIn("pruned 1 entry", out)
+        self.assertIn("pruned 1 failure(s) across 1 key(s)", out)
         self.assertNotIn("unit", json.loads(self.p.read("sdlc-baseline.json"))["checks"])
 
     def test_a_prune_drops_a_known_failure_whose_test_now_passes(self) -> None:
@@ -1084,7 +1093,7 @@ class BaselineJUnit(unittest.TestCase):
         self.p.commit("fix b")
         code, out = self.p.sdlc("baseline", "--prune")
         self.assertEqual(code, 0, out)
-        self.assertIn("pruned 1 entry", out)
+        self.assertIn("pruned 1 failure(s) across 1 key(s)", out)
         self.assertNotIn("kept", out)
         self.assertEqual(self.unit(), {"T a": 1})
 

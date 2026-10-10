@@ -7,6 +7,30 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 
 ## Unreleased
 
+## v1.5.5 (2026-10-10)
+
+Found by the Hangout pilot (findings 2 to 6), checked against v1.5.4, and in review of this
+release. A product whose PRs pass on v1.5.4 keeps passing unless a commit names two agents.
+
+- `sdlc commit` and `sdlc run` add `Sdlc-Agent`, `Sdlc-Play` and `Sdlc-Ticket` to the message's
+  own trailer block (`git commit --trailer`: git 2.32 or later, now stated in CONSUME.md).
+  Before, they went into a paragraph of their own, so a `Co-Authored-By` above them was no
+  longer a trailer.
+- `sdlc approval` and `sdlc run review` read each repeated `Sdlc-Agent` trailer as its own
+  agent. Before, "other" and "builder" on one commit read as one agent "other,builder", so the
+  builder's own review record looked independent. Keeping the message's trailers made this
+  reachable through `sdlc commit`; found in review of this release.
+- A build, test or review gate run on uncommitted changes says it proves no commit: its evidence
+  names HEAD, which does not hold them. The build skill says to commit first when no runner does.
+- With approval records, the review prompt names one commit for the record: the HEAD reviewed.
+  It used to say both that and "Set `commit: <proven commit>`". A review file still takes the
+  evidence commit.
+- A play's prompt leaves out other plays' skills. A ticket listing `skills: [build]` put the
+  build play's instructions into the test play's prompt.
+- `sdlc baseline --prune` prints failures and keys apart ("pruned 14 failure(s) across 7
+  key(s)"); it said "pruned 14 entries". The build skill no longer says the runner sets the
+  ticket `in_progress` when status is derived from commits.
+
 ## v1.5.4 (2026-10-09)
 
 Found in the separate-session review of v1.5.3.

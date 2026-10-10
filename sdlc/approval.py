@@ -459,15 +459,7 @@ def _build_agents(cfg: Config, base: str, head: str) -> set[str]:
         mb = gitutil.merge_base(cfg.root, base, head)
     except gitutil.GitError:
         return set()
-    log = gitutil.git(cfg.root, "log", f"{mb}..{head}",
-                      "--format=%(trailers:key=Sdlc-Agent,valueonly,separator=%x2C)|"
-                      "%(trailers:key=Sdlc-Play,valueonly,separator=%x2C)", check=False)
-    out = set()
-    for line in log.splitlines():
-        agent, _, play = line.partition("|")
-        if agent.strip() and play.strip() != "review":
-            out.add(agent.strip())
-    return out
+    return gitutil.build_agents(cfg.root, f"{mb}..{head}")
 
 
 def _content_problems(rec: Record, role: str, t, lane: str, flagged: list[str], amendments, review_entries, glob) -> list[str]:

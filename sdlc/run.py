@@ -227,20 +227,14 @@ def _commit(root: Path, msg: str, agent: str, play: str, tid: str) -> None:
     if not gitutil.git(root, "diff", "--cached", "--name-only").strip():
         return
     # Sdlc-Ticket is what derived status reads once the commit reaches the base branch.
-    gitutil.git(root, "commit", "-q", "-m", msg, "-m", f"Sdlc-Agent: {agent}\nSdlc-Play: {play}\nSdlc-Ticket: {tid}")
+    # --trailer, as `sdlc commit` does: a message's own trailers stay in the same block.
+    gitutil.git(root, "commit", "-q", "-m", msg, "--trailer", f"Sdlc-Agent: {agent}",
+                "--trailer", f"Sdlc-Play: {play}", "--trailer", f"Sdlc-Ticket: {tid}")
 
 
 def _authors(root: Path, base: str) -> set[str]:
     """Agents with a non-review commit on this branch (a commit with no Sdlc-Play counts)."""
-    log = gitutil.git(root, "log", f"{gitutil.merge_base(root, base)}..HEAD",
-                      "--format=%(trailers:key=Sdlc-Agent,valueonly,separator=%x2C)|"
-                      "%(trailers:key=Sdlc-Play,valueonly,separator=%x2C)", check=False)
-    out = set()
-    for line in log.splitlines():
-        agent, _, play = line.partition("|")
-        if agent.strip() and play.strip() != "review":
-            out.add(agent.strip())
-    return out
+    return gitutil.build_agents(root, f"{gitutil.merge_base(root, base)}..HEAD")
 
 
 def _open_pr(cfg: Config, branch: str, base: str, tid: str, play: str) -> None:

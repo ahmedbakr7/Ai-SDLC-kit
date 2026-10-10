@@ -6,8 +6,8 @@ description: Implement exactly one ticket test-first, inside its write set, unti
 # Play: build
 
 You turn one `ready` ticket into working, tested code. The runner has already put you
-on the ticket's branch and set it `in_progress`. You edit files; it commits, gates
-and retries.
+on the ticket's branch (and set it `in_progress`, unless status is derived from commits).
+You edit files; it commits, gates and retries.
 
 ## Inputs (all in your prompt)
 
@@ -37,7 +37,9 @@ definition of done. Read the files named in `areas:` and `shared:` before editin
 5. **Refactor.** Remove duplication you introduced; keep functions small; name things
    after the domain. Re-run tests.
 6. **Gate.** Run `sdlc gate build <id>`. Read every FAIL line and its details. Fix
-   the cause, not the symptom, and run it again. Repeat until PASS.
+   the cause, not the symptom, and run it again. Repeat until PASS. With no runner,
+   commit first (`sdlc commit <id> --agent <you> --play build`): a gate run on
+   uncommitted changes proves no commit.
 7. **Stop.** Final message: what you built, the AC → test mapping, anything the
    reviewer should look at. Do not change ticket status or open PRs.
 

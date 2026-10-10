@@ -66,7 +66,9 @@ def _ticket_context(cfg: Config, repo: Repo, t: Ticket, play: str) -> list[str]:
     if t.type in ("frontend", "fullstack"):
         out.extend(_design_context(cfg, repo, t))
     for s in t.skills:
-        if s == play:
+        # The prompt already carries its own play skill; another play's would contradict it
+        # (a ticket listing `build` put build's instructions into the test play).
+        if s in TICKET_PLAYS:
             continue
         p = skills.resolve(cfg, s)
         if p is not None:
@@ -225,7 +227,11 @@ def _evidence(cfg: Config, t: Ticket) -> str:
             rows.append(f"- {c['name']}: {c['status']} — {c['summary']}")
         for tag, v in ev.get("ac", {}).items():
             rows.append(f"- {tag}: {v['status']} — " + "; ".join(v["tests"][:3]))
-    if latest:
+    if latest and _records(cfg):
+        # The record names the HEAD it reviewed (review-file checks that); CI proves that HEAD.
+        rows.append(f"\nThe latest local evidence is for `{latest}`. The record's `commit:` is the HEAD you "
+                    "reviewed (`git rev-parse HEAD`), even where the two differ.")
+    elif latest:
         rows.append(f"\nSet `commit: {latest}` in the review frontmatter (the latest proven commit).")
     try:
         changed = gitutil.changed_files(cfg.root, cfg.section("vcs").get("base", "main"))

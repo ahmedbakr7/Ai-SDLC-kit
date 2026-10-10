@@ -149,6 +149,10 @@ def cmd_gate(args) -> int:
             print("note: if this PR fixes a check that is broken on the base branch, the base branch is "
                   "already red: a maintainer merges the config fix with an admin override, and every "
                   "later PR is judged by it. Nothing in the PR itself can switch the config it is judged by.")
+    if ev.get("dirty") and args.play in ("build", "test", "review"):
+        # The evidence names HEAD, which does not hold the uncommitted changes the checks saw.
+        print(f"note: the tree has uncommitted changes, so this run proves no commit ({ev['commit'][:7]} does "
+              "not hold them). Commit, then run the gate again.")
     print(f"\ngate {args.play} {args.ticket or ''}: {ev['result'].upper()}  evidence: {ev['path']}")
     return 0 if ev["result"] == "pass" else EXIT_FAIL
 
@@ -355,8 +359,10 @@ def cmd_commit(args) -> int:
 
     cfg = _cfg(args)
     Repo(cfg).ticket(args.ticket)
-    gitutil.git(cfg.root, "commit", "-q", "-m", args.message,
-                "-m", f"Sdlc-Agent: {args.agent}\nSdlc-Play: {args.play}\nSdlc-Ticket: {args.ticket}")
+    # --trailer joins the message's own trailer block (Co-Authored-By, ...). A separate
+    # paragraph would end git's trailer block above it, so those lines stop being trailers.
+    gitutil.git(cfg.root, "commit", "-q", "-m", args.message, "--trailer", f"Sdlc-Agent: {args.agent}",
+                "--trailer", f"Sdlc-Play: {args.play}", "--trailer", f"Sdlc-Ticket: {args.ticket}")
     print(gitutil.head(cfg.root))
     return 0
 
@@ -422,7 +428,9 @@ def cmd_baseline(args) -> int:
     p.write_text(text, encoding="utf-8", newline="\n")
     if args.prune:
         removed = sum(len(v) for v in old.values()) - sum(len(v) for v in now.values())
-        print(f"{cfg.rel(p)}: pruned {removed} entr{'y' if removed == 1 else 'ies'} that no longer fail")
+        # A key counts each time it fails ("pruned 14" was 7 keys failing twice each): say both.
+        keys = sum(len(Counter(v) - Counter(now.get(n, []))) for n, v in old.items())
+        print(f"{cfg.rel(p)}: pruned {removed} failure(s) across {keys} key(s) that no longer fail")
         for n, why in kept.items():
             print(f"kept all {len(old[n])} known {n} failure(s): {why}, so this run cannot tell which "
                   f"still fail; fix the check and prune again", file=sys.stderr)

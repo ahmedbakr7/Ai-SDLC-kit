@@ -99,6 +99,17 @@ class KitConsistency(unittest.TestCase):
                      "T-042-02/AC-3", "sdlc gate build T-042-02"):
             self.assertIn(want, text)
 
+    def test_a_play_prompt_leaves_out_the_other_plays_skills(self) -> None:
+        # Pilot finding 5: the ticket lists `skills: [build, frontend-patterns]`, and the test
+        # play's prompt carried the build skill's instructions next to its own.
+        from sdlc import prompt
+
+        text = prompt.render(config.load(EXAMPLE), "test", "T-042-02")
+        self.assertIn("## Play skill: test", text)
+        self.assertIn("## Skill: frontend-patterns", text)
+        self.assertNotIn("## Skill: build", text)
+        self.assertNotIn("# Play: build", text)
+
     def test_init_scaffolds_a_product_that_doctor_explains(self) -> None:
         import contextlib
         import io

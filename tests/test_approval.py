@@ -647,6 +647,33 @@ class ReviewPlay(Base):
         code, out = self.p.sdlc("gate", "review", "T-042-02", "--only", "review-file")
         self.assertEqual(code, 0, out)
 
+    def test_the_review_prompt_names_one_commit_for_the_record(self) -> None:
+        # Pilot finding 4: the prompt said both "Set `commit: <proven>`" and "the HEAD you
+        # reviewed". The record must name HEAD, which review-file checks.
+        proven = self.build()
+        run = self.p.root / ".sdlc-run"
+        run.mkdir(exist_ok=True)
+        (run / "T-042-02.build.json").write_text(json.dumps({"result": "pass", "commit": proven, "dirty": False,
+                                                              "checks": [], "ac": {}}), encoding="utf-8")
+        self.p.write("app/pages.py", self.p.read("app/pages.py") + "\n")
+        commit(self.p, "T-042-02: tidy")
+        code, out = self.p.sdlc("prompt", "review", "T-042-02")
+        self.assertEqual(code, 0, out)
+        text = self.p.read(".sdlc-run/prompts/review-T-042-02.md")
+        self.assertNotIn(f"Set `commit: {proven}`", text)
+        self.assertIn(f"The latest local evidence is for `{proven}`. The record's `commit:` is the HEAD you reviewed",
+                      text)
+
+    def test_a_gate_on_a_dirty_tree_says_it_proves_no_commit(self) -> None:
+        # Pilot finding 3: gating before committing recorded the commit below the changes as proven.
+        self.build()
+        out = self.p.sdlc("gate", "build", "T-042-02", "--only", "scope")[1]
+        self.assertIn("gate build T-042-02", out)
+        self.assertNotIn("proves no commit", out)
+        self.p.write("app/pages.py", self.p.read("app/pages.py") + "\n")
+        out = self.p.sdlc("gate", "build", "T-042-02", "--only", "scope")[1]
+        self.assertIn("note: the tree has uncommitted changes, so this run proves no commit", out)
+
     def test_publish_posts_the_record_as_a_pr_comment(self) -> None:
         head = self.build()
         self.forge()
@@ -812,6 +839,56 @@ class PilotGaps(Base):
         self.record("rev", head, at="2026-10-04T11:00:00Z")
         self.assertEqual(self.approval()[0], 0)
         self.assertNotEqual(self.p.sdlc("commit", "T-042-02", "-m", "no agent")[0], 0)
+
+    def test_sdlc_commit_keeps_the_trailers_the_message_already_has(self) -> None:
+        # Pilot finding 2: the kit's trailers went into a paragraph of their own, so git no
+        # longer read the message's Co-Authored-By as a trailer.
+        git(self.p.root, "checkout", "-q", "-b", "build/T-042-02")
+        copy_solution(self.p, "build-T-042-02")
+        git(self.p.root, "add", "-A")
+        code, out = self.p.sdlc("commit", "T-042-02", "-m", "T-042-02: order page\n\nCo-Authored-By: Pair <pair@example.com>",
+                                "--agent", "builder", "--play", "build")
+        self.assertEqual(code, 0, out)
+        trailers = git(self.p.root, "log", "-1", "--format=%(trailers:only,unfold)")
+        self.assertEqual(trailers.split("\n")[:4], ["Co-Authored-By: Pair <pair@example.com>", "Sdlc-Agent: builder",
+                                                     "Sdlc-Play: build", "Sdlc-Ticket: T-042-02"])
+
+    def test_an_extra_agent_trailer_does_not_hide_the_builder(self) -> None:
+        # The builder's message also names `Sdlc-Agent: other`. Read joined, the two were one
+        # agent "other,builder", and the builder's own record looked independent.
+        git(self.p.root, "checkout", "-q", "-b", "build/T-042-02")
+        copy_solution(self.p, "build-T-042-02")
+        copy_solution(self.p, "test-T-042-02")
+        git(self.p.root, "add", "-A")
+        code, out = self.p.sdlc("commit", "T-042-02", "-m", "T-042-02: order page\n\nSdlc-Agent: other",
+                                "--agent", "builder", "--play", "build")
+        self.assertEqual(code, 0, out)
+        head = git(self.p.root, "rev-parse", "HEAD").strip()
+        self.forge()
+        self.record("rev", head, agent="builder")
+        code, out, res = self.approval()
+        self.assertNotEqual(code, 0, (out, res))
+        self.assertIn("builder", out)
+        self.record("rev", head, at="2026-10-04T11:00:00Z")
+        self.assertEqual(self.approval()[0], 0)
+
+    def test_a_separator_inside_an_agent_name_does_not_hide_the_builder(self) -> None:
+        # `Sdlc-Agent: other|review` once split the record at its pipe, moving `builder` into
+        # the plays field.
+        git(self.p.root, "checkout", "-q", "-b", "build/T-042-02")
+        copy_solution(self.p, "build-T-042-02")
+        copy_solution(self.p, "test-T-042-02")
+        git(self.p.root, "add", "-A")
+        code, out = self.p.sdlc("commit", "T-042-02", "-m", "T-042-02: order page\n\nSdlc-Agent: other|review",
+                                "--agent", "builder", "--play", "build")
+        self.assertEqual(code, 0, out)
+        head = git(self.p.root, "rev-parse", "HEAD").strip()
+        self.forge()
+        self.record("rev", head, agent="builder")
+        code, out, res = self.approval()
+        self.assertNotEqual(code, 0, (out, res))
+        self.record("rev", head, at="2026-10-04T11:00:00Z")
+        self.assertEqual(self.approval()[0], 0)
 
     def squash_merge(self) -> None:
         # What a forge's squash merge writes: every commit message folded into one body, the
