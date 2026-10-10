@@ -82,15 +82,23 @@ class Lifecycle(unittest.TestCase):
         return out
 
     def lead_pr(self, branch: str, author: str = "ahmed") -> None:
-        """A PR without a ticket: the full PR gate passes, and only a lead's record approves it."""
+        """A PR without a ticket: the full PR gate passes, and an independent review plus a
+        lead's record approve it; neither alone does."""
         self.assert_passes(self.p.sdlc("gate", "pr", "--base", "main"))
         self.open_pr(author)
         code, summary = self.approval()
         self.assertNotEqual(code, 0, summary)
-        self.assertIn("needs a lead approval", summary)
+        self.assertIn("needs an approval from an independent reviewer; a lead approval", summary)
         self.record("lead", role="lead", agent="", ticket="", body="Signed off.")
+        code, summary = self.approval()
+        self.assertNotEqual(code, 0, summary)
+        self.record("rev", agent="", ticket="", body="Read the diff; nothing outside the lead write set.")
         self.assert_passes(self.approval())
         self.merge(branch)
+
+    def code_pr(self, branch: str, code: str) -> None:
+        """The lead's PR that changes code (`code` is one of its files) without a ticket."""
+        self.lead_pr(branch)
 
     def ship_the_ticket(self) -> None:
         """Build and test plays by two agents, the PR gate on the head, an independent review."""
@@ -145,7 +153,7 @@ class Lifecycle(unittest.TestCase):
         git(p.root, "mv", "app/legacy.py", "app/old_legacy.py")
         p.commit("move legacy")
         self.assertIn("BASELINED: 2 known failure(s)", self.assert_passes(self.gate_ci("--base", "main")))
-        self.lead_pr("lead/move")
+        self.code_pr("lead/move", "app/old_legacy.py")
         self.assertIn("BASELINED: 2 known failure(s)", self.assert_passes(self.gate_ci()))
 
         # A hotfix lands red. A branch cannot waive it; the lead's waiver applies once on main.
@@ -176,7 +184,7 @@ class Lifecycle(unittest.TestCase):
         (p.root / "sdlc-waivers.toml").unlink()
         p.commit("lead: prune the baseline and drop the waiver")
         self.assert_passes(self.gate_ci("--base", "main"))
-        self.lead_pr("fix/types")
+        self.code_pr("fix/types", "app/hotfix.py")
         out = self.assert_passes(self.gate_ci())
         self.assertNotIn("BASELINED", out)
         self.assertNotIn("waived", out.lower())  # the summary (WAIVED) and the per-key lines (waived:)
@@ -191,6 +199,14 @@ class HardenedLifecycle(Lifecycle):
     extra = '\n[gate]\npreset = "hardened"\n' + "".join(
         f"{k} = {json.dumps([c for c in config.DEFAULTS['gate'][k] if c not in NOT_IN_THIS_PRODUCT])}\n"
         for k in ("build", "test", "ci", "mechanical"))
+
+    def code_pr(self, branch: str, code: str) -> None:
+        # Hardened fails code without a ticket (scope.lead_code = "fail"), a move or a fix
+        # included: the gate says so, and this lead merges it by admin override (a ticket is
+        # the other way).
+        out = self.assert_fails(self.p.sdlc("gate", "pr", "--base", "main"))
+        self.assertIn(f"outside the lead write set: {code}", out)
+        self.merge(branch)
 
     def setUp(self) -> None:
         super().setUp()

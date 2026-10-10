@@ -6,8 +6,8 @@ The kit needs Python 3.11 or later and git 2.32 or later (`sdlc commit` uses `gi
 
 ```bash
 git submodule add https://github.com/ahmedbakr7/Ai-SDLC-kit.git .sdlc
-git -C .sdlc checkout v2.0.1     # pin a release tag (CHANGELOG.md lists them)
-git add .gitmodules .sdlc && git commit -m "pin ai-sdlc kit v2.0.1"
+git -C .sdlc checkout v3.0.0     # pin a release tag (CHANGELOG.md lists them)
+git add .gitmodules .sdlc && git commit -m "pin ai-sdlc kit v3.0.0"
 .sdlc/bin/sdlc init --profile nextjs # or node | python | (none)
 ```
 
@@ -74,7 +74,8 @@ is strict.
 A strictness preset sets the lane lists, triggers and limits in one line: `[gate] preset =
 "default"` (today's lists), `"hardened"` (no trust-based approvals, a human reviewer for
 mechanical PRs, workflows, config, the kit pin and dependency manifests make a PR strict, nothing
-optional, 30-day waivers without renewal), or `"floor"` (ADR-0001 section 6: no duplication or
+optional, 30-day waivers without renewal, and code in a PR that names no ticket fails unless it
+exactly reverts code already on the base branch), or `"floor"` (ADR-0001 section 6: no duplication or
 smoke checks, for adopting the kit). Your own `[gate]`, `[lanes]` and `[waivers]` keys still
 override it, except where `hardened` forbids loosening; `doctor` prints what results.
 
@@ -144,7 +145,8 @@ Set `[approval] mode = "forge"` (GitHub) or `"git"` (signed notes in `refs/notes
 - The token goes only to the API host in `GITHUB_API_URL` (Actions sets it; default
   `https://api.github.com`), never to a host named in `sdlc.toml`, which a PR can edit.
 - In `git` mode a lead's own PR needs a second lead (a signer may not approve their own commits).
-- A PR that names no ticket (config, CI, the kit pin, contracts, tickets) needs a lead approval.
+- A PR that names no ticket (config, CI, the kit pin, contracts, tickets) needs a lead approval
+  and an independent review, from two identities (kit v3.0.0 or later; before, the lead alone).
   Review records count only unedited (comments) and on the commit the forge recorded (reviews).
 - List the reviewer, lead and bot identities in `[approval]`. They must differ from the identity
   that opens PRs. If one account does everything, set `trust_unsigned = true`: approvals then need

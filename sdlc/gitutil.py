@@ -1,6 +1,7 @@
 """Thin git helpers (subprocess, no libraries)."""
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import tempfile
@@ -186,6 +187,56 @@ def _undone(root: Path, reverts: dict[str, list[str]], sha: str, seen: frozenset
     return bool(inverse) and any(
         _patch_id(root, f"{r}^", r) == inverse and not _undone(root, reverts, r, seen | {sha})
         for r in reverts.get(sha, []))
+
+
+def _inverts(root: Path, sha: str, target: str) -> bool:
+    """`sha` leaves exactly the tree that undoing `target` on `sha`'s parent leaves: the target's
+    diff, reversed, applied byte for byte (whitespace and context included) to the parent's
+    tree in a scratch index. A patch id ignores whitespace and line numbers, so it cannot
+    prove this."""
+    diff = subprocess.run(["git", "diff", "--binary", "--no-renames", "--full-index", target, f"{target}^"],
+                          cwd=root, capture_output=True)
+    if diff.returncode != 0 or not diff.stdout.strip():
+        return False
+    with tempfile.TemporaryDirectory() as tmp:
+        env = {**os.environ, "GIT_INDEX_FILE": str(Path(tmp) / "index")}
+        run = lambda *a, **k: subprocess.run(["git", *a], cwd=root, env=env, capture_output=True, **k)
+        if run("read-tree", f"{sha}^").returncode != 0:
+            return False
+        if run("apply", "--cached", "--whitespace=nowarn", "-", input=diff.stdout).returncode != 0:
+            return False
+        tree = run("write-tree")
+        want = run("rev-parse", f"{sha}^{{tree}}")
+        return tree.returncode == 0 and tree.stdout.strip() == want.stdout.strip() != b""
+
+
+def exact_reverts(root: Path, base: str, head: str = "HEAD") -> list[tuple[str, str]] | None:
+    """(revert, reverted) for each commit from merge-base(head, base) to `head`, when every one
+    names ("This reverts commit") and exactly inverts a commit already on `base` (`_inverts`; a
+    merge is judged against its first parent). None otherwise: an empty
+    range, a commit that reverts nothing (a merge from the base branch among them), or one whose
+    diff is not the exact inverse. With only such commits, the whole change is the reverts'
+    inverses."""
+    try:
+        mb = merge_base(root, base, head)
+    except GitError:
+        return None
+    revs = git(root, "rev-list", "--reverse", f"{mb}..{head}", check=False).split("\n")
+    out: list[tuple[str, str]] = []
+    for line in filter(None, (r.strip() for r in revs)):
+        sha = line.split()[0]
+        body = git(root, "show", "-s", "--format=%B", sha, check=False)
+        named = re.findall(r"This reverts commit ([0-9a-f]{7,40})", body)
+        target = ""
+        for t in named:
+            full = git(root, "rev-parse", "--verify", "-q", f"{t}^{{commit}}", check=False).strip()
+            if full and is_ancestor(root, full, base) and _inverts(root, sha, full):
+                target = full
+                break
+        if not target:
+            return None
+        out.append((sha, target))
+    return out or None
 
 
 def buried_trailers(root: Path, rev: str, key: str) -> list[tuple[str, list[str]]]:

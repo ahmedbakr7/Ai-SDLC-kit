@@ -7,7 +7,9 @@ holds and `doctor` reports the attempt.
 - `hardened`: tightens existing settings, adds no new checks. No trust-based approvals; the
   mechanical lane needs a human reviewer; workflows, sdlc.toml, the kit pin and dependency
   manifests and lockfiles make a PR strict; real-stack suites are required in the standard
-  and strict lanes; nothing is optional; waivers last at most 30 days and are not renewed.
+  and strict lanes; nothing is optional; waivers last at most 30 days and are not renewed;
+  code in a PR that moves no ticket fails (`scope.lead_code = "fail"`) unless it exactly
+  reverts code on the base branch.
 - `floor`: exactly ADR-0001 section 6, for products adopting the kit: duplication and smoke
   leave every lane's lists.
 
@@ -51,6 +53,7 @@ def apply(data: dict[str, Any], preset: str) -> dict[str, Any]:
         lanes = out.setdefault("lanes", {})
         lanes["strict_paths"] = _union(lanes.get("strict_paths", []), HARDENED_STRICT_PATHS)
         out.setdefault("waivers", {})["max_days"] = HARDENED_MAX_DAYS
+        out.setdefault("scope", {})["lead_code"] = "fail"
     g["preset"] = preset
     return out
 
@@ -63,8 +66,12 @@ def enforce(data: dict[str, Any], before: dict[str, Any], user: dict[str, Any],
     if preset != "hardened":
         return data, []
     out, probs = copy.deepcopy(data), []
-    ug, ul, uw, ua, ut = (user.get(k, {}) if isinstance(user.get(k), dict) else {}
-                          for k in ("gate", "lanes", "waivers", "approval", "tests"))
+    ug, ul, uw, ua, ut, us = (user.get(k, {}) if isinstance(user.get(k), dict) else {}
+                              for k in ("gate", "lanes", "waivers", "approval", "tests", "scope"))
+    if us.get("lead_code", "fail") != "fail":
+        probs.append(f"[scope] lead_code = {us['lead_code']!r} is forbidden by the hardened preset: code without a "
+                     "ticket fails (an exact revert of base-branch code passes)")
+        out.setdefault("scope", {})["lead_code"] = "fail"
     rs = ut.get("real_stack")
     if "real_stack" in ut and not (isinstance(rs, list) and {"integration", "e2e"} & set(rs)):
         probs.append(f"[tests] real_stack = {rs!r} is forbidden by the hardened preset: it must name integration "

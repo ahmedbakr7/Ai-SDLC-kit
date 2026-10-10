@@ -376,11 +376,12 @@ def evaluate(cfg: Config, gate, records: list[Record], pr: PullRequest | None, h
     lead_lines = lead_amendments(cfg, gate.base)
     if t is None:
         # A PR naming no ticket is the lead's, and the lead approves it: it can change config,
-        # CI, the kit pin, contracts or tickets, all of which govern every later PR.
+        # CI, the kit pin, contracts or tickets, all of which govern every later PR. The lead
+        # wrote or asked for it, so an independent review checks it too (pilot finding 17).
         changed = gitutil.changed_files(cfg.root, gate.base)
         if not changed:
             return Result(True, "nothing changed", trust_based=trust)
-        need, lane, amendments = ["lead"], "lead PR", []
+        need, lane, amendments = ["review", "lead"], "lead PR", []
         lead_lines = lead_lines or [f"a PR without a ticket ({len(changed)} file(s))"]
     else:
         lane = gate.lane.name if gate.lane else "standard"

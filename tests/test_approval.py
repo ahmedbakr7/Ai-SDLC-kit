@@ -231,9 +231,31 @@ class LeadPRs(Base):
         self.forge()
         code, _, res = self.approval()
         self.assertNotEqual(code, 0)
-        self.assertIn("this PR (lead PR) needs a lead approval", res["summary"])
-        self.record("lead", git(self.p.root, "rev-parse", "HEAD").strip(), role="lead", agent="", body="ok", ticket="")
+        self.assertIn("this PR (lead PR) needs an approval from an independent reviewer; a lead approval", res["summary"])
+        head = git(self.p.root, "rev-parse", "HEAD").strip()
+        self.record("lead", head, role="lead", agent="", body="ok", ticket="")
+        code, _, res = self.approval()
+        self.assertNotEqual(code, 0)  # pilot finding 17: the lead's own record is not a review
+        self.assertIn("this PR (lead PR) needs an approval from an independent reviewer", res["summary"])
+        self.record("rev", head, agent="", body="ok", ticket="")
         self.assertEqual(self.approval()[0], 0)
+
+    def test_the_review_of_a_lead_pr_comes_from_another_identity(self) -> None:
+        # The lead is also a listed reviewer: one identity still cannot be both records.
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace('reviewers = ["rev"]', 'reviewers = ["rev", "lead"]'))
+        self.p.commit("lead: the lead reviews too")
+        git(self.p.root, "checkout", "-q", "-b", "lead/tickets")
+        self.p.write("docs/plan.md", "a lead artifact\n")
+        self.p.commit("plan")
+        self.forge(author="ahmed")
+        head = git(self.p.root, "rev-parse", "HEAD").strip()
+        self.record("lead", head, role="lead", agent="", body="ok", ticket="")
+        self.record("lead", head, role="review", agent="", body="ok", ticket="")
+        code, _, res = self.approval()
+        self.assertNotEqual(code, 0, res)
+        self.assertIn("the review and the lead approval from different identities", res["summary"])
+        self.record("rev", head, agent="", body="ok", ticket="")
+        self.assertEqual(self.approval()[0], 0, self.approval()[2])
 
     def test_code_without_a_ticket_needs_the_lead(self) -> None:
         # A forgotten Sdlc-Ticket trailer must not turn a code change into an unapproved lead PR.
@@ -243,9 +265,11 @@ class LeadPRs(Base):
         self.forge()
         code, _, res = self.approval()
         self.assertNotEqual(code, 0)
-        self.assertIn("this PR (lead PR) needs a lead approval (for a PR without a ticket (1 file(s)))", res["summary"])
-        self.record("lead", git(self.p.root, "rev-parse", "HEAD").strip(), role="lead", agent="", body="ok",
-                    ticket="")
+        self.assertIn("a lead approval (for a PR without a ticket (1 file(s)))", res["summary"])
+        head = git(self.p.root, "rev-parse", "HEAD").strip()
+        self.record("lead", head, role="lead", agent="", body="ok", ticket="")
+        self.assertNotEqual(self.approval()[0], 0)
+        self.record("rev", head, agent="", body="ok", ticket="")
         self.assertEqual(self.approval()[0], 0)
 
 
@@ -598,6 +622,17 @@ class DerivedStatus(Base):
         code, out = self.p.sdlc("gate", "pr", "--base", "main")
         self.assertNotEqual(code, 0)
         self.assertIn("the test play must prove AC through the real stack", out)
+
+    def test_ci_re_proves_a_merged_ticket_whose_stored_status_is_not_done(self) -> None:
+        # Its file still says ready; the merged trailer makes it done, so CI owes its real-stack proof.
+        git(self.p.root, "checkout", "-q", "-b", "build/T-042-02")
+        copy_solution(self.p, "build-T-042-02")
+        commit(self.p, "build only")
+        git(self.p.root, "checkout", "-q", "main")
+        git(self.p.root, "merge", "-q", "--no-ff", "--no-edit", "build/T-042-02")
+        code, out = self.p.sdlc("gate", "ci", "--only", "unit,integration,ac-coverage")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("T-042-02: done, but no passing integration/e2e test carries its tag", out)
 
     def test_trace_reads_ci_evidence_for_a_ticket_merged_without_committed_evidence(self) -> None:
         self.build()

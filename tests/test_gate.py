@@ -948,6 +948,59 @@ Add the HTTP test.
         self.assertIn("outside build write set: tests/test_http_unknown.py", c["scope"]["details"])
 
 
+class LockfileScope(unittest.TestCase):
+    """Pilot finding 7: scope.always_allowed (the node profiles list the lockfiles) passed every
+    scope check, so a committed dependency change shipped in any PR unreviewed."""
+
+    def setUp(self) -> None:
+        from helpers import git
+
+        self.git = git
+        self.p = ProductRepo()
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml") + '\n[scope]\nalways_allowed = ["package-lock.json"]\n'
+                     'lead_code = "fail"\n')
+        self.p.commit("lead: lockfiles in scope")
+
+    def tearDown(self) -> None:
+        self.p.close()
+
+    def build_scope(self) -> dict:
+        self.p.sdlc("gate", "build", "T-042-02", "--only", "scope")
+        ev = json.loads((self.p.root / ".sdlc-run" / "T-042-02.build.json").read_text(encoding="utf-8"))
+        return {x["name"]: x for x in ev["checks"]}["scope"]
+
+    def start_build(self) -> None:
+        code, out = self.p.sdlc("status", "T-042-02", "in_progress", "--as", "build")
+        self.assertEqual(code, 0, out)
+        self.p.commit("start T-042-02")
+        self.git(self.p.root, "checkout", "-q", "-b", "build/T-042-02")
+
+    def test_a_lockfile_left_in_the_working_tree_stays_out_of_scope(self) -> None:
+        self.start_build()
+        self.p.write("package-lock.json", "{}\n")  # untracked, as `npm install` leaves it
+        c = self.build_scope()
+        self.assertEqual(c["status"], "pass", c)
+        self.assertFalse([d for d in c["details"] if "package-lock.json" in d], c)
+
+    def test_a_committed_lockfile_is_judged_by_the_build_write_set(self) -> None:
+        self.start_build()
+        self.p.write("package-lock.json", "{}\n")
+        self.p.commit("build: lockfile")
+        c = self.build_scope()
+        self.assertIn("out of area (the approving review must name it under ## Out of area): package-lock.json",
+                      c["details"])
+
+    def test_a_lead_pr_that_commits_a_lockfile_is_judged_by_lead_code(self) -> None:
+        self.git(self.p.root, "checkout", "-q", "-b", "deps")
+        self.p.write("package-lock.json", "{}\n")
+        code, out = self.p.sdlc("gate", "pr", "--base", "main", "-v")
+        self.assertEqual(code, 0, out)  # uncommitted: nothing ships
+        self.p.commit("bump deps")
+        code, out = self.p.sdlc("gate", "pr", "--base", "main", "-v")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("outside the lead write set: package-lock.json", out)
+
+
 class Baseline(unittest.TestCase):
     """Hangout pilot: a product adopting the kit with a red main could not pass any ticket
     gate, because every gate also runs the repo-wide checks. sdlc-baseline.json carries the
@@ -1622,6 +1675,103 @@ class PresetDoctor(unittest.TestCase):
         code, out = self.p.sdlc("doctor")
         self.assertNotEqual(code, 0, out)
         self.assertIn("ERROR [approval] trust_unsigned is forbidden by the hardened preset", out)
+
+class HardenedLeadCode(unittest.TestCase):
+    """Issue #27: under the hardened preset, code in a PR that moves no ticket fails, except an
+    exact revert of code already on the base branch."""
+
+    def setUp(self) -> None:
+        from helpers import git
+
+        self.git = git
+        self.p = ProductRepo()
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml") + '\n[gate]\npreset = "hardened"\n')
+        self.p.commit("lead: hardened")
+
+    def tearDown(self) -> None:
+        self.p.close()
+
+    def edit(self, rel: str, line: str) -> None:
+        self.p.write(rel, self.p.read(rel) + line)
+
+    def lead_pr(self) -> tuple[int, str]:
+        return self.p.sdlc("gate", "pr", "--base", "main", "--only", "scope", "-v")
+
+    def test_code_without_a_ticket_fails(self) -> None:
+        self.git(self.p.root, "checkout", "-q", "-b", "hotfix")
+        self.edit("app/returns.py", "\n# hotfix\n")
+        self.p.commit("hotfix")
+        code, out = self.lead_pr()
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("outside the lead write set: app/returns.py", out)
+
+    def test_a_products_warn_is_refused(self) -> None:
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml") + '\n[scope]\nlead_code = "warn"\n')
+        self.p.commit("lead: warn only")
+        code, out = self.p.sdlc("doctor")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("ERROR [scope] lead_code = 'warn' is forbidden by the hardened preset", out)
+        self.test_code_without_a_ticket_fails()  # the stricter value holds meanwhile
+
+    def test_an_exact_revert_of_base_branch_code_passes(self) -> None:
+        self.edit("app/returns.py", "\n# a bad hotfix\n")
+        self.p.commit("bad hotfix")
+        bad = self.git(self.p.root, "rev-parse", "HEAD").strip()
+        self.git(self.p.root, "checkout", "-q", "-b", "undo")
+        self.git(self.p.root, "revert", "--no-edit", bad)
+        code, out = self.lead_pr()
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"exact revert of {bad[:7]}", out)
+
+    def test_a_revert_branch_that_merges_the_base_is_no_exact_revert(self) -> None:
+        # The merge reverts nothing, so the branch is not the reverts alone; rebase it instead.
+        self.edit("app/returns.py", "\n# a bad hotfix\n")
+        self.p.commit("bad hotfix")
+        bad = self.git(self.p.root, "rev-parse", "HEAD").strip()
+        self.git(self.p.root, "checkout", "-q", "-b", "undo")
+        self.git(self.p.root, "revert", "--no-edit", bad)
+        self.git(self.p.root, "checkout", "-q", "main")
+        self.p.write("docs/later.md", "main moves on\n")
+        self.p.commit("main moves on")
+        self.git(self.p.root, "checkout", "-q", "undo")
+        self.git(self.p.root, "merge", "-q", "--no-ff", "--no-edit", "main")
+        code, out = self.lead_pr()
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("outside the lead write set: app/returns.py", out)
+
+    def test_a_revert_that_only_matches_ignoring_whitespace_fails(self) -> None:
+        # A patch id ignores whitespace: this "revert" restores the line at another indent.
+        line = '    "ord_2": [],\n'
+        self.p.write("app/returns.py", self.p.read("app/returns.py").replace(line, ""))
+        self.p.commit("drop ord_2")
+        bad = self.git(self.p.root, "rev-parse", "HEAD").strip()
+        self.git(self.p.root, "checkout", "-q", "-b", "undo")
+        text = self.p.read("app/returns.py")
+        anchor = '    "ord_3"'
+        self.p.write("app/returns.py", text.replace(anchor, '"ord_2": [],\n' + anchor, 1))
+        self.git(self.p.root, "commit", "-qam", f"Revert drop ord_2\n\nThis reverts commit {bad}.")
+        code, out = self.lead_pr()
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("outside the lead write set: app/returns.py", out)
+
+    def test_a_revert_with_an_extra_change_fails(self) -> None:
+        self.edit("app/returns.py", "\n# a bad hotfix\n")
+        self.p.commit("bad hotfix")
+        bad = self.git(self.p.root, "rev-parse", "HEAD").strip()
+        self.git(self.p.root, "checkout", "-q", "-b", "undo")
+        self.git(self.p.root, "revert", "--no-edit", bad)
+        self.edit("app/server.py", "\n# riding along\n")
+        self.p.commit("and one more thing")
+        code, out = self.lead_pr()
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("outside the lead write set: app/server.py", out)
+        # Folded into the revert commit itself, the extra line makes it no exact revert at all.
+        self.git(self.p.root, "reset", "-q", "--soft", "HEAD~2")
+        self.git(self.p.root, "commit", "-q", "-m", f"Revert bad hotfix\n\nThis reverts commit {bad}.")
+        code, out = self.lead_pr()
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("outside the lead write set: app/returns.py", out)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -169,7 +169,7 @@ def _write_set(cfg: Config, t: Ticket, play: str) -> str:
     if not _records(cfg):
         lines.append(f"- `{cfg.data['paths']['evidence']}/{t.id}.{play}.json` (written by the gate, not by you)")
     for g in cfg.section("scope").get("always_allowed", []):
-        lines.append(f"- `{g}` (always allowed)")
+        lines.append(f"- `{g}` (allowed in the working tree; once committed it needs your write set)")
     return "\n".join(lines)
 
 
