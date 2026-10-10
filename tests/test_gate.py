@@ -1792,6 +1792,22 @@ class HardenedLeadCode(unittest.TestCase):
         self.assertNotEqual(code, 0, out)
         self.assertIn("outside the lead write set: app/returns.py", out)
 
+    def test_a_revert_of_a_commit_not_on_the_base_branch_fails(self) -> None:
+        # Reverting a side branch's deletion would land the deleted code as a "revert".
+        self.git(self.p.root, "checkout", "-q", "-b", "side")
+        self.p.write("app/backdoor.py", "def open_up():\n    return True\n")
+        self.p.commit("add it")
+        self.git(self.p.root, "rm", "-q", "app/backdoor.py")
+        self.p.commit("drop it")
+        dropped = self.git(self.p.root, "rev-parse", "HEAD").strip()
+        self.git(self.p.root, "checkout", "-q", "main")
+        self.git(self.p.root, "checkout", "-q", "-b", "undo")
+        self.git(self.p.root, "revert", "--no-edit", dropped)
+        self.assertTrue((self.p.root / "app" / "backdoor.py").is_file())
+        code, out = self.lead_pr()
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("outside the lead write set: app/backdoor.py", out)
+
     def test_a_revert_with_an_extra_change_fails(self) -> None:
         self.edit("app/returns.py", "\n# a bad hotfix\n")
         self.p.commit("bad hotfix")
