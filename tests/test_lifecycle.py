@@ -82,13 +82,17 @@ class Lifecycle(unittest.TestCase):
         return out
 
     def lead_pr(self, branch: str, author: str = "ahmed") -> None:
-        """A PR without a ticket: the full PR gate passes, and only a lead's record approves it."""
+        """A PR without a ticket: the full PR gate passes, and an independent review plus a
+        lead's record approve it; neither alone does."""
         self.assert_passes(self.p.sdlc("gate", "pr", "--base", "main"))
         self.open_pr(author)
         code, summary = self.approval()
         self.assertNotEqual(code, 0, summary)
-        self.assertIn("needs a lead approval", summary)
+        self.assertIn("needs an approval from an independent reviewer; a lead approval", summary)
         self.record("lead", role="lead", agent="", ticket="", body="Signed off.")
+        code, summary = self.approval()
+        self.assertNotEqual(code, 0, summary)
+        self.record("rev", agent="", ticket="", body="Read the diff; nothing outside the lead write set.")
         self.assert_passes(self.approval())
         self.merge(branch)
 
