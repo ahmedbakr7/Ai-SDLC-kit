@@ -501,12 +501,12 @@ class Gate:
                 continue
             if (f in mine and f in exact) or any(_glob(f, g) for g in always) or any(ok(f) for ok in earlier):
                 continue
+            if builds and self._split_ticket(f):
+                continue
             if builds and t.type == "test" and not any(_glob(f, g) for g in tests):
                 # A test ticket skips the test play, so it may not carry the code that play proves.
                 problems.append(f"a test ticket changes tests only (tests.globs, tests.integration_globs): {f}")
                 bad.append(f)
-                continue
-            if builds and self._split_ticket(f):
                 continue
             if builds and f == self.cfg.data["paths"]["contracts"]:
                 continue  # allowed, and it makes the lane strict (lead sign-off, contract diff)

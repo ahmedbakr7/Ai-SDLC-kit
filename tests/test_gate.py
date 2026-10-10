@@ -860,6 +860,15 @@ Add the HTTP test.
         self.assertEqual(c["status"], "fail", c)
         self.assertEqual(c["details"], ["a test ticket changes tests only (tests.globs, tests.integration_globs): app/returns.py"])
 
+    def test_a_test_ticket_may_split_an_ac_into_a_new_draft_ticket(self) -> None:
+        self.git(self.p.root, "checkout", "-q", "-b", "build/T-042-03")
+        self.p.write("tests/test_http_unknown.py", self.TEST)
+        self.p.write("tickets/T-042-04-unknown-order-body.md",
+                     self.TICKET.replace("id: T-042-03", "id: T-042-04\nsplit_from: T-042-03")
+                     .replace("status: in_progress", "status: draft"))
+        c = self.checks("T-042-03", "scope")["scope"]
+        self.assertEqual(c["status"], "pass", c)
+
     def test_a_test_ticket_may_write_integration_files_outside_the_test_globs(self) -> None:
         self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace('globs = ["app/test_*.py", "tests/**"]',
                                                                    'globs = ["app/test_*.py"]'))
