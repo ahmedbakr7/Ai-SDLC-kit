@@ -1739,6 +1739,21 @@ class HardenedLeadCode(unittest.TestCase):
         self.assertNotEqual(code, 0, out)
         self.assertIn("outside the lead write set: app/returns.py", out)
 
+    def test_a_revert_that_only_matches_ignoring_whitespace_fails(self) -> None:
+        # A patch id ignores whitespace: this "revert" restores the line at another indent.
+        line = '    "ord_2": [],\n'
+        self.p.write("app/returns.py", self.p.read("app/returns.py").replace(line, ""))
+        self.p.commit("drop ord_2")
+        bad = self.git(self.p.root, "rev-parse", "HEAD").strip()
+        self.git(self.p.root, "checkout", "-q", "-b", "undo")
+        text = self.p.read("app/returns.py")
+        anchor = '    "ord_3"'
+        self.p.write("app/returns.py", text.replace(anchor, '"ord_2": [],\n' + anchor, 1))
+        self.git(self.p.root, "commit", "-qam", f"Revert drop ord_2\n\nThis reverts commit {bad}.")
+        code, out = self.lead_pr()
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("outside the lead write set: app/returns.py", out)
+
     def test_a_revert_with_an_extra_change_fails(self) -> None:
         self.edit("app/returns.py", "\n# a bad hotfix\n")
         self.p.commit("bad hotfix")
