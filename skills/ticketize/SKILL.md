@@ -37,7 +37,9 @@ lists the wrong files, the build will be wrong no matter how good the agent is.
    ticket cannot be approved until its test play proves an AC through the real stack.
    Use `none` only for tickets nothing reaches over HTTP or a browser (shared
    libraries, config, tooling); `sdlc lint` refuses it on tickets that implement a
-   contract route or page.
+   contract route or page. A `type: test` ticket (it changes tests only) has no test
+   play: its build writes the integration/e2e files and runs those suites, so an AC
+   only a real-stack test can prove passes there.
 9. `status: draft`. The lead moves tickets to `ready` after reading the graph;
    `risk: high` tickets also need `accepted_by:`.
 10. Run `sdlc lint` and `sdlc trace` until both are clean. Stop.

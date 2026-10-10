@@ -7,6 +7,43 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 
 ## Unreleased
 
+## v2.0.0 (2026-10-10)
+
+Found by the Hangout pilot (finding 19). MAJOR: a product that passed on v1.5.5 can fail on
+upgrade in two ways.
+
+- A `type: test` ticket whose build also changes a file outside `tests.globs` and
+  `tests.integration_globs` (a manifest such as `package.json` or `pyproject.toml`,
+  test-runner config, fixtures elsewhere) now fails `scope`, where v1.5.5 flagged that file
+  for review. To upgrade, move such changes to a ticket of another type (an `ops` or `chore`
+  ticket for a manifest or runner config), or widen `tests.globs` to cover the fixtures.
+- A real-stack test tagged with an AC its ticket does not declare (the AC was removed or
+  renumbered, or the tag has a typo) no longer proves that ticket, so its test play fails
+  `ac-coverage` and `gate ci` fails for it once done. To upgrade, retag the test with an AC the
+  ticket declares.
+
+A test ticket in flight across the upgrade keeps its approval when its test play passed.
+
+- A `type: test` ticket (it changes tests only) has no test play: its build is that play. Its
+  `gate build` also runs the real-stack suites (`tests.real_stack`, moved before `ac-coverage`
+  wherever the build list puts them), its build may write the files in
+  `tests.integration_globs`, and it carries the test play's proof: `ac-coverage` fails unless a
+  passing real-stack test carries one of its AC tags (unless the lead marked it `test: none`).
+  The build evidence records that proof (`real_stack_proof`). Approval refuses a test ticket
+  whose build evidence lacks it, unless a passing test play gave the proof, as it did before
+  this release.
+- Real-stack proof (the test play, a records-mode `gate pr`, and a test ticket's build) needs a
+  passing real-stack test tagged with an AC the ticket declares. Before, any `<ticket>/AC-n` tag
+  counted, including an AC the ticket does not have. A test tagged with an undeclared AC proved
+  nothing, so this closes a check that passed without checking. Before, a ticket whose AC only an
+  integration test could prove could not pass `gate build`, which ran `unit` alone and refused
+  integration files to the build. `sdlc lint` no longer asks such a ticket for a test play, and
+  `sdlc run test` says why it has none. Because it skips the test play, a test ticket may
+  change only files in `tests.globs` or `tests.integration_globs`, plus a draft ticket it splits
+  an AC into: any other file fails `scope` (the MAJOR change above), so the type cannot carry
+  production code past real-stack proof. `gate ci` still re-proves a done test ticket through
+  the real stack. Other ticket types are unchanged.
+
 ## v1.5.5 (2026-10-10)
 
 Found by the Hangout pilot (findings 2 to 6), checked against v1.5.4, and in review of this

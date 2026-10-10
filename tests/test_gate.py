@@ -2,6 +2,7 @@
 in a real product built without them (routes mounted at the wrong prefix, tests that
 read source text, "green" suites that ran nothing, AC with no test, edited ADRs)."""
 import json
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -720,6 +721,228 @@ class GateCatches(unittest.TestCase):
 
 
 
+class TestTickets(unittest.TestCase):
+    """Pilot finding 19: a ticket that changes tests only, with an AC only an integration test
+    can prove, could not pass `gate build` (unit alone; integration files refused)."""
+
+    TICKET = """---
+id: T-042-03
+title: Returns route answers an unknown order over HTTP
+type: test
+status: in_progress
+risk: low
+depends_on: [T-042-01]
+files:
+  - tests/test_http_unknown.py
+skills:
+  - build
+contracts: []
+requirements:
+  - F-042-4
+acceptance_criteria:
+  - "AC-1: an integration test proves GET /api/orders/nope/returns answers 404 over HTTP"
+source_intent: intent/intent-042-return-status.md
+source_spec: design/spec-042-return-status.md
+source_plan: arch/plan-042-return-status.md
+---
+
+Add the HTTP test.
+"""
+    TEST = (
+        '"""Integration: an unknown order over HTTP."""\n'
+        "import threading\nimport unittest\nimport urllib.error\nimport urllib.request\n\n"
+        "from app.server import Handler, Server\n\n\n"
+        "class UnknownOrder(unittest.TestCase):\n"
+        "    def test_unknown_order(self) -> None:\n"
+        '        """T-042-03/AC-1"""\n'
+        '        server = Server(("127.0.0.1", 0), Handler)\n'
+        "        threading.Thread(target=server.serve_forever, daemon=True).start()\n"
+        "        try:\n"
+        "            with self.assertRaises(urllib.error.HTTPError) as e:\n"
+        '                urllib.request.urlopen(f"http://127.0.0.1:{server.server_address[1]}/api/orders/nope/returns")\n'
+        "            self.assertEqual(e.exception.code, 404)\n"
+        "        finally:\n"
+        "            server.shutdown()\n")
+
+    def setUp(self) -> None:
+        self.p = ProductRepo()
+        self.p.write("tickets/T-042-03-unknown-order-http.md", self.TICKET)
+        self.p.commit("lead: test ticket T-042-03")
+        from helpers import git
+
+        self.git = git
+
+    def tearDown(self) -> None:
+        self.p.close()
+
+    def checks(self, ticket: str, *only: str) -> dict:
+        self.code, self.out = self.p.sdlc("gate", "build", ticket, "--only", ",".join(only))
+        ev = json.loads((self.p.root / ".sdlc-run" / f"{ticket}.build.json").read_text(encoding="utf-8"))
+        return {c["name"]: c for c in ev["checks"]}
+
+    def test_a_test_ticket_builds_with_an_integration_test_alone(self) -> None:
+        self.git(self.p.root, "checkout", "-q", "-b", "build/T-042-03")
+        self.p.write("tests/test_http_unknown.py", self.TEST)
+        c = self.checks("T-042-03", "scope", "unit", "integration", "ac-coverage")
+        self.assertEqual(list(c), ["scope", "unit", "integration", "ac-coverage"])
+        self.assertEqual(c["scope"]["status"], "pass", c["scope"])
+        self.assertEqual(c["integration"]["status"], "pass", c["integration"])
+        self.assertEqual(c["ac-coverage"]["status"], "pass", c["ac-coverage"])
+
+    def test_a_test_ticket_needs_a_tagged_real_stack_test_not_just_a_unit_one(self) -> None:
+        # Its build skips the test play, so a unit test with the tag plus some unrelated passing
+        # integration test must not count as real-stack proof.
+        self.git(self.p.root, "checkout", "-q", "-b", "build/T-042-03")
+        self.p.write("app/test_unknown.py", "import unittest\n\n\nclass U(unittest.TestCase):\n"
+                     "    def test_unknown(self) -> None:\n        \"\"\"T-042-03/AC-1\"\"\"\n        self.assertTrue(True)\n")
+        self.p.write("tests/test_http_unknown.py", self.TEST.replace("T-042-03/AC-1", "no tag"))
+        c = self.checks("T-042-03", "unit", "integration", "ac-coverage")["ac-coverage"]
+        self.assertEqual(c["status"], "fail", c)
+        self.assertIn("no passing integration/e2e test carries a T-042-03/AC-n tag; the test ticket's build", c["summary"])
+
+    def test_a_test_ticket_runs_its_real_stack_suite_before_coverage_whatever_the_order(self) -> None:
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml") + '\n[gate]\nbuild = ["scope", "unit", "ac-coverage", "integration"]\n')
+        self.p.commit("lead: integration listed after coverage")
+        from sdlc import config
+        from sdlc.gate import Gate
+
+        names = Gate(config.load(self.p.root), "build", "T-042-03", "main").plan()
+        self.assertLess(names.index("integration"), names.index("ac-coverage"), names)
+        self.assertEqual(names.count("integration"), 1)
+
+    def test_approval_refuses_a_test_tickets_build_without_recorded_real_stack_proof(self) -> None:
+        # A build recorded before v2.0.0 ran unit (and maybe some integration suite) with no tagged
+        # real-stack proof; the test ticket has no test play to fill in.
+        from sdlc import config
+        from sdlc.artifacts import Repo
+        from sdlc.gate import _evidence_problems
+
+        cfg = config.load(self.p.root)
+        t = Repo(cfg).ticket("T-042-03")
+        ev = {"result": "pass", "dirty": False, "commit": "a" * 40,
+              "checks": [{"name": "unit", "status": "pass"}, {"name": "integration", "status": "pass"},
+                         {"name": "ac-coverage", "status": "pass"}]}
+        self.p.write("evidence/T-042-03.build.json", json.dumps(ev))
+        problems = _evidence_problems(cfg, t, "a" * 40)
+        self.assertIn("build evidence for test ticket T-042-03 records no passing real-stack test with one of its "
+                      "AC tags (integration); re-run the build", problems)
+        # A test play that passed before the upgrade (v1.5.5 gave test tickets one) still proves it.
+        self.p.write("evidence/T-042-03.test.json", json.dumps({**ev, "play": "test"}))
+        self.assertFalse([x for x in _evidence_problems(cfg, t, "a" * 40) if "real-stack" in x])
+        (self.p.root / "evidence" / "T-042-03.test.json").unlink()
+        ev["real_stack_proof"] = True
+        self.p.write("evidence/T-042-03.build.json", json.dumps(ev))
+        problems = _evidence_problems(cfg, t, "a" * 40)
+        self.assertFalse([x for x in problems if "real-stack" in x])
+        self.assertFalse([x for x in problems if x.startswith("no test evidence")], problems)  # it has no test play
+
+    def test_approval_refuses_a_test_ticket_when_no_real_stack_suite_has_a_command(self) -> None:
+        # As for any other ticket, only tests.real_stack = [] accepts unit-only proof.
+        from sdlc import config
+        from sdlc.artifacts import Repo
+        from sdlc.gate import _evidence_problems
+
+        self.p.write("sdlc.toml", re.sub(r'(?m)^integration = .*$', 'integration = ""', self.p.read("sdlc.toml")))
+        self.p.commit("lead: no integration command")
+        cfg = config.load(self.p.root)
+        t = Repo(cfg).ticket("T-042-03")
+        ev = {"result": "pass", "dirty": False, "commit": "a" * 40, "checks": [{"name": "unit", "status": "pass"}]}
+        self.p.write("evidence/T-042-03.build.json", json.dumps(ev))
+        problems = _evidence_problems(cfg, t, "a" * 40)
+        self.assertTrue([x for x in problems if x.startswith("no real-stack suite is configured")], problems)
+        self.assertFalse([x for x in problems if x.startswith("no test evidence")], problems)
+
+    def test_a_test_tickets_build_records_its_real_stack_proof(self) -> None:
+        self.git(self.p.root, "checkout", "-q", "-b", "build/T-042-03")
+        self.p.write("tests/test_http_unknown.py", self.TEST)
+        self.checks("T-042-03", "unit", "integration", "ac-coverage")
+        ev = json.loads((self.p.root / ".sdlc-run" / "T-042-03.build.json").read_text(encoding="utf-8"))
+        self.assertIs(ev["real_stack_proof"], True)
+
+    def test_real_stack_proof_needs_a_tag_the_ticket_declares(self) -> None:
+        # A tagged unit test proves AC-1; an integration test tagged AC-9, an AC the ticket does
+        # not have, proves none of its AC through the real stack.
+        self.git(self.p.root, "checkout", "-q", "-b", "build/T-042-03")
+        self.p.write("app/test_unknown.py", "import unittest\n\n\nclass U(unittest.TestCase):\n"
+                     "    def test_unknown(self) -> None:\n        \"\"\"T-042-03/AC-1\"\"\"\n        self.assertTrue(True)\n")
+        self.p.write("tests/test_http_unknown.py", self.TEST.replace("T-042-03/AC-1", "T-042-03/AC-9"))
+        c = self.checks("T-042-03", "unit", "integration", "ac-coverage")["ac-coverage"]
+        self.assertEqual(c["status"], "fail", c)
+        self.assertIn("no passing integration/e2e test carries a T-042-03/AC-n tag", c["summary"])
+
+    def test_an_undeclared_tag_that_extends_a_declared_one_proves_nothing(self) -> None:
+        # With two AC, AC-27 must not match through the AC-2 alternative of the tag pattern.
+        self.p.write("tickets/T-042-03-unknown-order-http.md", self.TICKET.replace(
+            '  - "AC-1:', '  - "AC-2: the 404 body names the order"\n  - "AC-1:'))
+        self.p.commit("lead: a second AC")
+        self.git(self.p.root, "checkout", "-q", "-b", "build/T-042-03")
+        self.p.write("app/test_unknown.py", "import unittest\n\n\nclass U(unittest.TestCase):\n"
+                     "    def test_unknown(self) -> None:\n        \"\"\"T-042-03/AC-1 T-042-03/AC-2\"\"\"\n"
+                     "        self.assertTrue(True)\n")
+        self.p.write("tests/test_http_unknown.py", self.TEST.replace("T-042-03/AC-1", "T-042-03/AC-27"))
+        c = self.checks("T-042-03", "unit", "integration", "ac-coverage")["ac-coverage"]
+        self.assertEqual(c["status"], "fail", c)
+        self.assertIn("no passing integration/e2e test carries a T-042-03/AC-n tag", c["summary"])
+
+    def test_a_test_ticket_may_not_change_production_code(self) -> None:
+        # It skips the test play, so declaring type: test must not carry code past real-stack proof.
+        self.git(self.p.root, "checkout", "-q", "-b", "build/T-042-03")
+        self.p.write("tests/test_http_unknown.py", self.TEST)
+        self.p.write("app/returns.py", self.p.read("app/returns.py") + "\nEXTRA = 1\n")
+        c = self.checks("T-042-03", "scope")["scope"]
+        self.assertEqual(c["status"], "fail", c)
+        self.assertEqual(c["details"], ["a test ticket changes tests only (tests.globs, tests.integration_globs): app/returns.py"])
+
+    def test_a_test_ticket_may_split_an_ac_into_a_new_draft_ticket(self) -> None:
+        self.git(self.p.root, "checkout", "-q", "-b", "build/T-042-03")
+        self.p.write("tests/test_http_unknown.py", self.TEST)
+        self.p.write("tickets/T-042-04-unknown-order-body.md",
+                     self.TICKET.replace("id: T-042-03", "id: T-042-04\nsplit_from: T-042-03")
+                     .replace("status: in_progress", "status: draft"))
+        c = self.checks("T-042-03", "scope")["scope"]
+        self.assertEqual(c["status"], "pass", c)
+
+    def test_ci_re_proves_a_done_test_ticket_through_the_real_stack(self) -> None:
+        self.p.write("tickets/T-042-03-unknown-order-http.md",
+                     self.TICKET.replace("status: in_progress", "status: done"))
+        self.p.commit("T-042-03 done, with no tagged real-stack test")
+        code, out = self.p.sdlc("gate", "ci", "--only", "unit,integration,ac-coverage")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("T-042-03: done, but no passing", out)
+
+    def test_a_test_ticket_may_write_integration_files_outside_the_test_globs(self) -> None:
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace('globs = ["app/test_*.py", "tests/**"]',
+                                                                   'globs = ["app/test_*.py"]'))
+        self.p.commit("lead: integration tests are not in tests.globs")
+        self.git(self.p.root, "checkout", "-q", "-b", "build/T-042-03")
+        self.p.write("tests/test_http_unknown.py", self.TEST)
+        c = self.checks("T-042-03", "scope")["scope"]
+        self.assertEqual(c["status"], "pass", c)
+
+    def test_a_test_ticket_has_no_test_play_and_lints_clean(self) -> None:
+        from sdlc import config
+        from sdlc.artifacts import Repo
+        from sdlc.lint import lint_repo
+
+        repo = Repo(config.load(self.p.root))
+        self.assertFalse(repo.ticket("T-042-03").test_play)
+        self.assertTrue(repo.ticket("T-042-02").test_play)
+        self.assertEqual([str(i) for i in lint_repo(repo) if "T-042-03" in str(i)], [])
+
+    def test_other_tickets_still_build_on_unit_alone_and_may_not_write_integration_tests(self) -> None:
+        code, out = self.p.sdlc("status", "T-042-02", "in_progress", "--as", "build")
+        self.assertEqual(code, 0, out)
+        self.p.commit("start T-042-02")
+        self.git(self.p.root, "checkout", "-q", "-b", "build/T-042-02")
+        self.p.write("tests/test_http_unknown.py", self.TEST)
+        self.code, self.out = self.p.sdlc("gate", "build", "T-042-02", "--only", "scope,integration")
+        ev = json.loads((self.p.root / ".sdlc-run" / "T-042-02.build.json").read_text(encoding="utf-8"))
+        c = {x["name"]: x for x in ev["checks"]}
+        self.assertNotIn("integration", c)
+        self.assertEqual(c["scope"]["status"], "fail")
+        self.assertIn("outside build write set: tests/test_http_unknown.py", c["scope"]["details"])
+
+
 class Baseline(unittest.TestCase):
     """Hangout pilot: a product adopting the kit with a red main could not pass any ticket
     gate, because every gate also runs the repo-wide checks. sdlc-baseline.json carries the
@@ -880,6 +1103,8 @@ class BaselineRenames(unittest.TestCase):
            "sys.exit(1 if bad else 0)\n")
 
     def setUp(self) -> None:
+        from helpers import git
+
         from helpers import git
 
         self.git = git
