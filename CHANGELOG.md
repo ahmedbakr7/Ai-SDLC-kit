@@ -7,6 +7,39 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 
 ## Unreleased
 
+## v3.0.0 (2026-10-10)
+
+From the Hangout pilot (findings 7 and 17), issue #27, and a v2.0.0 review deferral. MAJOR:
+each item below can fail a product that passed on v2.0.1. Each has an upgrade step.
+
+- **`gate ci` re-proves every ticket whose derived status is done.** In records mode a ticket
+  is done once a merged commit names it in an `Sdlc-Ticket:` trailer, even if its file still
+  says `ready`. `ac-coverage` already checked such a ticket's AC, but the real-stack re-proof
+  read the stored `status` and skipped it. Now it fails unless a passing real-stack test
+  carries one of the ticket's declared AC tags. Upgrade: run the test play for each ticket
+  that `gate ci` names, or have the lead waive it in `sdlc-waivers.toml` (check
+  `ac-coverage`, key as printed).
+- **`scope.always_allowed` covers only what a run leaves uncommitted** (finding 7). The node
+  and nextjs profiles list the lockfiles there (nextjs also `**/__snapshots__/**`), so a
+  committed dependency or snapshot change passed every scope check, lead PRs included. A
+  committed change to such a file is now judged by the play's write set: on a build it is an
+  out-of-area file the approving review must name, the test and review plays may not change
+  it, and on a lead PR it falls under `scope.lead_code`. A lockfile `npm install` leaves
+  untracked stays ignored. Upgrade: list the lockfile or snapshot directory in the ticket's
+  `files`/areas when the ticket changes dependencies or snapshots, or name it under
+  `## Out of area` in the review.
+- **The hardened preset fails code in a PR that names no ticket** (issue #27):
+  `scope.lead_code = "fail"`, and a product's `"warn"` is reported by `doctor` and put back.
+  A lead PR whose commits all exactly revert commits already on the base branch passes. Each
+  commit must name its target ("This reverts commit") and carry the inverse of its diff (the
+  patch-id test); a merge from the base branch, or any extra change, makes the PR no exact
+  revert. Upgrade, hardened products only: send code changes through a ticket, or merge by
+  admin override. Rebase a revert branch instead of merging the base into it.
+- **A PR that names no ticket needs an independent review as well as the lead's approval**
+  (finding 17), from two identities unless approvals are trust-based. Before, the lead's
+  record alone approved it, though the lead wrote or asked for the change. Upgrade: have a
+  listed reviewer (or a fresh session posting a `role: review` record) review each lead PR.
+
 ## v2.0.1 (2026-10-10)
 
 From the review of v2.0.0. No behaviour changes.
