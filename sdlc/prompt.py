@@ -66,7 +66,9 @@ def _ticket_context(cfg: Config, repo: Repo, t: Ticket, play: str) -> list[str]:
     if t.type in ("frontend", "fullstack"):
         out.extend(_design_context(cfg, repo, t))
     for s in t.skills:
-        if s == play:
+        # The prompt already carries its own play skill; another play's would contradict it
+        # (a ticket listing `build` put build's instructions into the test play).
+        if s in TICKET_PLAYS:
             continue
         p = skills.resolve(cfg, s)
         if p is not None:
