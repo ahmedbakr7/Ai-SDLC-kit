@@ -276,6 +276,9 @@ class Gate:
             "result": "pass" if ok else "fail",
             "checks": [asdict(c) for c in self.checks],
             "ac": self.ac_matrix() if self.ticket else self._shipped_matrix(),
+            # Whether a passing real-stack test carries one of the ticket's AC tags: a test
+            # ticket's build is its real-stack proof, and approval reads this, not the suites run.
+            "real_stack_proof": bool(self.ticket) and self._real_stack_proof(self.ticket.id),
             "config_note": self.config_note,
             "lane": self.lane.name if self.lane else "",
             "baseline": self.baseline_rel if self.baseline else "",
@@ -1015,7 +1018,13 @@ class Gate:
                              "run their test play")
 
     def _real_stack_proof(self, tid: str) -> bool:
-        tag = re.compile(re.escape(tid) + r"/AC-\d")
+        """A passing real-stack test carries one of the AC tags the ticket declares (an AC-99
+        the ticket does not have proves none of its AC)."""
+        t = self.repo.tickets.get(tid)
+        tags = t.ac_tags() if t else []
+        if not tags:
+            return False
+        tag = re.compile("|".join(re.escape(x) for x in tags) + r"(?!\d)")
         suites = real_stack_suites(self.cfg)
         return any(tc.source in suites and tc.status == "passed" and tag.search(tc.name) for tc in self.testcases)
 
@@ -1542,13 +1551,12 @@ def _evidence_problems(cfg: Config, t: Ticket, commit: str) -> list[str]:
         if ev.get("result") != "pass" or ev.get("partial"):
             out.append(f"{play} evidence is not a full passing gate run")
         if play == "build" and t.type == "test" and t.real_stack_proof and not mechanical:
-            # A test ticket's build is its real-stack proof; a build that ran no such suite (one
-            # from before v1.6.0) proves nothing through the real stack.
-            ran = {c.get("name") for c in ev.get("checks", []) if c.get("status") == "pass"}
+            # A test ticket's build is its real-stack proof. Evidence without that proof (or from
+            # before v1.6.0, which did not record it) proves nothing through the real stack.
             configured = [k for k in real_stack_suites(cfg) if cfg.commands.get(k)]
-            if configured and not ran & set(configured):
-                out.append(f"build evidence for test ticket {t.id} ran no real-stack suite "
-                           f"({', '.join(configured)}); re-run the build")
+            if configured and ev.get("real_stack_proof") is not True:
+                out.append(f"build evidence for test ticket {t.id} records no passing real-stack test with one of "
+                           f"its AC tags ({', '.join(configured)}); re-run the build")
         if ev.get("dirty"):
             out.append(f"{play} evidence came from a dirty tree; it does not describe any commit")
         if ev.get("commit"):

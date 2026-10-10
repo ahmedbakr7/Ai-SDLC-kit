@@ -16,8 +16,12 @@ Found by the Hangout pilot (finding 19).
   wherever the build list puts them), its build may write the files in
   `tests.integration_globs`, and it carries the test play's proof: `ac-coverage` fails unless a
   passing real-stack test carries one of its AC tags (unless the lead marked it `test: none`).
-  Approval refuses a test ticket's build evidence that ran no real-stack suite, as one recorded
-  before this release did. Before, a ticket whose AC only an
+  The build evidence records that proof (`real_stack_proof`), and approval refuses a test ticket's
+  build evidence without it, as all evidence recorded before this release is.
+- Real-stack proof (the test play, a records-mode `gate pr`, and a test ticket's build) needs a
+  passing real-stack test tagged with an AC the ticket declares. Before, any `<ticket>/AC-n` tag
+  counted, including an AC the ticket does not have. A test tagged with an undeclared AC proved
+  nothing, so this closes a check that passed without checking. Before, a ticket whose AC only an
   integration test could prove could not pass `gate build`, which ran `unit` alone and refused
   integration files to the build. `sdlc lint` no longer asks such a ticket for a test play, and
   `sdlc run test` says why it has none. Because it skips the test play, a test ticket may

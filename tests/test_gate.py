@@ -809,22 +809,43 @@ Add the HTTP test.
         self.assertLess(names.index("integration"), names.index("ac-coverage"), names)
         self.assertEqual(names.count("integration"), 1)
 
-    def test_approval_refuses_a_test_tickets_build_that_ran_no_real_stack_suite(self) -> None:
-        # A build recorded before v1.6.0 ran unit alone; the test ticket has no test play to fill in.
+    def test_approval_refuses_a_test_tickets_build_without_recorded_real_stack_proof(self) -> None:
+        # A build recorded before v1.6.0 ran unit (and maybe some integration suite) with no tagged
+        # real-stack proof; the test ticket has no test play to fill in.
         from sdlc import config
+        from sdlc.artifacts import Repo
         from sdlc.gate import _evidence_problems
 
         cfg = config.load(self.p.root)
-        t = __import__("sdlc.artifacts", fromlist=["Repo"]).Repo(cfg).ticket("T-042-03")
+        t = Repo(cfg).ticket("T-042-03")
         ev = {"result": "pass", "dirty": False, "commit": "a" * 40,
-              "checks": [{"name": "unit", "status": "pass"}, {"name": "ac-coverage", "status": "pass"}]}
+              "checks": [{"name": "unit", "status": "pass"}, {"name": "integration", "status": "pass"},
+                         {"name": "ac-coverage", "status": "pass"}]}
         self.p.write("evidence/T-042-03.build.json", json.dumps(ev))
         problems = _evidence_problems(cfg, t, "a" * 40)
-        self.assertIn("build evidence for test ticket T-042-03 ran no real-stack suite (integration); re-run the build",
-                      problems)
-        ev["checks"].insert(1, {"name": "integration", "status": "pass"})
+        self.assertIn("build evidence for test ticket T-042-03 records no passing real-stack test with one of its "
+                      "AC tags (integration); re-run the build", problems)
+        ev["real_stack_proof"] = True
         self.p.write("evidence/T-042-03.build.json", json.dumps(ev))
         self.assertFalse([x for x in _evidence_problems(cfg, t, "a" * 40) if "real-stack" in x])
+
+    def test_a_test_tickets_build_records_its_real_stack_proof(self) -> None:
+        self.git(self.p.root, "checkout", "-q", "-b", "build/T-042-03")
+        self.p.write("tests/test_http_unknown.py", self.TEST)
+        self.checks("T-042-03", "unit", "integration", "ac-coverage")
+        ev = json.loads((self.p.root / ".sdlc-run" / "T-042-03.build.json").read_text(encoding="utf-8"))
+        self.assertIs(ev["real_stack_proof"], True)
+
+    def test_real_stack_proof_needs_a_tag_the_ticket_declares(self) -> None:
+        # A tagged unit test proves AC-1; an integration test tagged AC-9, an AC the ticket does
+        # not have, proves none of its AC through the real stack.
+        self.git(self.p.root, "checkout", "-q", "-b", "build/T-042-03")
+        self.p.write("app/test_unknown.py", "import unittest\n\n\nclass U(unittest.TestCase):\n"
+                     "    def test_unknown(self) -> None:\n        \"\"\"T-042-03/AC-1\"\"\"\n        self.assertTrue(True)\n")
+        self.p.write("tests/test_http_unknown.py", self.TEST.replace("T-042-03/AC-1", "T-042-03/AC-9"))
+        c = self.checks("T-042-03", "unit", "integration", "ac-coverage")["ac-coverage"]
+        self.assertEqual(c["status"], "fail", c)
+        self.assertIn("no passing integration/e2e test carries a T-042-03/AC-n tag", c["summary"])
 
     def test_a_test_ticket_may_not_change_production_code(self) -> None:
         # It skips the test play, so declaring type: test must not carry code past real-stack proof.
