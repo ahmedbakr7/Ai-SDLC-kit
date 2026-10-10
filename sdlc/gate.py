@@ -214,8 +214,8 @@ class Gate:
             # A test ticket changes tests only: its AC may be provable by a real-stack suite alone,
             # so its build runs those suites before ac-coverage reads the results. It has no test
             # play (Ticket.test_play): the build is that play.
-            names = list(default)
-            suites = [s for s in real_stack_suites(self.cfg) if s not in names]
+            suites = real_stack_suites(self.cfg)
+            names = [n for n in default if n not in suites]  # a configured later position moves too
             at = names.index("ac-coverage") if "ac-coverage" in names else len(names)
             return names[:at] + suites + names[at:]
         return default
@@ -993,18 +993,21 @@ class Gate:
             c.summary = f"all {len(matrix)} AC of {len(targets)} ticket(s) proven by passing tests"
         suites = real_stack_suites(self.cfg)
         names = "/".join(suites)
-        if (self.play == "test" or (self.play == "pr" and self.records)) and self.ticket and suites \
-                and self.ticket.test_play and not whole:
-            # The test play exists to prove AC through the real stack; unit proof alone is the build's.
+        proving = self.play == "test" or (self.play == "pr" and self.records) or (
+            self.play == "build" and self.ticket is not None and self.ticket.type == "test")
+        if proving and self.ticket and suites and self.ticket.real_stack_proof and not whole:
+            # The test play exists to prove AC through the real stack; unit proof alone is the
+            # build's. A test ticket's build is its test play, so it carries the same proof.
             if not self._real_stack_proof(self.ticket.id):
                 c.status = "fail"
+                who = "the test ticket's build" if self.ticket.type == "test" else "the test play"
                 c.summary = (f"no passing {names} test carries a {self.ticket.id}/AC-n tag; "
-                             "the test play must prove AC through the real stack")
+                             f"{who} must prove AC through the real stack")
         elif whole and suites:
             # Approval needs test evidence, but evidence is a file the ticket PR wrote. CI
             # re-proves what it claims: every done ticket has a passing real-stack test.
             unproven = [t.id for t in targets
-                        if t.status == "done" and t.test_play and not self._real_stack_proof(t.id)]
+                        if t.status == "done" and t.real_stack_proof and not self._real_stack_proof(t.id)]
             if unproven:
                 c.status = "fail"
                 c.details += [f"{tid}: done, but no passing {names} test carries its tag" for tid in unproven]
@@ -1538,6 +1541,14 @@ def _evidence_problems(cfg: Config, t: Ticket, commit: str) -> list[str]:
         ev = json.loads(p.read_text(encoding="utf-8"))
         if ev.get("result") != "pass" or ev.get("partial"):
             out.append(f"{play} evidence is not a full passing gate run")
+        if play == "build" and t.type == "test" and t.real_stack_proof and not mechanical:
+            # A test ticket's build is its real-stack proof; a build that ran no such suite (one
+            # from before v1.6.0) proves nothing through the real stack.
+            ran = {c.get("name") for c in ev.get("checks", []) if c.get("status") == "pass"}
+            configured = [k for k in real_stack_suites(cfg) if cfg.commands.get(k)]
+            if configured and not ran & set(configured):
+                out.append(f"build evidence for test ticket {t.id} ran no real-stack suite "
+                           f"({', '.join(configured)}); re-run the build")
         if ev.get("dirty"):
             out.append(f"{play} evidence came from a dirty tree; it does not describe any commit")
         if ev.get("commit"):

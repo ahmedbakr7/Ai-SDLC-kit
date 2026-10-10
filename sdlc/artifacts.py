@@ -66,11 +66,16 @@ class Ticket:
         return str(self.data.get("risk", "low"))
 
     @property
+    def real_stack_proof(self) -> bool:
+        """The ticket's AC must be proven through the real stack: false when the lead marked it
+        `test: none`, and for spikes, which deliver findings, not behaviour."""
+        return str(self.data.get("test", "required")) != "none" and self.type != "spike"
+
+    @property
     def test_play(self) -> bool:
-        """False when the lead marked the ticket `test: none` (no real-stack test play), for
-        spikes, which deliver findings, not behaviour, and for test tickets, whose build runs
-        the real-stack suites itself (Gate.plan)."""
-        return str(self.data.get("test", "required")) != "none" and self.type not in ("spike", "test")
+        """A separate test play gives that proof, except for test tickets: their build runs the
+        real-stack suites itself and must carry the proof (Gate.plan, ac-coverage)."""
+        return self.real_stack_proof and self.type != "test"
 
     @property
     def lane(self) -> str:

@@ -12,8 +12,12 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 Found by the Hangout pilot (finding 19).
 
 - A `type: test` ticket (it changes tests only) has no test play: its build is that play. Its
-  `gate build` also runs the real-stack suites (`tests.real_stack`, before `ac-coverage`), and
-  its build may write the files in `tests.integration_globs`. Before, a ticket whose AC only an
+  `gate build` also runs the real-stack suites (`tests.real_stack`, moved before `ac-coverage`
+  wherever the build list puts them), its build may write the files in
+  `tests.integration_globs`, and it carries the test play's proof: `ac-coverage` fails unless a
+  passing real-stack test carries one of its AC tags (unless the lead marked it `test: none`).
+  Approval refuses a test ticket's build evidence that ran no real-stack suite, as one recorded
+  before this release did. Before, a ticket whose AC only an
   integration test could prove could not pass `gate build`, which ran `unit` alone and refused
   integration files to the build. `sdlc lint` no longer asks such a ticket for a test play, and
   `sdlc run test` says why it has none. Because it skips the test play, a test ticket may

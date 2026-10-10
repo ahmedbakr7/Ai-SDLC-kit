@@ -159,7 +159,7 @@ def lint_ticket(repo: Repo, t: Ticket, reqs: dict) -> list[Issue]:
         err(f"risk must be one of {RISKS}, got {t.risk!r}")
     if str(d.get("test", "required")) not in ("required", "none"):
         err(f"test must be required or none, got {d.get('test')!r}")
-    elif not t.test_play and t.type != "test":  # a test ticket's build runs the real-stack suites
+    elif not t.real_stack_proof:
         served = [c for c in t.contracts if re.match(r"(?:[A-Z]+\s+)?/", c.split("#", 1)[-1].strip())]
         if served:
             err(f"test: none, but the ticket implements {', '.join(served)}; routes and pages need "

@@ -788,6 +788,44 @@ Add the HTTP test.
         self.assertEqual(c["integration"]["status"], "pass", c["integration"])
         self.assertEqual(c["ac-coverage"]["status"], "pass", c["ac-coverage"])
 
+    def test_a_test_ticket_needs_a_tagged_real_stack_test_not_just_a_unit_one(self) -> None:
+        # Its build skips the test play, so a unit test with the tag plus some unrelated passing
+        # integration test must not count as real-stack proof.
+        self.git(self.p.root, "checkout", "-q", "-b", "build/T-042-03")
+        self.p.write("app/test_unknown.py", "import unittest\n\n\nclass U(unittest.TestCase):\n"
+                     "    def test_unknown(self) -> None:\n        \"\"\"T-042-03/AC-1\"\"\"\n        self.assertTrue(True)\n")
+        self.p.write("tests/test_http_unknown.py", self.TEST.replace("T-042-03/AC-1", "no tag"))
+        c = self.checks("T-042-03", "unit", "integration", "ac-coverage")["ac-coverage"]
+        self.assertEqual(c["status"], "fail", c)
+        self.assertIn("no passing integration/e2e test carries a T-042-03/AC-n tag; the test ticket's build", c["summary"])
+
+    def test_a_test_ticket_runs_its_real_stack_suite_before_coverage_whatever_the_order(self) -> None:
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml") + '\n[gate]\nbuild = ["scope", "unit", "ac-coverage", "integration"]\n')
+        self.p.commit("lead: integration listed after coverage")
+        from sdlc import config
+        from sdlc.gate import Gate
+
+        names = Gate(config.load(self.p.root), "build", "T-042-03", "main").plan()
+        self.assertLess(names.index("integration"), names.index("ac-coverage"), names)
+        self.assertEqual(names.count("integration"), 1)
+
+    def test_approval_refuses_a_test_tickets_build_that_ran_no_real_stack_suite(self) -> None:
+        # A build recorded before v1.6.0 ran unit alone; the test ticket has no test play to fill in.
+        from sdlc import config
+        from sdlc.gate import _evidence_problems
+
+        cfg = config.load(self.p.root)
+        t = __import__("sdlc.artifacts", fromlist=["Repo"]).Repo(cfg).ticket("T-042-03")
+        ev = {"result": "pass", "dirty": False, "commit": "a" * 40,
+              "checks": [{"name": "unit", "status": "pass"}, {"name": "ac-coverage", "status": "pass"}]}
+        self.p.write("evidence/T-042-03.build.json", json.dumps(ev))
+        problems = _evidence_problems(cfg, t, "a" * 40)
+        self.assertIn("build evidence for test ticket T-042-03 ran no real-stack suite (integration); re-run the build",
+                      problems)
+        ev["checks"].insert(1, {"name": "integration", "status": "pass"})
+        self.p.write("evidence/T-042-03.build.json", json.dumps(ev))
+        self.assertFalse([x for x in _evidence_problems(cfg, t, "a" * 40) if "real-stack" in x])
+
     def test_a_test_ticket_may_not_change_production_code(self) -> None:
         # It skips the test play, so declaring type: test must not carry code past real-stack proof.
         self.git(self.p.root, "checkout", "-q", "-b", "build/T-042-03")
