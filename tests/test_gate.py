@@ -1005,6 +1005,29 @@ class LockfileScope(unittest.TestCase):
         self.assertEqual(c["status"], "fail", c)
         self.assertIn("outside test write set: package-lock.json", c["details"])
 
+    def test_an_untracked_lockfile_is_not_an_out_of_area_flag(self) -> None:
+        from sdlc import config
+        from sdlc.gate import Gate
+
+        self.start_build()
+        self.p.write("package-lock.json", "{}\n")
+        self.assertNotIn("package-lock.json", Gate(config.load(self.p.root), "pr", "T-042-02", "main").out_of_area())
+        self.p.commit("build: lockfile")
+        self.assertIn("package-lock.json", Gate(config.load(self.p.root), "pr", "T-042-02", "main").out_of_area())
+
+    def test_scope_judges_every_lockfile_as_committed_when_git_cannot_say(self) -> None:
+        from unittest import mock
+
+        from sdlc import gitutil
+
+        self.start_build()
+        self.p.write("package-lock.json", "{}\n")  # untracked, yet unprovable without git
+        with mock.patch.object(gitutil, "committed_between", side_effect=gitutil.GitError("no history")):
+            from sdlc import config
+            from sdlc.gate import Gate
+
+            self.assertIn("package-lock.json", Gate(config.load(self.p.root), "pr", "T-042-02", "main").out_of_area())
+
     def test_a_lead_pr_that_commits_a_lockfile_is_judged_by_lead_code(self) -> None:
         self.git(self.p.root, "checkout", "-q", "-b", "deps")
         self.p.write("package-lock.json", "{}\n")
