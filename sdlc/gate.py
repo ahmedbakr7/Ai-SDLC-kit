@@ -1024,7 +1024,7 @@ class Gate:
         tags = t.ac_tags() if t else []
         if not tags:
             return False
-        tag = re.compile("|".join(re.escape(x) for x in tags) + r"(?!\d)")
+        tag = re.compile("(?:" + "|".join(re.escape(x) for x in tags) + r")(?!\d)")
         suites = real_stack_suites(self.cfg)
         return any(tc.source in suites and tc.status == "passed" and tag.search(tc.name) for tc in self.testcases)
 

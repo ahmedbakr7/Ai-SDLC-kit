@@ -851,6 +851,20 @@ Add the HTTP test.
         self.assertEqual(c["status"], "fail", c)
         self.assertIn("no passing integration/e2e test carries a T-042-03/AC-n tag", c["summary"])
 
+    def test_an_undeclared_tag_that_extends_a_declared_one_proves_nothing(self) -> None:
+        # With two AC, AC-27 must not match through the AC-2 alternative of the tag pattern.
+        self.p.write("tickets/T-042-03-unknown-order-http.md", self.TICKET.replace(
+            '  - "AC-1:', '  - "AC-2: the 404 body names the order"\n  - "AC-1:'))
+        self.p.commit("lead: a second AC")
+        self.git(self.p.root, "checkout", "-q", "-b", "build/T-042-03")
+        self.p.write("app/test_unknown.py", "import unittest\n\n\nclass U(unittest.TestCase):\n"
+                     "    def test_unknown(self) -> None:\n        \"\"\"T-042-03/AC-1 T-042-03/AC-2\"\"\"\n"
+                     "        self.assertTrue(True)\n")
+        self.p.write("tests/test_http_unknown.py", self.TEST.replace("T-042-03/AC-1", "T-042-03/AC-27"))
+        c = self.checks("T-042-03", "unit", "integration", "ac-coverage")["ac-coverage"]
+        self.assertEqual(c["status"], "fail", c)
+        self.assertIn("no passing integration/e2e test carries a T-042-03/AC-n tag", c["summary"])
+
     def test_a_test_ticket_may_not_change_production_code(self) -> None:
         # It skips the test play, so declaring type: test must not carry code past real-stack proof.
         self.git(self.p.root, "checkout", "-q", "-b", "build/T-042-03")
