@@ -1010,7 +1010,7 @@ class Gate:
             # Approval needs test evidence, but evidence is a file the ticket PR wrote. CI
             # re-proves what it claims: every done ticket has a passing real-stack test.
             unproven = [t.id for t in targets
-                        if t.status == "done" and t.real_stack_proof and not self._real_stack_proof(t.id)]
+                        if self.repo.status_of(t) == "done" and t.real_stack_proof and not self._real_stack_proof(t.id)]
             if unproven:
                 c.status = "fail"
                 c.details += [f"{tid}: done, but no passing {names} test carries its tag" for tid in unproven]

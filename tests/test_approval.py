@@ -599,6 +599,17 @@ class DerivedStatus(Base):
         self.assertNotEqual(code, 0)
         self.assertIn("the test play must prove AC through the real stack", out)
 
+    def test_ci_re_proves_a_merged_ticket_whose_stored_status_is_not_done(self) -> None:
+        # Its file still says ready; the merged trailer makes it done, so CI owes its real-stack proof.
+        git(self.p.root, "checkout", "-q", "-b", "build/T-042-02")
+        copy_solution(self.p, "build-T-042-02")
+        commit(self.p, "build only")
+        git(self.p.root, "checkout", "-q", "main")
+        git(self.p.root, "merge", "-q", "--no-ff", "--no-edit", "build/T-042-02")
+        code, out = self.p.sdlc("gate", "ci", "--only", "unit,integration,ac-coverage")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("T-042-02: done, but no passing integration/e2e test carries its tag", out)
+
     def test_trace_reads_ci_evidence_for_a_ticket_merged_without_committed_evidence(self) -> None:
         self.build()
         git(self.p.root, "checkout", "-q", "main")
