@@ -664,6 +664,16 @@ class ReviewPlay(Base):
         self.assertIn(f"The latest local evidence is for `{proven}`. The record's `commit:` is the HEAD you reviewed",
                       text)
 
+    def test_a_gate_on_a_dirty_tree_says_it_proves_no_commit(self) -> None:
+        # Pilot finding 3: gating before committing recorded the commit below the changes as proven.
+        self.build()
+        out = self.p.sdlc("gate", "build", "T-042-02", "--only", "scope")[1]
+        self.assertIn("gate build T-042-02", out)
+        self.assertNotIn("proves no commit", out)
+        self.p.write("app/pages.py", self.p.read("app/pages.py") + "\n")
+        out = self.p.sdlc("gate", "build", "T-042-02", "--only", "scope")[1]
+        self.assertIn("note: the tree has uncommitted changes, so this run proves no commit", out)
+
     def test_publish_posts_the_record_as_a_pr_comment(self) -> None:
         head = self.build()
         self.forge()

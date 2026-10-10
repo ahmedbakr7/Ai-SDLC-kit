@@ -149,6 +149,10 @@ def cmd_gate(args) -> int:
             print("note: if this PR fixes a check that is broken on the base branch, the base branch is "
                   "already red: a maintainer merges the config fix with an admin override, and every "
                   "later PR is judged by it. Nothing in the PR itself can switch the config it is judged by.")
+    if ev.get("dirty") and args.play in ("build", "test", "review"):
+        # The evidence names HEAD, which does not hold the uncommitted changes the checks saw.
+        print(f"note: the tree has uncommitted changes, so this run proves no commit ({ev['commit'][:7]} does "
+              "not hold them). Commit, then run the gate again.")
     print(f"\ngate {args.play} {args.ticket or ''}: {ev['result'].upper()}  evidence: {ev['path']}")
     return 0 if ev["result"] == "pass" else EXIT_FAIL
 
