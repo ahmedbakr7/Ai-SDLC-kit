@@ -948,6 +948,62 @@ Add the HTTP test.
         self.assertIn("outside build write set: tests/test_http_unknown.py", c["scope"]["details"])
 
 
+class DirtyTree(unittest.TestCase):
+    """Evidence and `sdlc run` treat an untracked always_allowed file like an ignored one; every
+    other uncommitted change still dirties the tree."""
+
+    def setUp(self) -> None:
+        self.p = ProductRepo()
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml") + '\n[scope]\nalways_allowed = ["package-lock.json"]\n')
+        self.p.commit("lead: lockfiles in scope")
+
+    def tearDown(self) -> None:
+        self.p.close()
+
+    def dirty(self) -> bool:
+        from sdlc import config, gate
+
+        return gate.dirty_tree(config.load(self.p.root))
+
+    def test_an_untracked_lockfile_leaves_the_tree_clean(self) -> None:
+        self.assertFalse(self.dirty())
+        self.p.write("package-lock.json", "{}\n")
+        self.assertFalse(self.dirty())
+
+    def test_a_change_to_a_tracked_lockfile_dirties_the_tree(self) -> None:
+        self.p.write("package-lock.json", "{}\n")
+        self.p.commit("lockfile committed")
+        self.p.write("package-lock.json", '{"changed": true}\n')
+        self.assertTrue(self.dirty())
+
+    def test_any_other_untracked_file_dirties_the_tree(self) -> None:
+        self.p.write("notes.txt", "x\n")
+        self.assertTrue(self.dirty())
+
+    def test_a_nested_product_excuses_only_its_own_lockfile(self) -> None:
+        import tempfile
+        from types import SimpleNamespace
+
+        from helpers import git
+        from sdlc import gate
+
+        with tempfile.TemporaryDirectory() as tmp:
+            top = Path(tmp)
+            git(top, "init", "-q", "-b", "main")
+            git(top, "config", "user.email", "t@example.invalid")
+            git(top, "config", "user.name", "t")
+            (top / "sub").mkdir()
+            (top / "sub" / "a.py").write_text("A = 1\n", encoding="utf-8")
+            git(top, "add", "-A")
+            git(top, "commit", "-qm", "start")
+            cfg = SimpleNamespace(root=top / "sub",
+                                  section=lambda name: {"always_allowed": ["package-lock.json"]})
+            (top / "sub" / "package-lock.json").write_text("{}\n", encoding="utf-8")
+            self.assertFalse(gate.dirty_tree(cfg))
+            (top / "package-lock.json").write_text("{}\n", encoding="utf-8")  # another product's
+            self.assertTrue(gate.dirty_tree(cfg))
+
+
 class LockfileScope(unittest.TestCase):
     """Pilot finding 7: scope.always_allowed (the node profiles list the lockfiles) passed every
     scope check, so a committed dependency change shipped in any PR unreviewed."""
