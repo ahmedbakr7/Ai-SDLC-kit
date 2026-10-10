@@ -14,6 +14,7 @@ class Conveyor(unittest.TestCase):
     def tearDown(self) -> None:
         os.environ.pop("FAKE_AGENT_STRAY", None)
         os.environ.pop("FAKE_AGENT_LOCKFILE", None)
+        os.environ.pop("FAKE_AGENT_UNTRACK", None)
         self.p.close()
 
     def test_build_retries_on_gate_failure_then_review_then_merge(self) -> None:
@@ -88,6 +89,21 @@ class Conveyor(unittest.TestCase):
         code, out = p.sdlc("run", "test", "T-042-02", "--agent", "fake", "--attempts", "1")
         self.assertNotEqual(code, 0, out)
         self.assertIn("outside test write set: package-lock.json", out)
+
+    def test_untracking_a_committed_lockfile_does_not_slip_it_past_the_write_set(self) -> None:
+        # `git rm --cached` lists a tracked file as untracked. Leaving it out of the attempt
+        # commit restored HEAD's entry, the gate passed, and the evidence commit shipped it.
+        p = self.p
+        p.write("sdlc.toml", p.read("sdlc.toml") + '\n[scope]\nalways_allowed = ["package-lock.json"]\n')
+        p.write("package-lock.json", "{}\n")
+        p.commit("lead: lockfiles in scope, lockfile committed")
+        self.assertEqual(p.sdlc("run", "build", "T-042-02", "--agent", "fake")[0], 0)
+        os.environ["FAKE_AGENT_LOCKFILE"] = "1"
+        os.environ["FAKE_AGENT_UNTRACK"] = "1"
+        code, out = p.sdlc("run", "test", "T-042-02", "--agent", "fake", "--attempts", "1")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("outside test write set: package-lock.json", out)
+        self.assertNotIn("left untracked", out)
 
     def test_a_dirty_file_outside_always_allowed_still_stops_a_run(self) -> None:
         p = self.p

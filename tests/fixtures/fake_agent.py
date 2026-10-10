@@ -8,6 +8,7 @@ FAKE_AGENT_STRAY=1  first attempt also edits a lead artifact (outside every tick
                     back; the retry removes it.
 FAKE_AGENT_LOCKFILE=1  the test and review plays also rewrite package-lock.json, as `npm
                     install` does.
+FAKE_AGENT_UNTRACK=1  ... and then `git rm --cached` it, to pass it off as an untracked file.
 """
 import json
 import os
@@ -54,4 +55,7 @@ for src in solution.rglob("*"):
             shutil.copyfile(src, dest)
 if os.environ.get("FAKE_AGENT_LOCKFILE") == "1" and play in ("test", "review"):
     (repo / "package-lock.json").write_text(f'{{"installed by": "{play}"}}\n', encoding="utf-8")
+    if os.environ.get("FAKE_AGENT_UNTRACK") == "1":
+        import subprocess
+        subprocess.run(["git", "rm", "-q", "--cached", "package-lock.json"], cwd=repo, check=True)
 print(f"fake agent: applied {play} {tid}" + (" (retry)" if retry else ""))
