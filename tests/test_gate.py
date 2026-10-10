@@ -1808,6 +1808,17 @@ class HardenedLeadCode(unittest.TestCase):
         self.assertNotEqual(code, 0, out)
         self.assertIn("outside the lead write set: app/backdoor.py", out)
 
+    def test_an_uncommitted_edit_on_an_exact_revert_is_not_excused(self) -> None:
+        self.edit("app/returns.py", "\n# a bad hotfix\n")
+        self.p.commit("bad hotfix")
+        bad = self.git(self.p.root, "rev-parse", "HEAD").strip()
+        self.git(self.p.root, "checkout", "-q", "-b", "undo")
+        self.git(self.p.root, "revert", "--no-edit", bad)
+        self.edit("app/returns.py", "\n# not committed\n")
+        code, out = self.lead_pr()
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("outside the lead write set: app/returns.py", out)
+
     def test_a_revert_with_an_extra_change_fails(self) -> None:
         self.edit("app/returns.py", "\n# a bad hotfix\n")
         self.p.commit("bad hotfix")

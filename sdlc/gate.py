@@ -727,7 +727,9 @@ class Gate:
         # Sdlc-Ticket to it would read that ticket as delivered.
         reverts = gitutil.exact_reverts(self.cfg.root, self.base) if bad else None
         if reverts:
+            # Only the reverts' committed content is excused: an uncommitted edit on top is not.
             undone = set(gitutil.committed_between(self.cfg.root, gitutil.merge_base(self.cfg.root, self.base)))
+            undone -= set(gitutil.dirty(self.cfg.root))
             bad = [f for f in bad if f not in undone]
         c.details = [f"outside the lead write set: {f}" for f in bad]
         if reverts:

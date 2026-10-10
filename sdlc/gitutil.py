@@ -89,6 +89,12 @@ def committed_between(root: Path, a: str, b: str = "HEAD") -> list[str]:
     return sorted(_paths(git(root, "diff", "--name-only", "-z", "--no-renames", "--relative", a, b)))
 
 
+def dirty(root: Path) -> list[str]:
+    """Files the working tree or index changes against HEAD, untracked ones included."""
+    names = set(_paths(git(root, "diff", "--name-only", "-z", "--no-renames", "--relative", "HEAD", check=False)))
+    return sorted(names | set(untracked(root)))
+
+
 def untracked(root: Path) -> list[str]:
     return _paths(git(root, "ls-files", "--others", "--exclude-standard", "-z"))
 
