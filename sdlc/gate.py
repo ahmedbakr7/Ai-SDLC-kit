@@ -272,6 +272,9 @@ class Gate:
             "ticket": self.ticket.id if self.ticket else None,
             "commit": gitutil.head(self.cfg.root),
             "dirty": dirty_tree(self.cfg),
+            # Untracked always_allowed files the run could read but no commit holds (a fresh
+            # snapshot the test play wrote is here, not in the PR).
+            "untracked_allowed": sorted(f for f in gitutil.untracked(self.cfg.root) if always_allowed(self.cfg, f)),
             "base": self.base,
             "started": started,
             "result": "pass" if ok else "fail",

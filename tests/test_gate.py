@@ -1000,8 +1000,43 @@ class DirtyTree(unittest.TestCase):
                                   section=lambda name: {"always_allowed": ["package-lock.json"]})
             (top / "sub" / "package-lock.json").write_text("{}\n", encoding="utf-8")
             self.assertFalse(gate.dirty_tree(cfg))
-            (top / "package-lock.json").write_text("{}\n", encoding="utf-8")  # another product's
+            (top / "xyz").mkdir()  # a sibling product whose path is as long as this one's
+            (top / "xyz" / "package-lock.json").write_text("{}\n", encoding="utf-8")
             self.assertTrue(gate.dirty_tree(cfg))
+
+    def test_a_git_failure_fails_closed(self) -> None:
+        import tempfile
+        from types import SimpleNamespace
+
+        from sdlc import config, gate, gitutil
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = SimpleNamespace(root=Path(tmp), section=lambda name: {"always_allowed": ["package-lock.json"]})
+            with self.assertRaises(gitutil.GitError):
+                gate.dirty_tree(cfg)
+        # A repository git can find but not read (a corrupt index): status fails, not rev-parse.
+        (self.p.root / ".git" / "index").write_bytes(b"garbage\n")
+        with self.assertRaises(gitutil.GitError):
+            gate.dirty_tree(config.load(self.p.root))
+
+    def test_evidence_lists_the_untracked_allowed_files_the_run_could_read(self) -> None:
+        self.p.write("package-lock.json", "{}\n")
+        self.p.sdlc("gate", "build", "T-042-02", "--only", "scope")
+        ev = json.loads((self.p.root / ".sdlc-run" / "T-042-02.build.json").read_text(encoding="utf-8"))
+        self.assertEqual(ev["untracked_allowed"], ["package-lock.json"])
+        self.assertFalse(ev["dirty"])
+
+    def test_the_runner_leaves_only_what_the_play_may_not_commit(self) -> None:
+        from sdlc import config, run
+
+        cfg = config.load(self.p.root)
+        self.assertIsNone(run._leave(cfg, "build", "T-042-02", "main"))  # a build commits it
+        self.assertTrue(run._leave(cfg, "test", "T-042-02", "main")("package-lock.json"))
+        self.assertFalse(run._leave(cfg, "test", "T-042-02", "main")("app/returns.py"))
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace(
+            'integration_globs = ["tests/**"]', 'integration_globs = ["tests/**", "package-lock.json"]', 1))
+        self.p.commit("lead: the test play owns the lockfile")  # the gate reads the base's config
+        self.assertFalse(run._leave(config.load(self.p.root), "test", "T-042-02", "main")("package-lock.json"))
 
 
 class LockfileScope(unittest.TestCase):

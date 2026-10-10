@@ -169,7 +169,7 @@ def _write_set(cfg: Config, t: Ticket, play: str) -> str:
     if not _records(cfg):
         lines.append(f"- `{cfg.data['paths']['evidence']}/{t.id}.{play}.json` (written by the gate, not by you)")
     left = ("committed with your work; outside your areas the review names it" if play == "build" else
-            "`sdlc run` keeps an untracked one out of your commits; a change to a tracked one needs your write set")
+            "`sdlc run` keeps an untracked one out of your commits, so it does not ship; a change to a tracked one needs your write set")
     for g in cfg.section("scope").get("always_allowed", []):
         lines.append(f"- `{g}` ({left})")
     return "\n".join(lines)
