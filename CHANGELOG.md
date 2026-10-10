@@ -16,10 +16,13 @@ locally, a `gate pr` with uncommitted edits to reverted files now fails (third i
 - A play that starts from an earlier one (`--since`, as the test and review plays do) answers
   only for the lockfile and snapshot changes it commits. A lockfile the build committed and
   the test play's `npm install` rewrote without committing failed the test play's `scope`.
+  The review's out-of-area list still counts every lockfile the branch commits, since the PR
+  gate asks the review to name them.
 - The exact-revert check runs from the work tree's top. In a product nested in a monorepo, a
   revert of a commit that also touched files outside the product was refused.
 - The revert exemption no longer excuses uncommitted edits to the reverted files (a local
-  `gate pr` on a dirty tree; CI checks out a clean one).
+  `gate pr` on a dirty tree; CI checks out a clean one), nor any edit when git cannot list
+  them.
 - CHANGELOG v3.0.0: the lead-PR review step names who counts as the reviewer.
 - Tests pin three guards no test covered: a revert of a commit that is not on the base branch
   (a side branch's deletion) is no exact revert; an untracked lockfile is not an out-of-area
