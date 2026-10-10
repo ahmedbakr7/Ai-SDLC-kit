@@ -813,6 +813,19 @@ class PilotGaps(Base):
         self.assertEqual(self.approval()[0], 0)
         self.assertNotEqual(self.p.sdlc("commit", "T-042-02", "-m", "no agent")[0], 0)
 
+    def test_sdlc_commit_keeps_the_trailers_the_message_already_has(self) -> None:
+        # Pilot finding 2: the kit's trailers went into a paragraph of their own, so git no
+        # longer read the message's Co-Authored-By as a trailer.
+        git(self.p.root, "checkout", "-q", "-b", "build/T-042-02")
+        copy_solution(self.p, "build-T-042-02")
+        git(self.p.root, "add", "-A")
+        code, out = self.p.sdlc("commit", "T-042-02", "-m", "T-042-02: order page\n\nCo-Authored-By: Pair <pair@example.com>",
+                                "--agent", "builder", "--play", "build")
+        self.assertEqual(code, 0, out)
+        trailers = git(self.p.root, "log", "-1", "--format=%(trailers:only,unfold)")
+        self.assertEqual(trailers.split("\n")[:4], ["Co-Authored-By: Pair <pair@example.com>", "Sdlc-Agent: builder",
+                                                     "Sdlc-Play: build", "Sdlc-Ticket: T-042-02"])
+
     def squash_merge(self) -> None:
         # What a forge's squash merge writes: every commit message folded into one body, the
         # trailers no longer in the last paragraph.

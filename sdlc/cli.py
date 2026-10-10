@@ -355,8 +355,10 @@ def cmd_commit(args) -> int:
 
     cfg = _cfg(args)
     Repo(cfg).ticket(args.ticket)
-    gitutil.git(cfg.root, "commit", "-q", "-m", args.message,
-                "-m", f"Sdlc-Agent: {args.agent}\nSdlc-Play: {args.play}\nSdlc-Ticket: {args.ticket}")
+    # --trailer joins the message's own trailer block (Co-Authored-By, ...). A separate
+    # paragraph would end git's trailer block above it, so those lines stop being trailers.
+    gitutil.git(cfg.root, "commit", "-q", "-m", args.message, "--trailer", f"Sdlc-Agent: {args.agent}",
+                "--trailer", f"Sdlc-Play: {args.play}", "--trailer", f"Sdlc-Ticket: {args.ticket}")
     print(gitutil.head(cfg.root))
     return 0
 
