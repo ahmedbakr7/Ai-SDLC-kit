@@ -2,6 +2,7 @@
 in a real product built without them (routes mounted at the wrong prefix, tests that
 read source text, "green" suites that ran nothing, AC with no test, edited ADRs)."""
 import json
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -831,7 +832,25 @@ Add the HTTP test.
         (self.p.root / "evidence" / "T-042-03.test.json").unlink()
         ev["real_stack_proof"] = True
         self.p.write("evidence/T-042-03.build.json", json.dumps(ev))
-        self.assertFalse([x for x in _evidence_problems(cfg, t, "a" * 40) if "real-stack" in x])
+        problems = _evidence_problems(cfg, t, "a" * 40)
+        self.assertFalse([x for x in problems if "real-stack" in x])
+        self.assertFalse([x for x in problems if x.startswith("no test evidence")], problems)  # it has no test play
+
+    def test_approval_refuses_a_test_ticket_when_no_real_stack_suite_has_a_command(self) -> None:
+        # As for any other ticket, only tests.real_stack = [] accepts unit-only proof.
+        from sdlc import config
+        from sdlc.artifacts import Repo
+        from sdlc.gate import _evidence_problems
+
+        self.p.write("sdlc.toml", re.sub(r'(?m)^integration = .*$', 'integration = ""', self.p.read("sdlc.toml")))
+        self.p.commit("lead: no integration command")
+        cfg = config.load(self.p.root)
+        t = Repo(cfg).ticket("T-042-03")
+        ev = {"result": "pass", "dirty": False, "commit": "a" * 40, "checks": [{"name": "unit", "status": "pass"}]}
+        self.p.write("evidence/T-042-03.build.json", json.dumps(ev))
+        problems = _evidence_problems(cfg, t, "a" * 40)
+        self.assertTrue([x for x in problems if x.startswith("no real-stack suite is configured")], problems)
+        self.assertFalse([x for x in problems if x.startswith("no test evidence")], problems)
 
     def test_a_test_tickets_build_records_its_real_stack_proof(self) -> None:
         self.git(self.p.root, "checkout", "-q", "-b", "build/T-042-03")

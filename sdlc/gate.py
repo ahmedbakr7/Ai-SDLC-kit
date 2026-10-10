@@ -1532,7 +1532,8 @@ def _evidence_problems(cfg: Config, t: Ticket, commit: str) -> list[str]:
     build_ev = cfg.path("evidence") / f"{t.id}.build.json"
     mechanical = build_ev.is_file() and json.loads(build_ev.read_text(encoding="utf-8")).get("lane") == "mechanical"
     # A mechanical build has no test play: its full suite is the proof (gate pr re-checks the lane).
-    suites = real_stack_suites(cfg) if t.test_play and not mechanical else []
+    # A test ticket has no test play, but its build needs a real-stack suite just the same.
+    suites = real_stack_suites(cfg) if t.real_stack_proof and not mechanical else []
     real_stack = [k for k in suites if cfg.commands.get(k)]
     if suites and not real_stack:
         out.append(f"no real-stack suite is configured (tests.real_stack: {', '.join(suites)}): nothing can prove "
@@ -1543,7 +1544,7 @@ def _evidence_problems(cfg: Config, t: Ticket, commit: str) -> list[str]:
         if not p.is_file():
             if play == "build":
                 out.append(f"no build evidence {cfg.rel(p)}")
-            elif real_stack:
+            elif real_stack and t.test_play:
                 out.append(f"no test evidence {cfg.rel(p)}: commands.{'/'.join(real_stack)} is configured, so "
                            f"the test play must pass before approval (sdlc run test {t.id})")
             continue
