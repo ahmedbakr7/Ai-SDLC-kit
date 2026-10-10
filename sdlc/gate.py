@@ -550,13 +550,14 @@ class Gate:
 
     def _always(self, f: str) -> bool:
         """scope.always_allowed (lockfiles, snapshots) covers what a run leaves in the working
-        tree. A committed change ships with the PR, so the write set judges it like any file."""
+        tree. A committed change ships with the PR, so the write set judges it like any file.
+        A play that starts from an earlier play (`since`) answers only for its own commits."""
         if not any(_glob(f, g) for g in self.cfg.section("scope").get("always_allowed", [])):
             return False
         if self._committed is None:
             try:
-                mb = gitutil.merge_base(self.cfg.root, self.base)
-                self._committed = set(gitutil.committed_between(self.cfg.root, mb))
+                start = self.since or gitutil.merge_base(self.cfg.root, self.base)
+                self._committed = set(gitutil.committed_between(self.cfg.root, start))
             except gitutil.GitError:
                 self._committed = set(self.changed())  # unknown: judge every change as committed
         return f not in self._committed

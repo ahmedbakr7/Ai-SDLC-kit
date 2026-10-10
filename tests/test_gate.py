@@ -990,6 +990,21 @@ class LockfileScope(unittest.TestCase):
         self.assertIn("out of area (the approving review must name it under ## Out of area): package-lock.json",
                       c["details"])
 
+    def test_the_test_play_answers_only_for_lockfile_changes_it_commits(self) -> None:
+        self.start_build()
+        self.p.write("package-lock.json", "{}\n")
+        self.p.commit("build: lockfile")
+        start = self.git(self.p.root, "rev-parse", "HEAD").strip()
+        self.p.write("package-lock.json", '{"lockfileVersion": 3}\n')  # `npm install` in the test play
+        self.p.sdlc("gate", "test", "T-042-02", "--since", start, "--only", "scope")
+        c = json.loads(self.p.read(".sdlc-run/T-042-02.test.json"))["checks"][0]
+        self.assertEqual(c["status"], "pass", c)
+        self.p.commit("test: lockfile")
+        self.p.sdlc("gate", "test", "T-042-02", "--since", start, "--only", "scope")
+        c = json.loads(self.p.read(".sdlc-run/T-042-02.test.json"))["checks"][0]
+        self.assertEqual(c["status"], "fail", c)
+        self.assertIn("outside test write set: package-lock.json", c["details"])
+
     def test_a_lead_pr_that_commits_a_lockfile_is_judged_by_lead_code(self) -> None:
         self.git(self.p.root, "checkout", "-q", "-b", "deps")
         self.p.write("package-lock.json", "{}\n")
