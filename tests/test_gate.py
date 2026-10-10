@@ -948,6 +948,59 @@ Add the HTTP test.
         self.assertIn("outside build write set: tests/test_http_unknown.py", c["scope"]["details"])
 
 
+class LockfileScope(unittest.TestCase):
+    """Pilot finding 7: scope.always_allowed (the node profiles list the lockfiles) passed every
+    scope check, so a committed dependency change shipped in any PR unreviewed."""
+
+    def setUp(self) -> None:
+        from helpers import git
+
+        self.git = git
+        self.p = ProductRepo()
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml") + '\n[scope]\nalways_allowed = ["package-lock.json"]\n'
+                     'lead_code = "fail"\n')
+        self.p.commit("lead: lockfiles in scope")
+
+    def tearDown(self) -> None:
+        self.p.close()
+
+    def build_scope(self) -> dict:
+        self.p.sdlc("gate", "build", "T-042-02", "--only", "scope")
+        ev = json.loads((self.p.root / ".sdlc-run" / "T-042-02.build.json").read_text(encoding="utf-8"))
+        return {x["name"]: x for x in ev["checks"]}["scope"]
+
+    def start_build(self) -> None:
+        code, out = self.p.sdlc("status", "T-042-02", "in_progress", "--as", "build")
+        self.assertEqual(code, 0, out)
+        self.p.commit("start T-042-02")
+        self.git(self.p.root, "checkout", "-q", "-b", "build/T-042-02")
+
+    def test_a_lockfile_left_in_the_working_tree_stays_out_of_scope(self) -> None:
+        self.start_build()
+        self.p.write("package-lock.json", "{}\n")  # untracked, as `npm install` leaves it
+        c = self.build_scope()
+        self.assertEqual(c["status"], "pass", c)
+        self.assertFalse([d for d in c["details"] if "package-lock.json" in d], c)
+
+    def test_a_committed_lockfile_is_judged_by_the_build_write_set(self) -> None:
+        self.start_build()
+        self.p.write("package-lock.json", "{}\n")
+        self.p.commit("build: lockfile")
+        c = self.build_scope()
+        self.assertIn("out of area (the approving review must name it under ## Out of area): package-lock.json",
+                      c["details"])
+
+    def test_a_lead_pr_that_commits_a_lockfile_is_judged_by_lead_code(self) -> None:
+        self.git(self.p.root, "checkout", "-q", "-b", "deps")
+        self.p.write("package-lock.json", "{}\n")
+        code, out = self.p.sdlc("gate", "pr", "--base", "main", "-v")
+        self.assertEqual(code, 0, out)  # uncommitted: nothing ships
+        self.p.commit("bump deps")
+        code, out = self.p.sdlc("gate", "pr", "--base", "main", "-v")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("outside the lead write set: package-lock.json", out)
+
+
 class Baseline(unittest.TestCase):
     """Hangout pilot: a product adopting the kit with a red main could not pass any ticket
     gate, because every gate also runs the repo-wide checks. sdlc-baseline.json carries the

@@ -91,6 +91,7 @@ class Gate:
         self.junit_used: dict[str, bool] = {}
         self.checks: list[Check] = []
         self._changed: list[str] | None = None
+        self._committed: set[str] | None = None
         # test and review answer for what they changed after the earlier plays' evidence was
         # committed, not for the build's own diff against the base branch. `sdlc run` passes
         # the HEAD it saw before the agent started; without it this falls back to the commit
@@ -432,7 +433,7 @@ class Gate:
         """(glob patterns, exact paths) the current play (or `roles`) may change."""
         cfg, t = self.cfg, self.ticket
         paths = cfg.section("paths")
-        globs = list(cfg.section("scope").get("always_allowed", []))
+        globs: list[str] = []
         # Any play may prune the baseline (`immutable` refuses growth). A change to the waivers
         # makes the PR strict, so it needs a lead approval (lanes.resolve).
         exact: set[str] = {self.baseline_rel, self.waivers_rel}
@@ -488,7 +489,6 @@ class Gate:
         earlier = self._earlier_play_outputs() if self.play == "build" else []
         builds = "build" in self.roles()
         own = self.cfg.rel(t.path)
-        always = self.cfg.section("scope").get("always_allowed", [])
         tests = [*self.cfg.section("tests").get("globs", []), *self.cfg.section("tests").get("integration_globs", [])]
         mine = self.bookkeeping()
         bad, problems, flags = [], [], []
@@ -499,7 +499,7 @@ class Gate:
                     problems += p
                     bad.append(f)
                 continue
-            if (f in mine and f in exact) or any(_glob(f, g) for g in always) or any(ok(f) for ok in earlier):
+            if (f in mine and f in exact) or self._always(f) or any(ok(f) for ok in earlier):
                 continue
             if builds and self._split_ticket(f):
                 continue
@@ -545,7 +545,21 @@ class Gate:
         own, contracts = self.cfg.rel(t.path), self.cfg.data["paths"]["contracts"]
         return [f for f in gitutil.changed_files(self.cfg.root, self.base)
                 if f not in exact and not any(_glob(f, g) for g in globs) and f not in (own, contracts)
-                and not self._test_beside_area(f) and not self._split_ticket(f) and not self._hard(f)]
+                and not self._test_beside_area(f) and not self._split_ticket(f) and not self._hard(f)
+                and not self._always(f)]
+
+    def _always(self, f: str) -> bool:
+        """scope.always_allowed (lockfiles, snapshots) covers what a run leaves in the working
+        tree. A committed change ships with the PR, so the write set judges it like any file."""
+        if not any(_glob(f, g) for g in self.cfg.section("scope").get("always_allowed", [])):
+            return False
+        if self._committed is None:
+            try:
+                mb = gitutil.merge_base(self.cfg.root, self.base)
+                self._committed = set(gitutil.committed_between(self.cfg.root, mb))
+            except gitutil.GitError:
+                self._committed = set(self.changed())  # unknown: judge every change as committed
+        return f not in self._committed
 
     def _review_record(self, c: Check) -> None:
         """Records mode, review play: the agent's record at .sdlc-run/review-<id>.md (the runner
@@ -705,7 +719,7 @@ class Gate:
         Other files (a human hotfix) are reported, and fail only with scope.lead_code = "fail".
         Either way gate ci still judges the code with the base branch's config."""
         globs, _ = self.allowed()
-        bad = [f for f in self.changed() if not any(_glob(f, g) for g in globs)]
+        bad = [f for f in self.changed() if not any(_glob(f, g) for g in globs) and not self._always(f)]
         mode = str(self.cfg.section("scope").get("lead_code", "warn"))
         c.details = [f"outside the lead write set: {f}" for f in bad]
         if self.config_note:
