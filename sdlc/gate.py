@@ -1555,12 +1555,11 @@ def _evidence_problems(cfg: Config, t: Ticket, commit: str) -> list[str]:
             # A test ticket's build is its real-stack proof. Evidence without that proof (or from
             # before v2.0.0, which did not record it) proves nothing through the real stack,
             # unless a passing test play gave it, as it did for a test ticket before v2.0.0.
-            configured = [k for k in real_stack_suites(cfg) if cfg.commands.get(k)]
             test_ev = cfg.path("evidence") / f"{t.id}.test.json"
             tested = test_ev.is_file() and json.loads(test_ev.read_text(encoding="utf-8")).get("result") == "pass"
-            if configured and ev.get("real_stack_proof") is not True and not tested:
+            if real_stack and ev.get("real_stack_proof") is not True and not tested:
                 out.append(f"build evidence for test ticket {t.id} records no passing real-stack test with one of "
-                           f"its AC tags ({', '.join(configured)}); re-run the build")
+                           f"its AC tags ({', '.join(real_stack)}); re-run the build")
         if ev.get("dirty"):
             out.append(f"{play} evidence came from a dirty tree; it does not describe any commit")
         if ev.get("commit"):

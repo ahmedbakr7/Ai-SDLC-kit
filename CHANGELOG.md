@@ -7,6 +7,16 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 
 ## Unreleased
 
+## v2.0.1 (2026-10-10)
+
+From the review of v2.0.0. No behaviour changes.
+
+- CHANGELOG v2.0.0: approval's check that a test ticket's build evidence records real-stack
+  proof does not apply to a mechanical-lane build, whose full suite is the proof (`gate pr`
+  re-checks the lane), as for every other ticket.
+- A test pins that a test ticket naming a route in `contracts:` lints clean: it still owes
+  real-stack proof, which its build gives.
+
 ## v2.0.0 (2026-10-10)
 
 Found by the Hangout pilot (finding 19). MAJOR: a product that passed on v1.5.5 can fail on
@@ -31,7 +41,7 @@ A test ticket in flight across the upgrade keeps its approval when its test play
   passing real-stack test carries one of its AC tags (unless the lead marked it `test: none`).
   The build evidence records that proof (`real_stack_proof`). Approval refuses a test ticket
   whose build evidence lacks it, unless a passing test play gave the proof, as it did before
-  this release.
+  this release, or the build ran in the mechanical lane.
 - Real-stack proof (the test play, a records-mode `gate pr`, and a test ticket's build) needs a
   passing real-stack test tagged with an AC the ticket declares. Before, any `<ticket>/AC-n` tag
   counted, including an AC the ticket does not have. A test tagged with an undeclared AC proved
