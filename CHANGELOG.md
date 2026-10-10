@@ -18,11 +18,18 @@ correct run, so nothing that passes on v3.0.1 can fail.
   fresh clone of a product that neither commits nor ignores its lockfile, `npm install` in
   the test play failed `scope` on every attempt. A change to a tracked lockfile is still
   committed and judged by the write set: it changes what the PR ships. A build still commits
-  both, and the review names them when they are outside the ticket's areas.
+  both, and the review names them when they are outside the ticket's areas. A file HEAD holds
+  is never left out, so `git rm --cached` cannot pass a tracked lockfile off as untracked.
 - An untracked `always_allowed` file no longer makes the tree dirty, for evidence (`"dirty"`)
   or for the clean-tree check `sdlc run` makes before it starts. No commit holds the file, as
   with an ignored one. Any other uncommitted change still counts, including a change to a
-  tracked lockfile and files of other products in a monorepo.
+  tracked lockfile and files of other products in a monorepo. Evidence lists these files under
+  `"untracked_allowed"`: a run could read them, but the PR does not ship them. A snapshot the
+  test play writes outside `tests.integration_globs` is one, and CI that refuses new snapshots
+  will fail on it.
+- Upgrade note: a lockfile a test or review run left untracked no longer stops the next
+  `sdlc run`, and a later build commits it as an out-of-area file. A product that does not
+  commit its lockfile should list it in `.gitignore`.
 - CHANGELOG v3.0.1: its first sentence said every fix corrected a check that failed closed;
   the third fixed one that failed open. The v3.0.1 `--since` relaxation helps a gate run by
   hand: `sdlc run` commits a tracked lockfile the play rewrote, and the write set judges it.
