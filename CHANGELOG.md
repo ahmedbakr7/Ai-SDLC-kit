@@ -7,6 +7,27 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 
 ## Unreleased
 
+## v3.0.1 (2026-10-10)
+
+From the review of v3.0.0. Each fix makes a check that failed closed right, or adds a missing
+test. In CI, which checks out a clean tree, none can fail a product that passes on v3.0.0;
+locally, a `gate pr` with uncommitted edits to reverted files now fails (third item).
+
+- A play that starts from an earlier one (`--since`, as the test and review plays do) answers
+  only for the lockfile and snapshot changes it commits. A lockfile the build committed and
+  the test play's `npm install` rewrote without committing failed the test play's `scope`.
+  The review's out-of-area list still counts every lockfile the branch commits, since the PR
+  gate asks the review to name them.
+- The exact-revert check runs from the work tree's top. In a product nested in a monorepo, a
+  revert of a commit that also touched files outside the product was refused.
+- The revert exemption no longer excuses uncommitted edits to the reverted files (a local
+  `gate pr` on a dirty tree; CI checks out a clean one), nor any edit when git cannot list
+  them.
+- CHANGELOG v3.0.0: the lead-PR review step names who counts as the reviewer.
+- Tests pin three guards no test covered: a revert of a commit that is not on the base branch
+  (a side branch's deletion) is no exact revert; an untracked lockfile is not an out-of-area
+  file; and when git cannot list the committed files, every lockfile counts as committed.
+
 ## v3.0.0 (2026-10-10)
 
 From the Hangout pilot (findings 7 and 17), issue #27, and a v2.0.0 review deferral. MAJOR:
@@ -38,7 +59,9 @@ each item below can fail a product that passed on v2.0.1. Each has an upgrade st
 - **A PR that names no ticket needs an independent review as well as the lead's approval**
   (finding 17), from two identities unless approvals are trust-based. Before, the lead's
   record alone approved it, though the lead wrote or asked for the change. Upgrade: have a
-  listed reviewer (or a fresh session posting a `role: review` record) review each lead PR.
+  listed reviewer who neither opened the PR nor wrote its commits review each lead PR (with
+  `trust_unsigned = true`, a fresh session's `role: review` record from the shared account
+  counts; the hardened preset forbids that).
 
 ## v2.0.1 (2026-10-10)
 

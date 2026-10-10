@@ -89,6 +89,12 @@ def committed_between(root: Path, a: str, b: str = "HEAD") -> list[str]:
     return sorted(_paths(git(root, "diff", "--name-only", "-z", "--no-renames", "--relative", a, b)))
 
 
+def dirty(root: Path) -> list[str]:
+    """Files the working tree or index changes against HEAD, untracked ones included."""
+    names = set(_paths(git(root, "diff", "--name-only", "-z", "--no-renames", "--relative", "HEAD")))
+    return sorted(names | set(untracked(root)))
+
+
 def untracked(root: Path) -> list[str]:
     return _paths(git(root, "ls-files", "--others", "--exclude-standard", "-z"))
 
@@ -198,9 +204,12 @@ def _inverts(root: Path, sha: str, target: str) -> bool:
                           cwd=root, capture_output=True)
     if diff.returncode != 0 or not diff.stdout.strip():
         return False
+    # From the work tree's top: a product nested in a monorepo still reverts whole commits, and
+    # `git apply` run in a subdirectory skips the paths outside it.
+    top = git(root, "rev-parse", "--show-toplevel", check=False).strip() or str(root)
     with tempfile.TemporaryDirectory() as tmp:
         env = {**os.environ, "GIT_INDEX_FILE": str(Path(tmp) / "index")}
-        run = lambda *a, **k: subprocess.run(["git", *a], cwd=root, env=env, capture_output=True, **k)
+        run = lambda *a, **k: subprocess.run(["git", *a], cwd=top, env=env, capture_output=True, **k)
         if run("read-tree", f"{sha}^").returncode != 0:
             return False
         if run("apply", "--cached", "--whitespace=nowarn", "-", input=diff.stdout).returncode != 0:

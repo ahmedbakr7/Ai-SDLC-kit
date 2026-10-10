@@ -990,6 +990,57 @@ class LockfileScope(unittest.TestCase):
         self.assertIn("out of area (the approving review must name it under ## Out of area): package-lock.json",
                       c["details"])
 
+    def test_the_test_play_answers_only_for_lockfile_changes_it_commits(self) -> None:
+        self.start_build()
+        self.p.write("package-lock.json", "{}\n")
+        self.p.commit("build: lockfile")
+        start = self.git(self.p.root, "rev-parse", "HEAD").strip()
+        self.p.write("package-lock.json", '{"lockfileVersion": 3}\n')  # `npm install` in the test play
+        self.p.sdlc("gate", "test", "T-042-02", "--since", start, "--only", "scope")
+        c = json.loads(self.p.read(".sdlc-run/T-042-02.test.json"))["checks"][0]
+        self.assertEqual(c["status"], "pass", c)
+        self.p.commit("test: lockfile")
+        self.p.sdlc("gate", "test", "T-042-02", "--since", start, "--only", "scope")
+        c = json.loads(self.p.read(".sdlc-run/T-042-02.test.json"))["checks"][0]
+        self.assertEqual(c["status"], "fail", c)
+        self.assertIn("outside test write set: package-lock.json", c["details"])
+
+    def test_an_untracked_lockfile_is_not_an_out_of_area_flag(self) -> None:
+        from sdlc import config
+        from sdlc.gate import Gate
+
+        self.start_build()
+        self.p.write("package-lock.json", "{}\n")
+        self.assertNotIn("package-lock.json", Gate(config.load(self.p.root), "pr", "T-042-02", "main").out_of_area())
+        self.p.commit("build: lockfile")
+        self.assertIn("package-lock.json", Gate(config.load(self.p.root), "pr", "T-042-02", "main").out_of_area())
+
+    def test_the_review_still_sees_a_lockfile_the_build_committed(self) -> None:
+        # The review play starts after the build (`since`), but its out-of-area list is the
+        # whole branch's: the PR gate will ask the review to name this file.
+        from sdlc import config
+        from sdlc.gate import Gate
+
+        self.start_build()
+        self.p.write("package-lock.json", "{}\n")
+        self.p.commit("build: lockfile")
+        start = self.git(self.p.root, "rev-parse", "HEAD").strip()
+        review = Gate(config.load(self.p.root), "review", "T-042-02", "main", since=start)
+        self.assertIn("package-lock.json", review.out_of_area())
+
+    def test_scope_judges_every_lockfile_as_committed_when_git_cannot_say(self) -> None:
+        from unittest import mock
+
+        from sdlc import gitutil
+
+        self.start_build()
+        self.p.write("package-lock.json", "{}\n")  # untracked, yet unprovable without git
+        with mock.patch.object(gitutil, "committed_between", side_effect=gitutil.GitError("no history")):
+            from sdlc import config
+            from sdlc.gate import Gate
+
+            self.assertIn("package-lock.json", Gate(config.load(self.p.root), "pr", "T-042-02", "main").out_of_area())
+
     def test_a_lead_pr_that_commits_a_lockfile_is_judged_by_lead_code(self) -> None:
         self.git(self.p.root, "checkout", "-q", "-b", "deps")
         self.p.write("package-lock.json", "{}\n")
@@ -1754,6 +1805,65 @@ class HardenedLeadCode(unittest.TestCase):
         self.assertNotEqual(code, 0, out)
         self.assertIn("outside the lead write set: app/returns.py", out)
 
+    def test_a_revert_of_a_commit_not_on_the_base_branch_fails(self) -> None:
+        # Reverting a side branch's deletion would land the deleted code as a "revert".
+        self.git(self.p.root, "checkout", "-q", "-b", "side")
+        self.p.write("app/backdoor.py", "def open_up():\n    return True\n")
+        self.p.commit("add it")
+        self.git(self.p.root, "rm", "-q", "app/backdoor.py")
+        self.p.commit("drop it")
+        dropped = self.git(self.p.root, "rev-parse", "HEAD").strip()
+        self.git(self.p.root, "checkout", "-q", "main")
+        self.git(self.p.root, "checkout", "-q", "-b", "undo")
+        self.git(self.p.root, "revert", "--no-edit", dropped)
+        self.assertTrue((self.p.root / "app" / "backdoor.py").is_file())
+        code, out = self.lead_pr()
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("outside the lead write set: app/backdoor.py", out)
+
+    def test_an_uncommitted_edit_on_an_exact_revert_is_not_excused(self) -> None:
+        self.edit("app/returns.py", "\n# a bad hotfix\n")
+        self.p.commit("bad hotfix")
+        bad = self.git(self.p.root, "rev-parse", "HEAD").strip()
+        self.git(self.p.root, "checkout", "-q", "-b", "undo")
+        self.git(self.p.root, "revert", "--no-edit", bad)
+        self.edit("app/returns.py", "\n# not committed\n")
+        code, out = self.lead_pr()
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("outside the lead write set: app/returns.py", out)
+
+    def test_an_exact_revert_excuses_nothing_when_git_cannot_list_uncommitted_edits(self) -> None:
+        from unittest import mock
+
+        from sdlc import gitutil
+
+        self.edit("app/returns.py", "\n# a bad hotfix\n")
+        self.p.commit("bad hotfix")
+        bad = self.git(self.p.root, "rev-parse", "HEAD").strip()
+        self.git(self.p.root, "checkout", "-q", "-b", "undo")
+        self.git(self.p.root, "revert", "--no-edit", bad)
+        from sdlc import config
+        from sdlc.gate import Check, Gate
+
+        g = Gate(config.load(self.p.root), "pr", None, "main")
+        c = Check("scope")
+        with mock.patch.object(gitutil, "dirty", side_effect=gitutil.GitError("diff failed")):
+            g._lead_scope(c)
+        self.assertEqual(c.status, "fail", c.summary)
+        self.assertIn("outside the lead write set: app/returns.py", c.details)
+
+    def test_a_file_the_revert_deletes_and_the_tree_recreates_is_not_excused(self) -> None:
+        # `git diff HEAD` cannot see a file HEAD does not have: only the untracked list does.
+        self.p.write("app/hotfix.py", "X = 1\n")
+        self.p.commit("bad hotfix adds a module")
+        bad = self.git(self.p.root, "rev-parse", "HEAD").strip()
+        self.git(self.p.root, "checkout", "-q", "-b", "undo")
+        self.git(self.p.root, "revert", "--no-edit", bad)
+        self.p.write("app/hotfix.py", "X = 2\n")
+        code, out = self.lead_pr()
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("outside the lead write set: app/hotfix.py", out)
+
     def test_a_revert_with_an_extra_change_fails(self) -> None:
         self.edit("app/returns.py", "\n# a bad hotfix\n")
         self.p.commit("bad hotfix")
@@ -1771,6 +1881,37 @@ class HardenedLeadCode(unittest.TestCase):
         code, out = self.lead_pr()
         self.assertNotEqual(code, 0, out)
         self.assertIn("outside the lead write set: app/returns.py", out)
+
+
+class NestedRevert(unittest.TestCase):
+    """A product nested in a monorepo: an exact revert of a commit that also touched files outside
+    the product is still exact (git apply in a subdirectory skips paths outside it)."""
+
+    def test_a_whole_commit_revert_counts_from_a_nested_product(self) -> None:
+        import tempfile
+
+        from helpers import git
+        from sdlc import gitutil
+
+        with tempfile.TemporaryDirectory() as tmp:
+            top = Path(tmp)
+            git(top, "init", "-q", "-b", "main")
+            git(top, "config", "user.email", "t@example.invalid")
+            git(top, "config", "user.name", "t")
+            (top / "sub").mkdir()
+            (top / "sub" / "a.py").write_text("A = 1\n", encoding="utf-8")
+            (top / "top.txt").write_text("top\n", encoding="utf-8")
+            git(top, "add", "-A")
+            git(top, "commit", "-qm", "start")
+            (top / "sub" / "a.py").write_text("A = 2\n", encoding="utf-8")
+            (top / "top.txt").write_text("changed\n", encoding="utf-8")
+            git(top, "commit", "-qam", "both")
+            bad = git(top, "rev-parse", "HEAD").strip()
+            git(top, "checkout", "-q", "-b", "undo")
+            git(top, "revert", "--no-edit", bad)
+            got = gitutil.exact_reverts(top / "sub", "main")
+            self.assertIsNotNone(got)
+            self.assertEqual(got[0][1], bad)
 
 
 if __name__ == "__main__":
