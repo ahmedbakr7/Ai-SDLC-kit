@@ -7,10 +7,30 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 
 ## Unreleased
 
+## v3.0.2 (2026-10-10)
+
+From the v3.0.1 review and the Hangout pilot. Every change relaxes a check that failed a
+correct run, so nothing that passes on v3.0.1 can fail.
+
+- `sdlc run test` and `sdlc run review` leave an untracked `scope.always_allowed` file
+  (a lockfile the product does not commit, a fresh snapshot) out of their commits, unless
+  the play's write set covers it. The runner committed every file the agent left, so on a
+  fresh clone of a product that neither commits nor ignores its lockfile, `npm install` in
+  the test play failed `scope` on every attempt. A change to a tracked lockfile is still
+  committed and judged by the write set: it changes what the PR ships. A build still commits
+  both, and the review names them when they are outside the ticket's areas.
+- An untracked `always_allowed` file no longer makes the tree dirty, for evidence (`"dirty"`)
+  or for the clean-tree check `sdlc run` makes before it starts. No commit holds the file, as
+  with an ignored one. Any other uncommitted change still counts, including a change to a
+  tracked lockfile and files of other products in a monorepo.
+- CHANGELOG v3.0.1: its first sentence said every fix corrected a check that failed closed;
+  the third fixed one that failed open. The v3.0.1 `--since` relaxation helps a gate run by
+  hand: `sdlc run` commits a tracked lockfile the play rewrote, and the write set judges it.
+
 ## v3.0.1 (2026-10-10)
 
-From the review of v3.0.0. Each fix makes a check that failed closed right, or adds a missing
-test. In CI, which checks out a clean tree, none can fail a product that passes on v3.0.0;
+From the review of v3.0.0. Each fix corrects a check (two failed closed, one failed open on a
+dirty tree) or adds a missing test. In CI, which checks out a clean tree, none can fail a product that passes on v3.0.0;
 locally, a `gate pr` with uncommitted edits to reverted files now fails (third item).
 
 - A play that starts from an earlier one (`--since`, as the test and review plays do) answers
