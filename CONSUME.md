@@ -6,8 +6,8 @@ The kit needs Python 3.11 or later and git 2.32 or later (`sdlc commit` uses `gi
 
 ```bash
 git submodule add https://github.com/ahmedbakr7/Ai-SDLC-kit.git .sdlc
-git -C .sdlc checkout v1.5.5     # pin a release tag (CHANGELOG.md lists them)
-git add .gitmodules .sdlc && git commit -m "pin ai-sdlc kit v1.5.5"
+git -C .sdlc checkout v1.6.0     # pin a release tag (CHANGELOG.md lists them)
+git add .gitmodules .sdlc && git commit -m "pin ai-sdlc kit v1.6.0"
 .sdlc/bin/sdlc init --profile nextjs # or node | python | (none)
 ```
 
