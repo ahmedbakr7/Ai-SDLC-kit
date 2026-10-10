@@ -428,7 +428,9 @@ def cmd_baseline(args) -> int:
     p.write_text(text, encoding="utf-8", newline="\n")
     if args.prune:
         removed = sum(len(v) for v in old.values()) - sum(len(v) for v in now.values())
-        print(f"{cfg.rel(p)}: pruned {removed} entr{'y' if removed == 1 else 'ies'} that no longer fail")
+        # A key counts each time it fails ("pruned 14" was 7 keys failing twice each): say both.
+        keys = sum(len(Counter(v) - Counter(now.get(n, []))) for n, v in old.items())
+        print(f"{cfg.rel(p)}: pruned {removed} failure(s) across {keys} key(s) that no longer fail")
         for n, why in kept.items():
             print(f"kept all {len(old[n])} known {n} failure(s): {why}, so this run cannot tell which "
                   f"still fail; fix the check and prune again", file=sys.stderr)
