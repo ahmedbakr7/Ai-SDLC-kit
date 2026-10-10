@@ -825,6 +825,10 @@ Add the HTTP test.
         problems = _evidence_problems(cfg, t, "a" * 40)
         self.assertIn("build evidence for test ticket T-042-03 records no passing real-stack test with one of its "
                       "AC tags (integration); re-run the build", problems)
+        # A test play that passed before the upgrade (v1.5.5 gave test tickets one) still proves it.
+        self.p.write("evidence/T-042-03.test.json", json.dumps({**ev, "play": "test"}))
+        self.assertFalse([x for x in _evidence_problems(cfg, t, "a" * 40) if "real-stack" in x])
+        (self.p.root / "evidence" / "T-042-03.test.json").unlink()
         ev["real_stack_proof"] = True
         self.p.write("evidence/T-042-03.build.json", json.dumps(ev))
         self.assertFalse([x for x in _evidence_problems(cfg, t, "a" * 40) if "real-stack" in x])

@@ -16,8 +16,9 @@ Found by the Hangout pilot (finding 19).
   wherever the build list puts them), its build may write the files in
   `tests.integration_globs`, and it carries the test play's proof: `ac-coverage` fails unless a
   passing real-stack test carries one of its AC tags (unless the lead marked it `test: none`).
-  The build evidence records that proof (`real_stack_proof`), and approval refuses a test ticket's
-  build evidence without it, as all evidence recorded before this release is.
+  The build evidence records that proof (`real_stack_proof`). Approval refuses a test ticket
+  whose build evidence lacks it, unless a passing test play gave the proof, as it did before
+  this release. A test ticket in flight across the upgrade keeps passing.
 - Real-stack proof (the test play, a records-mode `gate pr`, and a test ticket's build) needs a
   passing real-stack test tagged with an AC the ticket declares. Before, any `<ticket>/AC-n` tag
   counted, including an AC the ticket does not have. A test tagged with an undeclared AC proved
