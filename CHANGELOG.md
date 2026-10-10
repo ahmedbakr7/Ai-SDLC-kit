@@ -10,7 +10,8 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 ## v3.0.1 (2026-10-10)
 
 From the review of v3.0.0. Each fix makes a check that failed closed right, or adds a missing
-test; none can fail a product that passes on v3.0.0.
+test. In CI, which checks out a clean tree, none can fail a product that passes on v3.0.0;
+locally, a `gate pr` with uncommitted edits to reverted files now fails (third item).
 
 - A play that starts from an earlier one (`--since`, as the test and review plays do) answers
   only for the lockfile and snapshot changes it commits. A lockfile the build committed and
