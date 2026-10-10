@@ -1552,8 +1552,8 @@ def _evidence_problems(cfg: Config, t: Ticket, commit: str) -> list[str]:
             out.append(f"{play} evidence is not a full passing gate run")
         if play == "build" and t.type == "test" and t.real_stack_proof and not mechanical:
             # A test ticket's build is its real-stack proof. Evidence without that proof (or from
-            # before v1.6.0, which did not record it) proves nothing through the real stack,
-            # unless a passing test play gave it, as it did for a test ticket before v1.6.0.
+            # before v2.0.0, which did not record it) proves nothing through the real stack,
+            # unless a passing test play gave it, as it did for a test ticket before v2.0.0.
             configured = [k for k in real_stack_suites(cfg) if cfg.commands.get(k)]
             test_ev = cfg.path("evidence") / f"{t.id}.test.json"
             tested = test_ev.is_file() and json.loads(test_ev.read_text(encoding="utf-8")).get("result") == "pass"

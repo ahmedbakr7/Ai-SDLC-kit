@@ -810,7 +810,7 @@ Add the HTTP test.
         self.assertEqual(names.count("integration"), 1)
 
     def test_approval_refuses_a_test_tickets_build_without_recorded_real_stack_proof(self) -> None:
-        # A build recorded before v1.6.0 ran unit (and maybe some integration suite) with no tagged
+        # A build recorded before v2.0.0 ran unit (and maybe some integration suite) with no tagged
         # real-stack proof; the test ticket has no test play to fill in.
         from sdlc import config
         from sdlc.artifacts import Repo
