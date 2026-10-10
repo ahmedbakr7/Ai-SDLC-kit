@@ -872,6 +872,24 @@ class PilotGaps(Base):
         self.record("rev", head, at="2026-10-04T11:00:00Z")
         self.assertEqual(self.approval()[0], 0)
 
+    def test_a_separator_inside_an_agent_name_does_not_hide_the_builder(self) -> None:
+        # `Sdlc-Agent: other|review` once split the record at its pipe, moving `builder` into
+        # the plays field.
+        git(self.p.root, "checkout", "-q", "-b", "build/T-042-02")
+        copy_solution(self.p, "build-T-042-02")
+        copy_solution(self.p, "test-T-042-02")
+        git(self.p.root, "add", "-A")
+        code, out = self.p.sdlc("commit", "T-042-02", "-m", "T-042-02: order page\n\nSdlc-Agent: other|review",
+                                "--agent", "builder", "--play", "build")
+        self.assertEqual(code, 0, out)
+        head = git(self.p.root, "rev-parse", "HEAD").strip()
+        self.forge()
+        self.record("rev", head, agent="builder")
+        code, out, res = self.approval()
+        self.assertNotEqual(code, 0, (out, res))
+        self.record("rev", head, at="2026-10-04T11:00:00Z")
+        self.assertEqual(self.approval()[0], 0)
+
     def squash_merge(self) -> None:
         # What a forge's squash merge writes: every commit message folded into one body, the
         # trailers no longer in the last paragraph.
