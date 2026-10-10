@@ -869,6 +869,14 @@ Add the HTTP test.
         c = self.checks("T-042-03", "scope")["scope"]
         self.assertEqual(c["status"], "pass", c)
 
+    def test_ci_re_proves_a_done_test_ticket_through_the_real_stack(self) -> None:
+        self.p.write("tickets/T-042-03-unknown-order-http.md",
+                     self.TICKET.replace("status: in_progress", "status: done"))
+        self.p.commit("T-042-03 done, with no tagged real-stack test")
+        code, out = self.p.sdlc("gate", "ci", "--only", "unit,integration,ac-coverage")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("T-042-03: done, but no passing", out)
+
     def test_a_test_ticket_may_write_integration_files_outside_the_test_globs(self) -> None:
         self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace('globs = ["app/test_*.py", "tests/**"]',
                                                                    'globs = ["app/test_*.py"]'))
