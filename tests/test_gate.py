@@ -788,6 +788,15 @@ Add the HTTP test.
         self.assertEqual(c["integration"]["status"], "pass", c["integration"])
         self.assertEqual(c["ac-coverage"]["status"], "pass", c["ac-coverage"])
 
+    def test_a_test_ticket_may_not_change_production_code(self) -> None:
+        # It skips the test play, so declaring type: test must not carry code past real-stack proof.
+        self.git(self.p.root, "checkout", "-q", "-b", "build/T-042-03")
+        self.p.write("tests/test_http_unknown.py", self.TEST)
+        self.p.write("app/returns.py", self.p.read("app/returns.py") + "\nEXTRA = 1\n")
+        c = self.checks("T-042-03", "scope")["scope"]
+        self.assertEqual(c["status"], "fail", c)
+        self.assertEqual(c["details"], ["a test ticket changes tests only (tests.globs): app/returns.py"])
+
     def test_a_test_ticket_has_no_test_play_and_lints_clean(self) -> None:
         from sdlc import config
         from sdlc.artifacts import Repo

@@ -486,6 +486,7 @@ class Gate:
         builds = "build" in self.roles()
         own = self.cfg.rel(t.path)
         always = self.cfg.section("scope").get("always_allowed", [])
+        tests = self.cfg.section("tests").get("globs", [])
         mine = self.bookkeeping()
         bad, problems, flags = [], [], []
         for f in self.changed():
@@ -496,6 +497,11 @@ class Gate:
                     bad.append(f)
                 continue
             if (f in mine and f in exact) or any(_glob(f, g) for g in always) or any(ok(f) for ok in earlier):
+                continue
+            if builds and t.type == "test" and not any(_glob(f, g) for g in tests):
+                # A test ticket skips the test play, so it may not carry the code that play proves.
+                problems.append(f"a test ticket changes tests only (tests.globs): {f}")
+                bad.append(f)
                 continue
             if builds and self._split_ticket(f):
                 continue
@@ -512,7 +518,8 @@ class Gate:
                 flags.append(f)
                 continue
             bad.append(f)
-        c.details = problems + [f"outside {self.play} write set: {f}" for f in bad if f != own]
+        named = {f for f in bad if any(p.endswith(": " + f) for p in problems)}
+        c.details = problems + [f"outside {self.play} write set: {f}" for f in bad if f != own and f not in named]
         c.details += [f"out of area (the approving review must name it under ## Out of area): {f}" for f in flags]
         if self.config_note:
             c.details.append(self.config_note)
