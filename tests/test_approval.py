@@ -647,6 +647,23 @@ class ReviewPlay(Base):
         code, out = self.p.sdlc("gate", "review", "T-042-02", "--only", "review-file")
         self.assertEqual(code, 0, out)
 
+    def test_the_review_prompt_names_one_commit_for_the_record(self) -> None:
+        # Pilot finding 4: the prompt said both "Set `commit: <proven>`" and "the HEAD you
+        # reviewed". The record must name HEAD, which review-file checks.
+        proven = self.build()
+        run = self.p.root / ".sdlc-run"
+        run.mkdir(exist_ok=True)
+        (run / "T-042-02.build.json").write_text(json.dumps({"result": "pass", "commit": proven, "dirty": False,
+                                                              "checks": [], "ac": {}}), encoding="utf-8")
+        self.p.write("app/pages.py", self.p.read("app/pages.py") + "\n")
+        commit(self.p, "T-042-02: tidy")
+        code, out = self.p.sdlc("prompt", "review", "T-042-02")
+        self.assertEqual(code, 0, out)
+        text = self.p.read(".sdlc-run/prompts/review-T-042-02.md")
+        self.assertNotIn(f"Set `commit: {proven}`", text)
+        self.assertIn(f"The latest local evidence is for `{proven}`. The record's `commit:` is the HEAD you reviewed",
+                      text)
+
     def test_publish_posts_the_record_as_a_pr_comment(self) -> None:
         head = self.build()
         self.forge()

@@ -227,7 +227,11 @@ def _evidence(cfg: Config, t: Ticket) -> str:
             rows.append(f"- {c['name']}: {c['status']} — {c['summary']}")
         for tag, v in ev.get("ac", {}).items():
             rows.append(f"- {tag}: {v['status']} — " + "; ".join(v["tests"][:3]))
-    if latest:
+    if latest and _records(cfg):
+        # The record names the HEAD it reviewed (review-file checks that); CI proves that HEAD.
+        rows.append(f"\nThe latest local evidence is for `{latest}`. The record's `commit:` is the HEAD you "
+                    "reviewed (`git rev-parse HEAD`), even where the two differ.")
+    elif latest:
         rows.append(f"\nSet `commit: {latest}` in the review frontmatter (the latest proven commit).")
     try:
         changed = gitutil.changed_files(cfg.root, cfg.section("vcs").get("base", "main"))

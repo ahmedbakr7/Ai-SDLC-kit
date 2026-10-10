@@ -523,6 +523,19 @@ class Lint(unittest.TestCase):
         self.assertIn("| `app/returns.py` | T-042-01 | read returns for an order; the only place that knows "
                       "the data source | exists: import it |", text)
 
+    def test_the_review_prompt_names_the_evidence_commit_for_a_review_file(self) -> None:
+        # Without approval records, reviews/<id>.md names the commit the evidence proved.
+        from sdlc import prompt
+
+        p = helpers.ProductRepo()
+        try:
+            p.write("evidence/T-042-02.build.json", json.dumps({"result": "pass", "commit": "a" * 40, "dirty": False,
+                                                               "checks": [], "ac": {}}))
+            text = prompt.render(config.load(p.root), "review", "T-042-02")
+            self.assertIn(f"Set `commit: {'a' * 40}` in the review frontmatter", text)
+        finally:
+            p.close()
+
 
 if __name__ == "__main__":
     unittest.main()
