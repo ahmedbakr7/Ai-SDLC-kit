@@ -833,7 +833,16 @@ Add the HTTP test.
         self.p.write("app/returns.py", self.p.read("app/returns.py") + "\nEXTRA = 1\n")
         c = self.checks("T-042-03", "scope")["scope"]
         self.assertEqual(c["status"], "fail", c)
-        self.assertEqual(c["details"], ["a test ticket changes tests only (tests.globs): app/returns.py"])
+        self.assertEqual(c["details"], ["a test ticket changes tests only (tests.globs, tests.integration_globs): app/returns.py"])
+
+    def test_a_test_ticket_may_write_integration_files_outside_the_test_globs(self) -> None:
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace('globs = ["app/test_*.py", "tests/**"]',
+                                                                   'globs = ["app/test_*.py"]'))
+        self.p.commit("lead: integration tests are not in tests.globs")
+        self.git(self.p.root, "checkout", "-q", "-b", "build/T-042-03")
+        self.p.write("tests/test_http_unknown.py", self.TEST)
+        c = self.checks("T-042-03", "scope")["scope"]
+        self.assertEqual(c["status"], "pass", c)
 
     def test_a_test_ticket_has_no_test_play_and_lints_clean(self) -> None:
         from sdlc import config

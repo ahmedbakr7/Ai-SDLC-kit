@@ -486,7 +486,7 @@ class Gate:
         builds = "build" in self.roles()
         own = self.cfg.rel(t.path)
         always = self.cfg.section("scope").get("always_allowed", [])
-        tests = self.cfg.section("tests").get("globs", [])
+        tests = [*self.cfg.section("tests").get("globs", []), *self.cfg.section("tests").get("integration_globs", [])]
         mine = self.bookkeeping()
         bad, problems, flags = [], [], []
         for f in self.changed():
@@ -500,7 +500,7 @@ class Gate:
                 continue
             if builds and t.type == "test" and not any(_glob(f, g) for g in tests):
                 # A test ticket skips the test play, so it may not carry the code that play proves.
-                problems.append(f"a test ticket changes tests only (tests.globs): {f}")
+                problems.append(f"a test ticket changes tests only (tests.globs, tests.integration_globs): {f}")
                 bad.append(f)
                 continue
             if builds and self._split_ticket(f):

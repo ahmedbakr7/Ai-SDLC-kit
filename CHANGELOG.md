@@ -21,7 +21,7 @@ Found by the Hangout pilot (finding 19).
   integration test could prove could not pass `gate build`, which ran `unit` alone and refused
   integration files to the build. `sdlc lint` no longer asks such a ticket for a test play, and
   `sdlc run test` says why it has none. Because it skips the test play, a test ticket may
-  change only files in `tests.globs`: any other file fails `scope`, so the type cannot carry
+  change only files in `tests.globs` or `tests.integration_globs`: any other file fails `scope`, so the type cannot carry
   production code past real-stack proof. Other ticket types are unchanged.
 
 ## v1.5.5 (2026-10-10)
