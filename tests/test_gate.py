@@ -928,6 +928,11 @@ Add the HTTP test.
         self.assertFalse(repo.ticket("T-042-03").test_play)
         self.assertTrue(repo.ticket("T-042-02").test_play)
         self.assertEqual([str(i) for i in lint_repo(repo) if "T-042-03" in str(i)], [])
+        # It still owes real-stack proof (its build gives it), so a route it tests is no lint error.
+        self.p.write("tickets/T-042-03-unknown-order-http.md",
+                     self.TICKET.replace("contracts: []", "contracts:\n  - GET /api/orders/{id}/returns"))
+        repo = Repo(config.load(self.p.root))
+        self.assertEqual([str(i) for i in lint_repo(repo) if "routes and pages" in str(i)], [])
 
     def test_other_tickets_still_build_on_unit_alone_and_may_not_write_integration_tests(self) -> None:
         code, out = self.p.sdlc("status", "T-042-02", "in_progress", "--as", "build")
