@@ -10,13 +10,19 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 ## v2.0.0 (2026-10-10)
 
 Found by the Hangout pilot (finding 19). MAJOR: a product that passed on v1.5.5 can fail on
-upgrade in one way. A `type: test` ticket whose build also changes a file outside
-`tests.globs` and `tests.integration_globs` (a manifest such as `package.json` or
-`pyproject.toml`, test-runner config, fixtures elsewhere) now fails `scope`, where v1.5.5
-flagged that file for review. To upgrade, move such changes to a ticket of another type (an
-`ops` or `chore` ticket for a manifest or runner config), or widen `tests.globs` to cover the
-fixtures. Nothing else needs changing: a test ticket in flight across the upgrade keeps its
-approval when its test play passed.
+upgrade in two ways.
+
+- A `type: test` ticket whose build also changes a file outside `tests.globs` and
+  `tests.integration_globs` (a manifest such as `package.json` or `pyproject.toml`,
+  test-runner config, fixtures elsewhere) now fails `scope`, where v1.5.5 flagged that file
+  for review. To upgrade, move such changes to a ticket of another type (an `ops` or `chore`
+  ticket for a manifest or runner config), or widen `tests.globs` to cover the fixtures.
+- A real-stack test tagged with an AC its ticket does not declare (the AC was removed or
+  renumbered, or the tag has a typo) no longer proves that ticket, so its test play fails
+  `ac-coverage` and `gate ci` fails for it once done. To upgrade, retag the test with an AC the
+  ticket declares.
+
+A test ticket in flight across the upgrade keeps its approval when its test play passed.
 
 - A `type: test` ticket (it changes tests only) has no test play: its build is that play. Its
   `gate build` also runs the real-stack suites (`tests.real_stack`, moved before `ac-coverage`
