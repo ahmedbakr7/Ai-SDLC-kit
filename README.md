@@ -84,7 +84,7 @@ it never trusts committed evidence on its own.
 | `sdlc followups --pr N` | draft tickets from an approval's `[follow-up]` findings |
 | `sdlc baseline [--prune]` | record the failures a red base branch already has; gates and `trace` then fail only on new ones, and the file only shrinks |
 
-Stdlib-only Python ≥ 3.11. Works with any agent CLI that can take a prompt
+Stdlib-only Python ≥ 3.11, git ≥ 2.32. Works with any agent CLI that can take a prompt
 (Claude Code, Codex, Gemini CLI, Grok, Cursor agent, Aider, ...): agents only edit
 files, and the runner does everything else the same way for all of them.
 

@@ -227,7 +227,9 @@ def _commit(root: Path, msg: str, agent: str, play: str, tid: str) -> None:
     if not gitutil.git(root, "diff", "--cached", "--name-only").strip():
         return
     # Sdlc-Ticket is what derived status reads once the commit reaches the base branch.
-    gitutil.git(root, "commit", "-q", "-m", msg, "-m", f"Sdlc-Agent: {agent}\nSdlc-Play: {play}\nSdlc-Ticket: {tid}")
+    # --trailer, as `sdlc commit` does: a message's own trailers stay in the same block.
+    gitutil.git(root, "commit", "-q", "-m", msg, "--trailer", f"Sdlc-Agent: {agent}",
+                "--trailer", f"Sdlc-Play: {play}", "--trailer", f"Sdlc-Ticket: {tid}")
 
 
 def _authors(root: Path, base: str) -> set[str]:

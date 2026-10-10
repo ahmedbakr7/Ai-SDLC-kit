@@ -2,6 +2,8 @@
 
 ## 1. Pin it
 
+The kit needs Python 3.11 or later and git 2.32 or later (`sdlc commit` uses `git commit --trailer`).
+
 ```bash
 git submodule add https://github.com/ahmedbakr7/Ai-SDLC-kit.git .sdlc
 git -C .sdlc checkout v1.5.5     # pin a release tag (CHANGELOG.md lists them)
