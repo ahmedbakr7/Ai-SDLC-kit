@@ -1015,6 +1015,19 @@ class LockfileScope(unittest.TestCase):
         self.p.commit("build: lockfile")
         self.assertIn("package-lock.json", Gate(config.load(self.p.root), "pr", "T-042-02", "main").out_of_area())
 
+    def test_the_review_still_sees_a_lockfile_the_build_committed(self) -> None:
+        # The review play starts after the build (`since`), but its out-of-area list is the
+        # whole branch's: the PR gate will ask the review to name this file.
+        from sdlc import config
+        from sdlc.gate import Gate
+
+        self.start_build()
+        self.p.write("package-lock.json", "{}\n")
+        self.p.commit("build: lockfile")
+        start = self.git(self.p.root, "rev-parse", "HEAD").strip()
+        review = Gate(config.load(self.p.root), "review", "T-042-02", "main", since=start)
+        self.assertIn("package-lock.json", review.out_of_area())
+
     def test_scope_judges_every_lockfile_as_committed_when_git_cannot_say(self) -> None:
         from unittest import mock
 

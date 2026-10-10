@@ -91,7 +91,7 @@ class Gate:
         self.junit_used: dict[str, bool] = {}
         self.checks: list[Check] = []
         self._changed: list[str] | None = None
-        self._committed: set[str] | None = None
+        self._committed: dict[bool, set[str] | None] = {}
         # test and review answer for what they changed after the earlier plays' evidence was
         # committed, not for the build's own diff against the base branch. `sdlc run` passes
         # the HEAD it saw before the agent started; without it this falls back to the commit
@@ -546,21 +546,23 @@ class Gate:
         return [f for f in gitutil.changed_files(self.cfg.root, self.base)
                 if f not in exact and not any(_glob(f, g) for g in globs) and f not in (own, contracts)
                 and not self._test_beside_area(f) and not self._split_ticket(f) and not self._hard(f)
-                and not self._always(f)]
+                and not self._always(f, whole_branch=True)]
 
-    def _always(self, f: str) -> bool:
+    def _always(self, f: str, whole_branch: bool = False) -> bool:
         """scope.always_allowed (lockfiles, snapshots) covers what a run leaves in the working
         tree. A committed change ships with the PR, so the write set judges it like any file.
-        A play that starts from an earlier play (`since`) answers only for its own commits."""
+        A play that starts from an earlier play (`since`) answers only for its own commits; what
+        the whole branch ships (`whole_branch`, the review's out-of-area list) counts them all."""
         if not any(_glob(f, g) for g in self.cfg.section("scope").get("always_allowed", [])):
             return False
-        if self._committed is None:
+        if whole_branch not in self._committed:
             try:
-                start = self.since or gitutil.merge_base(self.cfg.root, self.base)
-                self._committed = set(gitutil.committed_between(self.cfg.root, start))
+                start = (None if whole_branch else self.since) or gitutil.merge_base(self.cfg.root, self.base)
+                self._committed[whole_branch] = set(gitutil.committed_between(self.cfg.root, start))
             except gitutil.GitError:
-                self._committed = set(self.changed())  # unknown: judge every change as committed
-        return f not in self._committed
+                self._committed[whole_branch] = None  # unknown: judge every change as committed
+        done = self._committed[whole_branch]
+        return done is not None and f not in done
 
     def _review_record(self, c: Check) -> None:
         """Records mode, review play: the agent's record at .sdlc-run/review-<id>.md (the runner
