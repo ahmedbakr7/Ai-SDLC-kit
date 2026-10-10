@@ -731,7 +731,10 @@ class Gate:
         if reverts:
             # Only the reverts' committed content is excused: an uncommitted edit on top is not.
             undone = set(gitutil.committed_between(self.cfg.root, gitutil.merge_base(self.cfg.root, self.base)))
-            undone -= set(gitutil.dirty(self.cfg.root))
+            try:
+                undone -= set(gitutil.dirty(self.cfg.root))
+            except gitutil.GitError:
+                undone = set()  # cannot tell what is uncommitted: excuse nothing
             bad = [f for f in bad if f not in undone]
         c.details = [f"outside the lead write set: {f}" for f in bad]
         if reverts:

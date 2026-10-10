@@ -1832,6 +1832,26 @@ class HardenedLeadCode(unittest.TestCase):
         self.assertNotEqual(code, 0, out)
         self.assertIn("outside the lead write set: app/returns.py", out)
 
+    def test_an_exact_revert_excuses_nothing_when_git_cannot_list_uncommitted_edits(self) -> None:
+        from unittest import mock
+
+        from sdlc import gitutil
+
+        self.edit("app/returns.py", "\n# a bad hotfix\n")
+        self.p.commit("bad hotfix")
+        bad = self.git(self.p.root, "rev-parse", "HEAD").strip()
+        self.git(self.p.root, "checkout", "-q", "-b", "undo")
+        self.git(self.p.root, "revert", "--no-edit", bad)
+        from sdlc import config
+        from sdlc.gate import Check, Gate
+
+        g = Gate(config.load(self.p.root), "pr", None, "main")
+        c = Check("scope")
+        with mock.patch.object(gitutil, "dirty", side_effect=gitutil.GitError("diff failed")):
+            g._lead_scope(c)
+        self.assertEqual(c.status, "fail", c.summary)
+        self.assertIn("outside the lead write set: app/returns.py", c.details)
+
     def test_a_revert_with_an_extra_change_fails(self) -> None:
         self.edit("app/returns.py", "\n# a bad hotfix\n")
         self.p.commit("bad hotfix")
