@@ -721,7 +721,16 @@ class Gate:
         globs, _ = self.allowed()
         bad = [f for f in self.changed() if not any(_glob(f, g) for g in globs) and not self._always(f)]
         mode = str(self.cfg.section("scope").get("lead_code", "warn"))
+        # An exact revert of code already on the base branch needs no ticket: it is how a lead
+        # undoes a change (a squash merge that buried its trailers, a bad hotfix). Adding
+        # Sdlc-Ticket to it would read that ticket as delivered.
+        reverts = gitutil.exact_reverts(self.cfg.root, self.base) if bad else None
+        if reverts:
+            undone = set(gitutil.committed_between(self.cfg.root, gitutil.merge_base(self.cfg.root, self.base)))
+            bad = [f for f in bad if f not in undone]
         c.details = [f"outside the lead write set: {f}" for f in bad]
+        if reverts:
+            c.details += [f"exact revert of {t[:7]} ({r[:7]})" for r, t in reverts]
         if self.config_note:
             c.details.append(self.config_note)
         if mode not in ("warn", "fail"):
@@ -734,6 +743,8 @@ class Gate:
                 c.status = "fail"
             else:
                 c.summary = "WARNING " + c.summary + " (scope.lead_code = \"warn\")"
+        elif reverts:
+            c.summary = f"lead PR: exact revert of {', '.join(t[:7] for _, t in reverts)} on the base branch"
         else:
             c.summary = f"lead PR: {len(self.changed())} changed file(s), all lead artifacts"
 

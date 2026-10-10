@@ -1676,5 +1676,87 @@ class PresetDoctor(unittest.TestCase):
         self.assertNotEqual(code, 0, out)
         self.assertIn("ERROR [approval] trust_unsigned is forbidden by the hardened preset", out)
 
+class HardenedLeadCode(unittest.TestCase):
+    """Issue #27: under the hardened preset, code in a PR that moves no ticket fails, except an
+    exact revert of code already on the base branch."""
+
+    def setUp(self) -> None:
+        from helpers import git
+
+        self.git = git
+        self.p = ProductRepo()
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml") + '\n[gate]\npreset = "hardened"\n')
+        self.p.commit("lead: hardened")
+
+    def tearDown(self) -> None:
+        self.p.close()
+
+    def edit(self, rel: str, line: str) -> None:
+        self.p.write(rel, self.p.read(rel) + line)
+
+    def lead_pr(self) -> tuple[int, str]:
+        return self.p.sdlc("gate", "pr", "--base", "main", "--only", "scope", "-v")
+
+    def test_code_without_a_ticket_fails(self) -> None:
+        self.git(self.p.root, "checkout", "-q", "-b", "hotfix")
+        self.edit("app/returns.py", "\n# hotfix\n")
+        self.p.commit("hotfix")
+        code, out = self.lead_pr()
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("outside the lead write set: app/returns.py", out)
+
+    def test_a_products_warn_is_refused(self) -> None:
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml") + '\n[scope]\nlead_code = "warn"\n')
+        self.p.commit("lead: warn only")
+        code, out = self.p.sdlc("doctor")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("ERROR [scope] lead_code = 'warn' is forbidden by the hardened preset", out)
+        self.test_code_without_a_ticket_fails()  # the stricter value holds meanwhile
+
+    def test_an_exact_revert_of_base_branch_code_passes(self) -> None:
+        self.edit("app/returns.py", "\n# a bad hotfix\n")
+        self.p.commit("bad hotfix")
+        bad = self.git(self.p.root, "rev-parse", "HEAD").strip()
+        self.git(self.p.root, "checkout", "-q", "-b", "undo")
+        self.git(self.p.root, "revert", "--no-edit", bad)
+        code, out = self.lead_pr()
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"exact revert of {bad[:7]}", out)
+
+    def test_a_revert_branch_that_merges_the_base_is_no_exact_revert(self) -> None:
+        # The merge reverts nothing, so the branch is not the reverts alone; rebase it instead.
+        self.edit("app/returns.py", "\n# a bad hotfix\n")
+        self.p.commit("bad hotfix")
+        bad = self.git(self.p.root, "rev-parse", "HEAD").strip()
+        self.git(self.p.root, "checkout", "-q", "-b", "undo")
+        self.git(self.p.root, "revert", "--no-edit", bad)
+        self.git(self.p.root, "checkout", "-q", "main")
+        self.p.write("docs/later.md", "main moves on\n")
+        self.p.commit("main moves on")
+        self.git(self.p.root, "checkout", "-q", "undo")
+        self.git(self.p.root, "merge", "-q", "--no-ff", "--no-edit", "main")
+        code, out = self.lead_pr()
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("outside the lead write set: app/returns.py", out)
+
+    def test_a_revert_with_an_extra_change_fails(self) -> None:
+        self.edit("app/returns.py", "\n# a bad hotfix\n")
+        self.p.commit("bad hotfix")
+        bad = self.git(self.p.root, "rev-parse", "HEAD").strip()
+        self.git(self.p.root, "checkout", "-q", "-b", "undo")
+        self.git(self.p.root, "revert", "--no-edit", bad)
+        self.edit("app/server.py", "\n# riding along\n")
+        self.p.commit("and one more thing")
+        code, out = self.lead_pr()
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("outside the lead write set: app/server.py", out)
+        # Folded into the revert commit itself, the extra line makes it no exact revert at all.
+        self.git(self.p.root, "reset", "-q", "--soft", "HEAD~2")
+        self.git(self.p.root, "commit", "-q", "-m", f"Revert bad hotfix\n\nThis reverts commit {bad}.")
+        code, out = self.lead_pr()
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("outside the lead write set: app/returns.py", out)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -188,6 +188,35 @@ def _undone(root: Path, reverts: dict[str, list[str]], sha: str, seen: frozenset
         for r in reverts.get(sha, []))
 
 
+def exact_reverts(root: Path, base: str, head: str = "HEAD") -> list[tuple[str, str]] | None:
+    """(revert, reverted) for each commit from merge-base(head, base) to `head`, when every one
+    names ("This reverts commit") and exactly inverts a commit already on `base` (the same patch
+    id, inverted; a merge's diff is taken against its first parent). None otherwise: an empty
+    range, a commit that reverts nothing (a merge from the base branch among them), or one whose
+    diff is not the exact inverse. With only such commits, the whole change is the reverts'
+    inverses."""
+    try:
+        mb = merge_base(root, base, head)
+    except GitError:
+        return None
+    revs = git(root, "rev-list", "--reverse", f"{mb}..{head}", check=False).split("\n")
+    out: list[tuple[str, str]] = []
+    for line in filter(None, (r.strip() for r in revs)):
+        sha = line.split()[0]
+        body = git(root, "show", "-s", "--format=%B", sha, check=False)
+        named = re.findall(r"This reverts commit ([0-9a-f]{7,40})", body)
+        target = ""
+        for t in named:
+            full = git(root, "rev-parse", "--verify", "-q", f"{t}^{{commit}}", check=False).strip()
+            if full and is_ancestor(root, full, base) and _patch_id(root, full, f"{full}^") == _patch_id(root, f"{sha}^", sha):
+                target = full
+                break
+        if not target or not _patch_id(root, f"{sha}^", sha):
+            return None
+        out.append((sha, target))
+    return out or None
+
+
 def buried_trailers(root: Path, rev: str, key: str) -> list[tuple[str, list[str]]]:
     """Commits reachable from `rev` whose message has `key:` lines git does not read as trailers,
     with the values it misses: a squash merge folds each commit's trailers into the body, where
