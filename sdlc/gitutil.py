@@ -99,6 +99,19 @@ def untracked(root: Path) -> list[str]:
     return _paths(git(root, "ls-files", "--others", "--exclude-standard", "-z"))
 
 
+def hidden(root: Path) -> list[str]:
+    """Tracked files git is told not to look at in the working tree (`update-index
+    --skip-worktree` or `--assume-unchanged`) and that are on disk: an edit to one shows in no
+    status, diff or `add -A`. Sparse checkout also sets skip-worktree, on files it leaves off
+    disk, so those are not listed. Raises on a git error."""
+    out = []
+    for entry in _paths(git(root, "ls-files", "-v", "-z")):
+        tag, f = entry[0], entry[2:]
+        if (tag == "S" or tag.islower()) and os.path.lexists(root / f):
+            out.append(f)
+    return sorted(out)
+
+
 def new_files(root: Path, files: list[str]) -> list[str]:
     """`files` that HEAD does not hold. `git rm --cached` lists a tracked file as untracked; it
     still ships in the PR, so it is no untracked file the runner may leave out."""

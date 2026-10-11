@@ -276,6 +276,9 @@ class Gate:
             # snapshot the test play wrote is here, not in the PR).
             "untracked_allowed": gitutil.new_files(self.cfg.root, sorted(
                 f for f in gitutil.untracked(self.cfg.root) if always_allowed(self.cfg, f))),
+            # Tracked files git ignores edits to (skip-worktree, assume-unchanged): the run read
+            # them as they are on disk, which no status or commit shows.
+            "hidden_from_git": gitutil.hidden(self.cfg.root),
             "base": self.base,
             "started": started,
             "result": "pass" if ok else "fail",
@@ -478,6 +481,29 @@ class Gate:
         return out
 
     def check_scope(self, c: Check) -> None:
+        self._scope(c)
+        self._hidden_files(c)
+
+    def _hidden_files(self, c: Check) -> None:
+        """A tracked file git is told to ignore edits to (skip-worktree, assume-unchanged) hides
+        a change from every other check. Reported always; fails with scope.hidden_files = "fail"."""
+        mode = str(self.cfg.section("scope").get("hidden_files", "warn"))
+        if mode not in ("warn", "fail"):
+            c.status, c.summary = "fail", f"scope.hidden_files must be warn or fail, got {mode!r}"
+            return
+        files = gitutil.hidden(self.cfg.root)
+        if not files:
+            return
+        c.details += [f"hidden from git (skip-worktree or assume-unchanged; edits to it are not checked): {f}"
+                      for f in files]
+        note = f"{len(files)} tracked file(s) hidden from git; clear the flag with git update-index --no-skip-worktree --no-assume-unchanged"
+        if mode == "fail":
+            c.status = "fail"
+            c.summary = note if c.summary in ("", None) else f"{c.summary}; {note}"
+        elif c.status != "fail":
+            c.summary = f"WARNING {note} (scope.hidden_files = \"warn\")" + (f"; {c.summary}" if c.summary else "")
+
+    def _scope(self, c: Check) -> None:
         """Each play stays in its write set. For the build play the ticket's areas are soft: a
         file outside them is a flag the approving review must name, not a failure (ADR-0001).
         Lead artifacts, other tickets, other plays' evidence and reviews stay hard, and so do

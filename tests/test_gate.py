@@ -1050,6 +1050,81 @@ class DirtyTree(unittest.TestCase):
         self.assertFalse(run._leave(config.load(self.p.root), "test", "T-042-02", "main")("package-lock.json"))
 
 
+class HiddenFiles(unittest.TestCase):
+    """`git update-index --skip-worktree` / `--assume-unchanged` hide an edit from status, diff
+    and `add -A`, so every other check missed it. Scope reports such files; it fails on them
+    with scope.hidden_files = "fail"."""
+
+    def setUp(self) -> None:
+        from helpers import git
+
+        self.git = git
+        self.p = ProductRepo()
+        code, out = self.p.sdlc("status", "T-042-02", "in_progress", "--as", "build")
+        self.assertEqual(code, 0, out)
+        self.p.commit("start T-042-02")
+
+    def tearDown(self) -> None:
+        self.p.close()
+
+    def gate(self) -> tuple[dict, dict]:
+        self.p.sdlc("gate", "build", "T-042-02", "--only", "scope")
+        ev = json.loads((self.p.root / ".sdlc-run" / "T-042-02.build.json").read_text(encoding="utf-8"))
+        return {x["name"]: x for x in ev["checks"]}["scope"], ev
+
+    def hide(self, flag: str, f: str = "app/returns.py") -> None:
+        self.git(self.p.root, "update-index", flag, f)
+        self.p.write(f, self.p.read(f) + "\n# hidden edit\n")
+
+    def test_a_skip_worktree_edit_is_reported_and_passes_by_default(self) -> None:
+        self.hide("--skip-worktree")
+        scope, ev = self.gate()
+        self.assertEqual(scope["status"], "pass")
+        self.assertIn("WARNING 1 tracked file(s) hidden from git", scope["summary"])
+        self.assertIn("hidden from git (skip-worktree or assume-unchanged; edits to it are not checked): app/returns.py",
+                      scope["details"])
+        self.assertEqual(ev["hidden_from_git"], ["app/returns.py"])
+
+    def test_an_assume_unchanged_edit_is_reported(self) -> None:
+        self.hide("--assume-unchanged")
+        scope, ev = self.gate()
+        self.assertEqual(ev["hidden_from_git"], ["app/returns.py"])
+        self.assertIn("WARNING", scope["summary"])
+
+    def test_fail_mode_fails_scope(self) -> None:
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml") + '\n[scope]\nhidden_files = "fail"\n')
+        self.p.commit("lead: hidden files fail")
+        self.hide("--skip-worktree")
+        scope, _ = self.gate()
+        self.assertEqual(scope["status"], "fail")
+        self.assertIn("1 tracked file(s) hidden from git", scope["summary"])
+
+    def test_a_sparse_checkout_file_off_disk_does_not_count(self) -> None:
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml") + '\n[scope]\nhidden_files = "fail"\n')
+        self.p.commit("lead: hidden files fail")
+        self.git(self.p.root, "update-index", "--skip-worktree", "app/returns.py")
+        (self.p.root / "app" / "returns.py").unlink()  # what sparse checkout does to excluded files
+        scope, ev = self.gate()
+        self.assertEqual(ev["hidden_from_git"], [])
+        self.assertNotIn("hidden from git", scope["summary"])
+
+    def test_an_unknown_mode_fails(self) -> None:
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml") + '\n[scope]\nhidden_files = "off"\n')
+        self.p.commit("lead: bad mode")
+        scope, _ = self.gate()
+        self.assertEqual(scope["status"], "fail")
+        self.assertIn("scope.hidden_files must be warn or fail", scope["summary"])
+
+    def test_a_git_failure_fails_closed(self) -> None:
+        import tempfile
+
+        from sdlc import gitutil
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(gitutil.GitError):
+                gitutil.hidden(Path(tmp))
+
+
 class LockfileScope(unittest.TestCase):
     """Pilot finding 7: scope.always_allowed (the node profiles list the lockfiles) passed every
     scope check, so a committed dependency change shipped in any PR unreviewed."""
