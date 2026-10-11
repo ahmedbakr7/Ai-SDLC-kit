@@ -129,7 +129,8 @@ DEFAULTS: dict[str, Any] = {
         "lead_code": "warn",
         # A tracked file anywhere in the repository whose edits git ignores (update-index
         # --skip-worktree / --assume-unchanged): "warn" reports it in scope, "fail" fails scope.
-        # With sparse checkout on, a skip-worktree file it left off disk does not count.
+        # A skip-worktree file off disk that the sparse-checkout patterns leave out does not
+        # count (git 2.41+ answers that; older git counts every such file).
         "hidden_files": "warn",
     },
     "vcs": {

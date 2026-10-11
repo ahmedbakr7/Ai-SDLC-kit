@@ -1119,6 +1119,29 @@ class HiddenFiles(unittest.TestCase):
         self.assertEqual(ev["hidden_from_git"], ["app/returns.py"])
         self.assertEqual(scope["status"], "fail")
 
+    def test_a_deleted_file_inside_the_sparse_patterns_counts(self) -> None:
+        self.fail_mode()
+        self.git(self.p.root, "sparse-checkout", "set", "--no-cone", "/*")
+        self.git(self.p.root, "update-index", "--skip-worktree", "app/returns.py")
+        (self.p.root / "app" / "returns.py").unlink()
+        _, ev = self.gate()
+        self.assertEqual(ev["hidden_from_git"], ["app/returns.py"])
+
+    def test_turning_on_sparse_checkout_alone_exempts_nothing(self) -> None:
+        self.fail_mode()
+        self.git(self.p.root, "config", "core.sparseCheckout", "true")  # no patterns
+        self.git(self.p.root, "update-index", "--skip-worktree", "app/returns.py")
+        (self.p.root / "app" / "returns.py").unlink()
+        scope, ev = self.gate()
+        self.assertEqual(ev["hidden_from_git"], ["app/returns.py"])
+        self.assertEqual(scope["status"], "fail")
+
+    def test_both_flags_on_a_file_outside_the_sparse_patterns_count(self) -> None:
+        self.git(self.p.root, "sparse-checkout", "set", "--no-cone", "/*", "!/app/returns.py")
+        self.git(self.p.root, "update-index", "--assume-unchanged", "app/returns.py")  # tag "s"
+        _, ev = self.gate()
+        self.assertEqual(ev["hidden_from_git"], ["app/returns.py"])
+
     def test_a_deleted_assume_unchanged_file_counts_even_with_sparse_checkout(self) -> None:
         self.fail_mode()
         self.git(self.p.root, "sparse-checkout", "set", "--no-cone", "/*")
@@ -1210,11 +1233,27 @@ class HiddenFilesRepo(unittest.TestCase):
         self.git(self.root, "update-index", "--assume-unchanged", "--", "lat\udce9.py")
         self.assertEqual(len(gitutil.hidden(self.root)), 1)
         self.git(self.root, "update-index", "--no-assume-unchanged", "--", "lat\udce9.py")
-        self.git(self.root, "sparse-checkout", "set", "--no-cone", "/*")
         # git clears skip-worktree on files on disk under sparse checkout unless told not to.
         self.git(self.root, "config", "sparse.expectFilesOutsideOfPatterns", "true")
+        self.git(self.root, "sparse-checkout", "set", "--no-cone", "/*", "!/lat*")
+        if not os.path.lexists(name):
+            with open(name, "wb") as fh:  # back on disk, outside the patterns
+                fh.write(b"x = 1\n")
         self.git(self.root, "update-index", "--skip-worktree", "--", "lat\udce9.py")
         self.assertEqual(len(gitutil.hidden(self.root)), 1)  # on disk, but no name to look it up by
+
+    def test_a_dangling_symlink_on_disk_counts(self) -> None:
+        import os
+
+        from sdlc import gitutil
+
+        os.symlink("nowhere", self.root / "link")
+        self.commit()
+        self.git(self.root, "config", "sparse.expectFilesOutsideOfPatterns", "true")
+        self.git(self.root, "sparse-checkout", "set", "--no-cone", "/*", "!/link")
+        if not os.path.lexists(self.root / "link"):
+            os.symlink("nowhere", self.root / "link")  # back on disk, still outside the patterns
+        self.assertEqual(gitutil.hidden(self.root), ["link"])
 
 
 class LockfileScope(unittest.TestCase):

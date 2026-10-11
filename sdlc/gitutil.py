@@ -103,22 +103,35 @@ def hidden(root: Path) -> list[str]:
     """Tracked files anywhere in the repository that git is told not to look at in the working
     tree (`update-index --skip-worktree` or `--assume-unchanged`): an edit to one, or its
     deletion, can be missed by status, diff and `add -A`. Paths are relative to the repository
-    top. Sparse checkout sets skip-worktree on the files it leaves off disk, so with it on, a
-    skip-worktree file that is not on disk is not listed; assume-unchanged files always are.
-    Raises on a git error."""
+    top. Sparse checkout sets skip-worktree on the files its patterns leave out, so a
+    skip-worktree file that is off disk and outside those patterns is not listed;
+    assume-unchanged files always are. Raises on a git error."""
     top = Path(git(root, "rev-parse", "--show-toplevel").strip())
     sparse = git(top, "config", "--type=bool", "--default=false", "core.sparseCheckout").strip() == "true"
-    out = []
+    out, off_disk = [], []
     for entry in _paths(git(top, "ls-files", "-v", "-z")):
         tag, f = entry[0], entry[2:]
         if tag.islower():
             out.append(f)
         elif tag == "S":
             # A name git output could not decode (U+FFFD) cannot be looked up on disk: count it.
-            off_disk = "\ufffd" not in f and not os.path.lexists(top / f)
-            if not (sparse and off_disk):
+            if sparse and "\ufffd" not in f and not os.path.lexists(top / f):
+                off_disk.append(f)
+            else:
                 out.append(f)
-    return sorted(out)
+    excluded = set(off_disk) - _sparse_included(top, off_disk)
+    return sorted(out + [f for f in off_disk if f not in excluded])
+
+
+def _sparse_included(top: Path, paths: list[str]) -> set[str]:
+    """The `paths` the sparse-checkout patterns include. A path they include belongs on disk.
+    When git cannot answer (no patterns, or git older than 2.41), every path counts as
+    included, so nothing is exempted."""
+    if not paths:
+        return set()
+    r = subprocess.run(["git", "sparse-checkout", "check-rules", "-z"], cwd=top, capture_output=True,
+                       text=True, encoding="utf-8", errors="replace", input="\0".join(paths) + "\0")
+    return set(_paths(r.stdout)) if r.returncode == 0 else set(paths)
 
 
 def new_files(root: Path, files: list[str]) -> list[str]:
