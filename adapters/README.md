@@ -35,7 +35,9 @@ Local hooks are a convenience; CI is the guarantee. `github/sdlc.yml` (installed
 which finds the ticket a PR moves (in_progress, in_review or done) or, when it moves
 none, reports every file beyond the lead artifacts (a failure with
 `scope.lead_code = "fail"`, which the hardened preset sets; an exact revert of code
-already on the base branch passes). Other CI systems run the same commands. Every gate
+already on the base branch passes). `scope` also reports tracked files hidden from git
+with `update-index --skip-worktree` or `--assume-unchanged`, whose edits no other check sees
+(a failure with `scope.hidden_files = "fail"`). Other CI systems run the same commands. Every gate
 uses the base branch's `sdlc.toml`, so a PR cannot weaken the gate that judges it; a
 lead PR may still change the config, which takes effect once merged. If the base
 branch's config is itself broken (so the fix cannot pass), main is already red: a
