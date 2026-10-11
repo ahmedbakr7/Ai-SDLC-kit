@@ -125,7 +125,7 @@ def hidden(root: Path) -> list[str]:
 
 def _sparse_included(top: Path, paths: list[str]) -> set[str]:
     """The `paths` the sparse-checkout patterns include. A path they include belongs on disk.
-    When git cannot answer (no patterns, or git older than 2.41), every path counts as
+    When git cannot answer (no patterns file, or git older than 2.41), every path counts as
     included, so nothing is exempted."""
     if not paths:
         return set()

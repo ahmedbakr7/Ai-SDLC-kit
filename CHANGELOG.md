@@ -21,15 +21,17 @@ setting, so nothing that passes on v3.0.3 can fail.
   skip-worktree on the files its patterns leave out, so a skip-worktree file that is not on
   disk is exempt only when `git sparse-checkout check-rules` (git 2.41+) places it outside
   the patterns; a file the patterns include, or any file when git cannot answer (no
-  patterns, older git), counts. Turning on `core.sparseCheckout` alone exempts nothing. An
+  patterns file, older git), counts. Turning on `core.sparseCheckout` alone exempts nothing;
+  the patterns file itself is local state (see the known gaps below). An
   assume-unchanged file counts whether or not it is on disk. The hardened preset does not
   set `"fail"` yet: turning it on there could fail a hardened product that passes today,
   which would be MAJOR.
 - In records mode CI re-runs the checks on a clean checkout, where no such flag exists, so
   this mainly closes the gap for local evidence and file-mode products.
 - Known gaps, for a later release: a local `core.fsmonitor` hook that reports no changes,
-  a local clean filter (`.git/info/attributes`), a local `submodule.<name>.ignore`, and
-  `.git/info/exclude` can also hide changes from status. The same CI re-run covers these
+  a local clean filter (`.git/info/attributes`), a local `submodule.<name>.ignore`,
+  `.git/info/exclude`, and a local sparse-checkout patterns file (`.git/info/sparse-checkout`,
+  which can exclude any file, and an empty one excludes all) can also hide changes. The same CI re-run covers these
   local settings; an `ignore` committed in `.gitmodules` is a change the PR's scope judges.
 
 ## v3.0.3 (2026-10-11)

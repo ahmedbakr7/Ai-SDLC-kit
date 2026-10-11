@@ -1146,6 +1146,23 @@ class HiddenFiles(unittest.TestCase):
         self.assertEqual(ev["hidden_from_git"], ["app/returns.py"])
         self.assertEqual(scope["status"], "fail")
 
+    def test_a_patterns_file_without_sparse_checkout_exempts_nothing(self) -> None:
+        # check-rules reads info/sparse-checkout even when core.sparseCheckout is off.
+        (self.p.root / ".git" / "info").mkdir(exist_ok=True)
+        (self.p.root / ".git" / "info" / "sparse-checkout").write_text("/*\n!/app/returns.py\n", encoding="utf-8")
+        self.git(self.p.root, "update-index", "--skip-worktree", "app/returns.py")
+        (self.p.root / "app" / "returns.py").unlink()
+        _, ev = self.gate()
+        self.assertEqual(ev["hidden_from_git"], ["app/returns.py"])
+
+    def test_a_deleted_file_inside_a_cone_counts(self) -> None:
+        dirs = self.git(self.p.root, "ls-tree", "-d", "--name-only", "HEAD").split()
+        self.git(self.p.root, "sparse-checkout", "set", "--cone", *dirs)  # every directory in the cone
+        self.git(self.p.root, "update-index", "--skip-worktree", "app/returns.py")
+        (self.p.root / "app" / "returns.py").unlink()
+        _, ev = self.gate()
+        self.assertIn("app/returns.py", ev["hidden_from_git"])
+
     def test_both_flags_on_a_file_outside_the_sparse_patterns_count(self) -> None:
         self.git(self.p.root, "sparse-checkout", "set", "--no-cone", "/*", "!/app/returns.py")
         self.git(self.p.root, "update-index", "--assume-unchanged", "app/returns.py")  # tag "s"
