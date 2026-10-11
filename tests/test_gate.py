@@ -1050,6 +1050,15 @@ class DirtyTree(unittest.TestCase):
         self.assertFalse(run._leave(config.load(self.p.root), "test", "T-042-02", "main")("package-lock.json"))
 
 
+def _check_rules() -> bool:
+    """git 2.41+ answers which paths sparse-checkout patterns include; older git counts every
+    off-disk skip-worktree file, so a test of the exemption needs it."""
+    import subprocess
+
+    r = subprocess.run(["git", "sparse-checkout", "check-rules", "-h"], capture_output=True, text=True)
+    return "usage: git sparse-checkout check-rules" in r.stdout + r.stderr
+
+
 class HiddenFiles(unittest.TestCase):
     """`git update-index --skip-worktree` / `--assume-unchanged` hide an edit from status, diff
     and `add -A`, so every other check missed it. Scope reports such files; it fails on them
@@ -1103,6 +1112,7 @@ class HiddenFiles(unittest.TestCase):
         self.p.write("sdlc.toml", self.p.read("sdlc.toml") + '\n[scope]\nhidden_files = "fail"\n')
         self.p.commit("lead: hidden files fail")
 
+    @unittest.skipUnless(_check_rules(), "git sparse-checkout check-rules needs git 2.41+")
     def test_a_sparse_checkout_file_off_disk_does_not_count(self) -> None:
         self.fail_mode()
         self.git(self.p.root, "sparse-checkout", "set", "--no-cone", "/*", "!/app/returns.py")

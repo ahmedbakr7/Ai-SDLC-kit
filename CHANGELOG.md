@@ -28,8 +28,9 @@ setting, so nothing that passes on v3.0.3 can fail.
 - In records mode CI re-runs the checks on a clean checkout, where no such flag exists, so
   this mainly closes the gap for local evidence and file-mode products.
 - Known gaps, for a later release: a local `core.fsmonitor` hook that reports no changes,
-  a local clean filter (`.git/info/attributes`), `submodule.<name>.ignore`, and
-  `.git/info/exclude` can also hide changes from status. The same CI re-run covers them.
+  a local clean filter (`.git/info/attributes`), a local `submodule.<name>.ignore`, and
+  `.git/info/exclude` can also hide changes from status. The same CI re-run covers these
+  local settings; an `ignore` committed in `.gitmodules` is a change the PR's scope judges.
 
 ## v3.0.3 (2026-10-11)
 
