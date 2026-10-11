@@ -14,8 +14,8 @@ From the v3.0.2 review. No check changes what it accepts.
 - Evidence's `"untracked_allowed"` no longer lists a file HEAD holds. A lockfile taken out of
   the index with `git rm --cached` was listed as an untracked file that does not ship. The
   evidence already said `"dirty": true`, so nothing was let through.
-- A test pins that a test or review run which fails its first attempt also leaves an
-  untracked lockfile out of its fail-evidence commit. Without it, attempt 2 would fail
+- A test pins that a test run which fails its first attempt also leaves an untracked
+  lockfile out of its fail-evidence commit. Without it, attempt 2 would fail
   `scope` on the file attempt 1 committed.
 - CHANGELOG v3.0.2 now says that one of its changes makes a check stricter: a git failure in
   the clean-tree check stops the run.
@@ -23,9 +23,9 @@ From the v3.0.2 review. No check changes what it accepts.
 ## v3.0.2 (2026-10-10)
 
 From the v3.0.1 review and the Hangout pilot. Every change but one relaxes a check that failed
-a correct run. The exception: a git failure in the clean-tree check now stops the run, where
-v3.0.1 read it as a clean tree. That fails only a broken git, so nothing that passes on v3.0.1
-can fail.
+a correct run. The exception is the clean-tree check: when its git command fails, the run now
+stops; v3.0.1 treated that failure as a clean tree. Only a broken git hits this, so nothing
+that passes on v3.0.1 can fail.
 
 - `sdlc run test` and `sdlc run review` leave an untracked `scope.always_allowed` file
   (a lockfile the product does not commit, a fresh snapshot) out of their commits, unless
