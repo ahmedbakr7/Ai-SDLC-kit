@@ -99,6 +99,16 @@ def untracked(root: Path) -> list[str]:
     return _paths(git(root, "ls-files", "--others", "--exclude-standard", "-z"))
 
 
+def new_files(root: Path, files: list[str]) -> list[str]:
+    """`files` that HEAD does not hold. `git rm --cached` lists a tracked file as untracked; it
+    still ships in the PR, so it is no untracked file the runner may leave out."""
+    if not files:
+        return []
+    held = set(_paths(git(root, "ls-tree", "-r", "-z", "--name-only", "HEAD", "--",
+                          *(f":(literal){f}" for f in files))))
+    return [f for f in files if f not in held]
+
+
 def changed_since(root: Path, ref: str) -> list[str]:
     """Files changed after commit `ref` (committed or not)."""
     names = set(_paths(git(root, "diff", "--name-only", "-z", "--no-renames", "--relative", ref)))

@@ -1026,6 +1026,17 @@ class DirtyTree(unittest.TestCase):
         self.assertEqual(ev["untracked_allowed"], ["package-lock.json"])
         self.assertFalse(ev["dirty"])
 
+    def test_evidence_does_not_list_a_file_head_holds(self) -> None:
+        from helpers import git
+
+        self.p.write("package-lock.json", "{}\n")
+        self.p.commit("lockfile committed")
+        git(self.p.root, "rm", "-q", "--cached", "package-lock.json")
+        self.p.sdlc("gate", "build", "T-042-02", "--only", "scope")
+        ev = json.loads((self.p.root / ".sdlc-run" / "T-042-02.build.json").read_text(encoding="utf-8"))
+        self.assertEqual(ev["untracked_allowed"], [])
+        self.assertTrue(ev["dirty"])
+
     def test_the_runner_leaves_only_what_the_play_may_not_commit(self) -> None:
         from sdlc import config, run
 

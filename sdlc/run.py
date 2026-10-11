@@ -237,19 +237,9 @@ def _leave(cfg: Config, play: str, tid: str, base: str) -> Callable[[str], bool]
                       and not any(paths.match(f, g) for g in globs))
 
 
-def _new_files(files: list[str], root: Path) -> list[str]:
-    """Files HEAD does not hold. `git rm --cached` makes a tracked file untracked; resetting it
-    would restore HEAD's entry and leave the change for a later commit to pick up unjudged."""
-    if not files:
-        return []
-    held = set(gitutil._paths(gitutil.git(root, "ls-tree", "-r", "-z", "--name-only", "HEAD", "--",
-                                          *(f":(literal){f}" for f in files))))
-    return [f for f in files if f not in held]
-
-
 def _commit(root: Path, msg: str, agent: str, play: str, tid: str,
             leave: Callable[[str], bool] | None = None) -> None:
-    kept = _new_files([f for f in gitutil.untracked(root) if leave(f)], root) if leave else []
+    kept = gitutil.new_files(root, [f for f in gitutil.untracked(root) if leave(f)]) if leave else []
     gitutil.git(root, "add", "-A")
     if kept:
         gitutil.git(root, "reset", "-q", "--", *(f":(literal){f}" for f in kept))

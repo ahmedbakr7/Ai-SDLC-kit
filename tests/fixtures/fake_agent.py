@@ -5,7 +5,8 @@ matching solution tree from tests/fixtures/solutions/<play>-<ticket>/ into the r
 
 FAKE_AGENT_STRAY=1  first attempt also edits a lead artifact (outside every ticket's areas
                     and hard), so the gate fails and the runner has to feed the failure
-                    back; the retry removes it.
+                    back; the retry removes it. The build play does this, or the play named
+                    by FAKE_AGENT_STRAY_PLAY.
 FAKE_AGENT_LOCKFILE=1  the test and review plays also rewrite package-lock.json, as `npm
                     install` does.
 FAKE_AGENT_UNTRACK=1  ... and then `git rm --cached` it, to pass it off as an untracked file.
@@ -33,7 +34,8 @@ if not solution.is_dir():
 
 retry = "The previous attempt failed the gate" in text
 stray = repo / "arch" / "stray-notes.md"
-if os.environ.get("FAKE_AGENT_STRAY") == "1" and play == "build" and not retry:
+if os.environ.get("FAKE_AGENT_STRAY") == "1" and play == os.environ.get("FAKE_AGENT_STRAY_PLAY", "build") \
+        and not retry:
     stray.write_text("notes the build agent should not write\n", encoding="utf-8")
 elif stray.exists():
     stray.unlink()
