@@ -99,6 +99,41 @@ def untracked(root: Path) -> list[str]:
     return _paths(git(root, "ls-files", "--others", "--exclude-standard", "-z"))
 
 
+def hidden(root: Path) -> list[str]:
+    """Tracked files anywhere in the repository that git is told not to look at in the working
+    tree (`update-index --skip-worktree` or `--assume-unchanged`): an edit to one, or its
+    deletion, can be missed by status, diff and `add -A`. Paths are relative to the repository
+    top. Sparse checkout sets skip-worktree on the files its patterns leave out, so a
+    skip-worktree file that is off disk and outside those patterns is not listed;
+    assume-unchanged files always are. Raises on a git error."""
+    top = Path(git(root, "rev-parse", "--show-toplevel").strip())
+    sparse = git(top, "config", "--type=bool", "--default=false", "core.sparseCheckout").strip() == "true"
+    out, off_disk = [], []
+    for entry in _paths(git(top, "ls-files", "-v", "-z")):
+        tag, f = entry[0], entry[2:]
+        if tag.islower():
+            out.append(f)
+        elif tag == "S":
+            # A name git output could not decode (U+FFFD) cannot be looked up on disk: count it.
+            if sparse and "\ufffd" not in f and not os.path.lexists(top / f):
+                off_disk.append(f)
+            else:
+                out.append(f)
+    excluded = set(off_disk) - _sparse_included(top, off_disk)
+    return sorted(out + [f for f in off_disk if f not in excluded])
+
+
+def _sparse_included(top: Path, paths: list[str]) -> set[str]:
+    """The `paths` the sparse-checkout patterns include. A path they include belongs on disk.
+    When git cannot answer (no patterns file, or git older than 2.41), every path counts as
+    included, so nothing is exempted."""
+    if not paths:
+        return set()
+    r = subprocess.run(["git", "sparse-checkout", "check-rules", "-z"], cwd=top, capture_output=True,
+                       text=True, encoding="utf-8", errors="replace", input="\0".join(paths) + "\0")
+    return set(_paths(r.stdout)) if r.returncode == 0 else set(paths)
+
+
 def new_files(root: Path, files: list[str]) -> list[str]:
     """`files` that HEAD does not hold. `git rm --cached` lists a tracked file as untracked; it
     still ships in the PR, so it is no untracked file the runner may leave out."""

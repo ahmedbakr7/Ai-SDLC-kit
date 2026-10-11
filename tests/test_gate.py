@@ -1050,6 +1050,239 @@ class DirtyTree(unittest.TestCase):
         self.assertFalse(run._leave(config.load(self.p.root), "test", "T-042-02", "main")("package-lock.json"))
 
 
+def _check_rules() -> bool:
+    """git 2.41+ answers which paths sparse-checkout patterns include; older git counts every
+    off-disk skip-worktree file, so a test of the exemption needs it."""
+    import subprocess
+
+    r = subprocess.run(["git", "sparse-checkout", "check-rules", "-h"], capture_output=True, text=True)
+    return "usage: git sparse-checkout check-rules" in r.stdout + r.stderr
+
+
+class HiddenFiles(unittest.TestCase):
+    """`git update-index --skip-worktree` / `--assume-unchanged` hide an edit from status, diff
+    and `add -A`, so every other check missed it. Scope reports such files; it fails on them
+    with scope.hidden_files = "fail"."""
+
+    def setUp(self) -> None:
+        from helpers import git
+
+        self.git = git
+        self.p = ProductRepo()
+        code, out = self.p.sdlc("status", "T-042-02", "in_progress", "--as", "build")
+        self.assertEqual(code, 0, out)
+        self.p.commit("start T-042-02")
+
+    def tearDown(self) -> None:
+        self.p.close()
+
+    def gate(self) -> tuple[dict, dict]:
+        self.p.sdlc("gate", "build", "T-042-02", "--only", "scope")
+        ev = json.loads((self.p.root / ".sdlc-run" / "T-042-02.build.json").read_text(encoding="utf-8"))
+        return {x["name"]: x for x in ev["checks"]}["scope"], ev
+
+    def hide(self, flag: str, f: str = "app/returns.py") -> None:
+        self.git(self.p.root, "update-index", flag, f)
+        self.p.write(f, self.p.read(f) + "\n# hidden edit\n")
+
+    def test_a_skip_worktree_edit_is_reported_and_passes_by_default(self) -> None:
+        self.hide("--skip-worktree")
+        scope, ev = self.gate()
+        self.assertEqual(scope["status"], "pass")
+        self.assertIn("WARNING 1 tracked file(s) hidden from git", scope["summary"])
+        self.assertIn("hidden from git (skip-worktree or assume-unchanged; changes to it are not checked): app/returns.py",
+                      scope["details"])
+        self.assertEqual(ev["hidden_from_git"], ["app/returns.py"])
+
+    def test_an_assume_unchanged_edit_is_reported(self) -> None:
+        self.hide("--assume-unchanged")
+        scope, ev = self.gate()
+        self.assertEqual(ev["hidden_from_git"], ["app/returns.py"])
+        self.assertIn("WARNING", scope["summary"])
+
+    def test_fail_mode_fails_scope(self) -> None:
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml") + '\n[scope]\nhidden_files = "fail"\n')
+        self.p.commit("lead: hidden files fail")
+        self.hide("--skip-worktree")
+        scope, _ = self.gate()
+        self.assertEqual(scope["status"], "fail")
+        self.assertIn("1 tracked file(s) hidden from git", scope["summary"])
+
+    def fail_mode(self) -> None:
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml") + '\n[scope]\nhidden_files = "fail"\n')
+        self.p.commit("lead: hidden files fail")
+
+    @unittest.skipUnless(_check_rules(), "git sparse-checkout check-rules needs git 2.41+")
+    def test_a_sparse_checkout_file_off_disk_does_not_count(self) -> None:
+        self.fail_mode()
+        self.git(self.p.root, "sparse-checkout", "set", "--no-cone", "/*", "!/app/returns.py")
+        self.assertFalse((self.p.root / "app" / "returns.py").exists())
+        scope, ev = self.gate()
+        self.assertEqual(ev["hidden_from_git"], [])
+        self.assertNotIn("hidden from git", scope["summary"])
+
+    def test_a_deleted_skip_worktree_file_counts_without_sparse_checkout(self) -> None:
+        self.fail_mode()
+        self.git(self.p.root, "update-index", "--skip-worktree", "app/returns.py")
+        (self.p.root / "app" / "returns.py").unlink()  # status shows nothing: a failing test, gone
+        scope, ev = self.gate()
+        self.assertEqual(ev["hidden_from_git"], ["app/returns.py"])
+        self.assertEqual(scope["status"], "fail")
+
+    def test_a_deleted_file_inside_the_sparse_patterns_counts(self) -> None:
+        self.fail_mode()
+        self.git(self.p.root, "sparse-checkout", "set", "--no-cone", "/*")
+        self.git(self.p.root, "update-index", "--skip-worktree", "app/returns.py")
+        (self.p.root / "app" / "returns.py").unlink()
+        _, ev = self.gate()
+        self.assertEqual(ev["hidden_from_git"], ["app/returns.py"])
+
+    def test_turning_on_sparse_checkout_alone_exempts_nothing(self) -> None:
+        self.fail_mode()
+        self.git(self.p.root, "config", "core.sparseCheckout", "true")  # no patterns
+        self.git(self.p.root, "update-index", "--skip-worktree", "app/returns.py")
+        (self.p.root / "app" / "returns.py").unlink()
+        scope, ev = self.gate()
+        self.assertEqual(ev["hidden_from_git"], ["app/returns.py"])
+        self.assertEqual(scope["status"], "fail")
+
+    def test_a_patterns_file_without_sparse_checkout_exempts_nothing(self) -> None:
+        # check-rules reads info/sparse-checkout even when core.sparseCheckout is off.
+        (self.p.root / ".git" / "info").mkdir(exist_ok=True)
+        (self.p.root / ".git" / "info" / "sparse-checkout").write_text("/*\n!/app/returns.py\n", encoding="utf-8")
+        self.git(self.p.root, "update-index", "--skip-worktree", "app/returns.py")
+        (self.p.root / "app" / "returns.py").unlink()
+        _, ev = self.gate()
+        self.assertEqual(ev["hidden_from_git"], ["app/returns.py"])
+
+    def test_a_deleted_file_inside_a_cone_counts(self) -> None:
+        dirs = self.git(self.p.root, "ls-tree", "-d", "--name-only", "HEAD").split()
+        self.git(self.p.root, "sparse-checkout", "set", "--cone", *dirs)  # every directory in the cone
+        self.git(self.p.root, "update-index", "--skip-worktree", "app/returns.py")
+        (self.p.root / "app" / "returns.py").unlink()
+        _, ev = self.gate()
+        self.assertIn("app/returns.py", ev["hidden_from_git"])
+
+    def test_both_flags_on_a_file_outside_the_sparse_patterns_count(self) -> None:
+        self.git(self.p.root, "sparse-checkout", "set", "--no-cone", "/*", "!/app/returns.py")
+        self.git(self.p.root, "update-index", "--assume-unchanged", "app/returns.py")  # tag "s"
+        _, ev = self.gate()
+        self.assertEqual(ev["hidden_from_git"], ["app/returns.py"])
+
+    def test_a_deleted_assume_unchanged_file_counts_even_with_sparse_checkout(self) -> None:
+        self.fail_mode()
+        self.git(self.p.root, "sparse-checkout", "set", "--no-cone", "/*")
+        self.git(self.p.root, "update-index", "--assume-unchanged", "app/returns.py")
+        (self.p.root / "app" / "returns.py").unlink()
+        scope, ev = self.gate()
+        self.assertEqual(ev["hidden_from_git"], ["app/returns.py"])
+        self.assertEqual(scope["status"], "fail")
+
+    def test_a_scope_failure_keeps_its_summary(self) -> None:
+        self.hide("--skip-worktree")
+        self.p.write("tickets/T-042-01-returns-api.md", self.p.read("tickets/T-042-01-returns-api.md") + "\n")
+        scope, _ = self.gate()
+        self.assertEqual(scope["status"], "fail")
+        self.assertIn("outside the build play's write set", scope["summary"])
+        self.assertNotIn("WARNING", scope["summary"])  # a warning never dresses up a failure
+        self.fail_mode()
+        self.p.write("tickets/T-042-01-returns-api.md", self.p.read("tickets/T-042-01-returns-api.md") + "\n")
+        scope, _ = self.gate()
+        self.assertIn("outside the build play's write set", scope["summary"])
+        self.assertIn("1 tracked file(s) hidden from git", scope["summary"])
+
+    def test_an_unknown_mode_fails(self) -> None:
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml") + '\n[scope]\nhidden_files = "off"\n')
+        self.p.commit("lead: bad mode")
+        scope, _ = self.gate()
+        self.assertEqual(scope["status"], "fail")
+        self.assertIn("scope.hidden_files must be warn or fail", scope["summary"])
+
+    def test_an_unknown_mode_keeps_the_scope_summary(self) -> None:
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml") + '\n[scope]\nhidden_files = "off"\n')
+        self.p.commit("lead: bad mode")
+        self.p.write("tickets/T-042-01-returns-api.md", self.p.read("tickets/T-042-01-returns-api.md") + "\n")
+        scope, _ = self.gate()
+        self.assertIn("outside the build play's write set", scope["summary"])
+        self.assertIn("scope.hidden_files must be warn or fail", scope["summary"])
+
+    def test_a_git_failure_fails_closed(self) -> None:
+        import tempfile
+
+        from sdlc import gitutil
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(gitutil.GitError):
+                gitutil.hidden(Path(tmp))
+
+
+class HiddenFilesRepo(unittest.TestCase):
+    """gitutil.hidden on a bare repository: the whole repository, and names it cannot decode."""
+
+    def setUp(self) -> None:
+        import tempfile
+
+        from helpers import git
+
+        self.git = git
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        git(self.root, "init", "-q")
+        git(self.root, "config", "user.email", "kit@example.com")
+        git(self.root, "config", "user.name", "kit tests")
+        for f in ("prod/app.py", "shared/lib.py"):
+            (self.root / f).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / f).write_text("x = 1\n", encoding="utf-8")
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def commit(self) -> None:
+        self.git(self.root, "add", "-A")
+        self.git(self.root, "commit", "-q", "-m", "init")
+
+    def test_a_nested_product_sees_hidden_files_outside_its_root(self) -> None:
+        from sdlc import gitutil
+
+        self.commit()
+        self.git(self.root, "update-index", "--assume-unchanged", "shared/lib.py")
+        self.assertEqual(gitutil.hidden(self.root / "prod"), ["shared/lib.py"])
+
+    def test_an_undecodable_name_still_counts(self) -> None:
+        import os
+
+        from sdlc import gitutil
+
+        name = os.path.join(os.fsencode(self.root), b"lat\xe9.py")
+        with open(name, "wb") as fh:
+            fh.write(b"x = 1\n")
+        self.commit()
+        self.git(self.root, "update-index", "--assume-unchanged", "--", "lat\udce9.py")
+        self.assertEqual(len(gitutil.hidden(self.root)), 1)
+        self.git(self.root, "update-index", "--no-assume-unchanged", "--", "lat\udce9.py")
+        # git clears skip-worktree on files on disk under sparse checkout unless told not to.
+        self.git(self.root, "config", "sparse.expectFilesOutsideOfPatterns", "true")
+        self.git(self.root, "sparse-checkout", "set", "--no-cone", "/*", "!/lat*")
+        if not os.path.lexists(name):
+            with open(name, "wb") as fh:  # back on disk, outside the patterns
+                fh.write(b"x = 1\n")
+        self.git(self.root, "update-index", "--skip-worktree", "--", "lat\udce9.py")
+        self.assertEqual(len(gitutil.hidden(self.root)), 1)  # on disk, but no name to look it up by
+
+    def test_a_dangling_symlink_on_disk_counts(self) -> None:
+        import os
+
+        from sdlc import gitutil
+
+        os.symlink("nowhere", self.root / "link")
+        self.commit()
+        self.git(self.root, "config", "sparse.expectFilesOutsideOfPatterns", "true")
+        self.git(self.root, "sparse-checkout", "set", "--no-cone", "/*", "!/link")
+        if not os.path.lexists(self.root / "link"):
+            os.symlink("nowhere", self.root / "link")  # back on disk, still outside the patterns
+        self.assertEqual(gitutil.hidden(self.root), ["link"])
+
+
 class LockfileScope(unittest.TestCase):
     """Pilot finding 7: scope.always_allowed (the node profiles list the lockfiles) passed every
     scope check, so a committed dependency change shipped in any PR unreviewed."""

@@ -7,6 +7,33 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 
 ## Unreleased
 
+## v3.1.0 (2026-10-11)
+
+From the v3.0.2 review (finding 4). MINOR: a new warning, and a failure only behind a new
+setting, so nothing that passes on v3.0.3 can fail.
+
+- `scope` reports tracked files anywhere in the repository that git is told to ignore edits
+  to (`git update-index --skip-worktree` or `--assume-unchanged`). An edit to such a file, or
+  its deletion, can be missed by status, diff and `add -A`, and so by every other check: a run
+  could test code no commit holds, and its evidence said the tree was clean. Evidence lists
+  the files under `"hidden_from_git"`, with paths relative to the repository top.
+- `scope.hidden_files = "fail"` fails `scope` on them (default `"warn"`). Sparse checkout sets
+  skip-worktree on the files its patterns leave out, so a skip-worktree file that is not on
+  disk is exempt only when `git sparse-checkout check-rules` (git 2.41+) places it outside
+  the patterns; a file the patterns include, or any file when git cannot answer (no
+  patterns file, older git), counts. Turning on `core.sparseCheckout` alone exempts nothing;
+  the patterns file itself is local state (see the known gaps below). An
+  assume-unchanged file counts whether or not it is on disk. The hardened preset does not
+  set `"fail"` yet: turning it on there could fail a hardened product that passes today,
+  which would be MAJOR.
+- In records mode CI re-runs the checks on a clean checkout, where no such flag exists, so
+  this mainly closes the gap for local evidence and file-mode products.
+- Known gaps, for a later release: a local `core.fsmonitor` hook that reports no changes,
+  a local clean filter (`.git/info/attributes`), a local `submodule.<name>.ignore`,
+  `.git/info/exclude`, and a local sparse-checkout patterns file (`.git/info/sparse-checkout`,
+  which can exclude any file, and an empty one excludes all) can also hide changes. The same CI re-run covers these
+  local settings; an `ignore` committed in `.gitmodules` is a change the PR's scope judges.
+
 ## v3.0.3 (2026-10-11)
 
 From the v3.0.2 review. No check changes what it accepts.

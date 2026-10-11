@@ -127,6 +127,11 @@ DEFAULTS: dict[str, Any] = {
         # What a PR that moves no ticket may do with other files (code): "warn" reports them
         # and passes (human hotfixes), "fail" requires a ticket for every code change.
         "lead_code": "warn",
+        # A tracked file anywhere in the repository whose edits git ignores (update-index
+        # --skip-worktree / --assume-unchanged): "warn" reports it in scope, "fail" fails scope.
+        # A skip-worktree file off disk that the sparse-checkout patterns leave out does not
+        # count (git 2.41+ answers that; older git counts every such file).
+        "hidden_files": "warn",
     },
     "vcs": {
         "base": "main",
