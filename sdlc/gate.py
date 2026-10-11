@@ -276,8 +276,8 @@ class Gate:
             # snapshot the test play wrote is here, not in the PR).
             "untracked_allowed": gitutil.new_files(self.cfg.root, sorted(
                 f for f in gitutil.untracked(self.cfg.root) if always_allowed(self.cfg, f))),
-            # Tracked files git ignores edits to (skip-worktree, assume-unchanged): the run read
-            # them as they are on disk, which no status or commit shows.
+            # Tracked files anywhere in the repository whose edits git ignores (skip-worktree,
+            # assume-unchanged): the run read them as they are on disk, which no status shows.
             "hidden_from_git": gitutil.hidden(self.cfg.root),
             "base": self.base,
             "started": started,
@@ -489,12 +489,13 @@ class Gate:
         a change from every other check. Reported always; fails with scope.hidden_files = "fail"."""
         mode = str(self.cfg.section("scope").get("hidden_files", "warn"))
         if mode not in ("warn", "fail"):
-            c.status, c.summary = "fail", f"scope.hidden_files must be warn or fail, got {mode!r}"
+            note = f"scope.hidden_files must be warn or fail, got {mode!r}"
+            c.status, c.summary = "fail", f"{c.summary}; {note}" if c.summary else note
             return
         files = gitutil.hidden(self.cfg.root)
         if not files:
             return
-        c.details += [f"hidden from git (skip-worktree or assume-unchanged; edits to it are not checked): {f}"
+        c.details += [f"hidden from git (skip-worktree or assume-unchanged; changes to it are not checked): {f}"
                       for f in files]
         note = f"{len(files)} tracked file(s) hidden from git; clear the flag with git update-index --no-skip-worktree --no-assume-unchanged"
         if mode == "fail":

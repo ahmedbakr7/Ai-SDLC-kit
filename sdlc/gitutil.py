@@ -100,15 +100,24 @@ def untracked(root: Path) -> list[str]:
 
 
 def hidden(root: Path) -> list[str]:
-    """Tracked files git is told not to look at in the working tree (`update-index
-    --skip-worktree` or `--assume-unchanged`) and that are on disk: an edit to one shows in no
-    status, diff or `add -A`. Sparse checkout also sets skip-worktree, on files it leaves off
-    disk, so those are not listed. Raises on a git error."""
+    """Tracked files anywhere in the repository that git is told not to look at in the working
+    tree (`update-index --skip-worktree` or `--assume-unchanged`): an edit to one, or its
+    deletion, can be missed by status, diff and `add -A`. Paths are relative to the repository
+    top. Sparse checkout sets skip-worktree on the files it leaves off disk, so with it on, a
+    skip-worktree file that is not on disk is not listed; assume-unchanged files always are.
+    Raises on a git error."""
+    top = Path(git(root, "rev-parse", "--show-toplevel").strip())
+    sparse = git(top, "config", "--type=bool", "--default=false", "core.sparseCheckout").strip() == "true"
     out = []
-    for entry in _paths(git(root, "ls-files", "-v", "-z")):
+    for entry in _paths(git(top, "ls-files", "-v", "-z")):
         tag, f = entry[0], entry[2:]
-        if (tag == "S" or tag.islower()) and os.path.lexists(root / f):
+        if tag.islower():
             out.append(f)
+        elif tag == "S":
+            # A name git output could not decode (U+FFFD) cannot be looked up on disk: count it.
+            off_disk = "\ufffd" not in f and not os.path.lexists(top / f)
+            if not (sparse and off_disk):
+                out.append(f)
     return sorted(out)
 
 
