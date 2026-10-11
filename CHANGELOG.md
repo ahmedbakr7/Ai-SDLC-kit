@@ -24,8 +24,8 @@ From the v3.0.2 review. No check changes what it accepts.
 
 From the v3.0.1 review and the Hangout pilot. Every change but one relaxes a check that failed
 a correct run. The exception is the clean-tree check: when its git command fails, the run now
-stops; v3.0.1 treated that failure as a clean tree. Only a broken git hits this, so nothing
-that passes on v3.0.1 can fail.
+stops; v3.0.1 treated that failure as a clean tree. Only a broken git hits this: with a
+working git, nothing that passes on v3.0.1 can fail.
 
 - `sdlc run test` and `sdlc run review` leave an untracked `scope.always_allowed` file
   (a lockfile the product does not commit, a fresh snapshot) out of their commits, unless
