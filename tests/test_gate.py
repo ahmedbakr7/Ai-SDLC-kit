@@ -1178,6 +1178,8 @@ class HiddenFilesRepo(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         git(self.root, "init", "-q")
+        git(self.root, "config", "user.email", "kit@example.com")
+        git(self.root, "config", "user.name", "kit tests")
         for f in ("prod/app.py", "shared/lib.py"):
             (self.root / f).parent.mkdir(parents=True, exist_ok=True)
             (self.root / f).write_text("x = 1\n", encoding="utf-8")
