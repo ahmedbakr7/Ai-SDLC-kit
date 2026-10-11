@@ -271,7 +271,10 @@ class Gate:
             "play": self.play,
             "ticket": self.ticket.id if self.ticket else None,
             "commit": gitutil.head(self.cfg.root),
-            "dirty": gitutil.is_dirty(self.cfg.root),
+            "dirty": dirty_tree(self.cfg),
+            # Untracked always_allowed files the run could read but no commit holds (a fresh
+            # snapshot the test play wrote is here, not in the PR).
+            "untracked_allowed": sorted(f for f in gitutil.untracked(self.cfg.root) if always_allowed(self.cfg, f)),
             "base": self.base,
             "started": started,
             "result": "pass" if ok else "fail",
@@ -553,7 +556,7 @@ class Gate:
         tree. A committed change ships with the PR, so the write set judges it like any file.
         A play that starts from an earlier play (`since`) answers only for its own commits; what
         the whole branch ships (`whole_branch`, the review's out-of-area list) counts them all."""
-        if not any(_glob(f, g) for g in self.cfg.section("scope").get("always_allowed", [])):
+        if not always_allowed(self.cfg, f):
             return False
         if whole_branch not in self._committed:
             try:
@@ -1458,6 +1461,24 @@ def _acs(data: dict) -> list[tuple[str, str]]:
         if m:
             out.append((m.group(1), m.group(2)))
     return out
+
+
+def always_allowed(cfg: Config, f: str) -> bool:
+    return any(_glob(f, g) for g in cfg.section("scope").get("always_allowed", []))
+
+
+def dirty_tree(cfg: Config) -> bool:
+    """Uncommitted changes anywhere in the repository, except this product's untracked
+    always_allowed files (a lockfile the product does not commit, a fresh snapshot): no commit
+    holds them, as with an ignored file. Fails closed: a git error raises."""
+    root = cfg.root
+    prefix = gitutil.git(root, "rev-parse", "--show-prefix").strip()
+    out = gitutil.git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--no-renames")
+    for entry in gitutil._paths(out):
+        code, f = entry[:2], entry[3:]  # "XY path", relative to the repository top
+        if not (code == "??" and f.startswith(prefix) and always_allowed(cfg, f[len(prefix):])):
+            return True
+    return False
 
 
 def lead_write_set(cfg: Config) -> list[str]:
