@@ -192,6 +192,47 @@ class KitConsistency(unittest.TestCase):
                 text = prompt.render(config.load(p.root), "build", "T-042-02")
                 self.assertEqual("## Skill: backend-patterns" in text, added)
 
+    def test_a_review_prompt_does_not_ask_for_a_test_play_the_ticket_has_none_of(self) -> None:
+        # Pilot (T-001-35): a `test: none` ticket's reviewer read "No test evidence" and the
+        # skill's rule, and asked for a test play the runner refuses to start.
+        from helpers import ProductRepo
+        from sdlc import prompt
+
+        p = ProductRepo()
+        self.addCleanup(p.close)
+        rel = "tickets/T-042-02-order-page.md"
+        text = prompt.render(config.load(p.root), "review", "T-042-02")
+        self.assertIn("No test evidence at", text)
+        self.assertNotIn("No test play", text)
+        listed = p.read(rel)
+        for change, why in ((("risk: low", "risk: low\ntest: none"), "marked test: none"),
+                            (("type: frontend", "type: spike"), "a spike"),
+                            (("type: frontend", "type: test"), "a test ticket")):
+            with self.subTest(why=why):
+                p.write(rel, listed.replace(*change, 1))
+                text = prompt.render(config.load(p.root), "review", "T-042-02")
+                self.assertIn(f"No test play ({why}", text)
+                self.assertIn("Do not ask for a test play", text)
+                self.assertNotIn("No test evidence at", text)
+                self.assertIn("No build evidence at", text)  # the build's proof is still required
+
+    def test_extra_takes_a_file_and_says_so(self) -> None:
+        import contextlib
+        import io
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), self.assertRaises(SystemExit) as e:
+            cli.main(["--root", str(EXAMPLE), "prompt", "build", "T-042-02", "--stdout",
+                      "--extra", "fix the date format"])
+        self.assertIn("--extra 'fix the date format': No such file or directory (it takes the path of a file",
+                      str(e.exception.code))
+        for args in (["prompt", "-h"], ["run", "-h"]):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out), self.assertRaises(SystemExit):
+                cli.main(args)
+            self.assertIn("--extra FILE", out.getvalue())
+            self.assertIn("path to a file whose text is appended", " ".join(out.getvalue().split()))
+
     def test_init_scaffolds_a_product_that_doctor_explains(self) -> None:
         import contextlib
         import io

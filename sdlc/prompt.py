@@ -313,6 +313,11 @@ def _evidence(cfg: Config, t: Ticket) -> str:
     for play in ("build", "test"):
         # Records mode keeps evidence in CI and the local run directory, never in the tree.
         p = (cfg.root / ".sdlc-run" if _records(cfg) else cfg.path("evidence")) / f"{t.id}.{play}.json"
+        if play == "test" and not t.test_play and not p.is_file():
+            # Matches the gate and the runner: this ticket has no test play to wait for.
+            rows.append(f"### test\n\nNo test play ({t.no_test_play_reason}): the build evidence is the proof. "
+                        "Do not ask for a test play or test evidence.")
+            continue
         if not p.is_file():
             rows.append(f"### {play}\n\nNo {play} evidence at `{cfg.rel(p)}`."
                         + (" Verdict must be request_changes." if play == "build" else ""))

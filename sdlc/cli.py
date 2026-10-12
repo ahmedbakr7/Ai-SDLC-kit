@@ -100,9 +100,20 @@ def cmd_status(args) -> int:
     return 0
 
 
+def _extra(path: str | None) -> str:
+    """--extra names a file whose text is appended to the prompt."""
+    if not path:
+        return ""
+    try:
+        return Path(path).read_text(encoding="utf-8")
+    except OSError as e:
+        raise SystemExit(f"--extra {path!r}: {e.strerror or e} (it takes the path of a file whose text is "
+                         "appended to the prompt, not the text itself)") from None
+
+
 def cmd_prompt(args) -> int:
     cfg = _cfg(args)
-    extra = Path(args.extra).read_text(encoding="utf-8") if args.extra else ""
+    extra = _extra(args.extra)
     text = prompt.render(cfg, args.play, args.ticket, extra=extra, pr=args.pr, base=args.base)
     if args.stdout:
         sys.stdout.write(text)
@@ -162,7 +173,7 @@ def cmd_run(args) -> int:
     from . import run
 
     cfg = _cfg(args)
-    extra = Path(args.extra).read_text(encoding="utf-8") if args.extra else ""
+    extra = _extra(args.extra)
     return run.run(cfg, args.play, args.ticket, args.agent, args.attempts, args.base, extra, args.dry_run)
 
 
@@ -725,7 +736,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sp.add_parser("prompt", help="assemble the exact prompt for a play")
     p.add_argument("play")
     p.add_argument("ticket", nargs="?")
-    p.add_argument("--extra", help="file with extra lead instructions")
+    p.add_argument("--extra", metavar="FILE", help="path to a file whose text is appended to the prompt as lead instructions")
     p.add_argument("--pr", type=int, help="review: the lead PR (moves no ticket) to review instead of a ticket")
     p.add_argument("--base", help="--pr: base branch (default vcs.base)")
     p.add_argument("--stdout", action="store_true")
@@ -749,7 +760,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--agent", required=True)
     p.add_argument("--attempts", type=int)
     p.add_argument("--base")
-    p.add_argument("--extra")
+    p.add_argument("--extra", metavar="FILE", help="path to a file whose text is appended to every prompt as lead instructions")
     p.add_argument("--dry-run", action="store_true")
     p.set_defaults(fn=cmd_run)
 
