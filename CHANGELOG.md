@@ -17,7 +17,8 @@ that passes on v3.1.0.
   (`build`, `review`, ...) still come only from the kit; every other name is the product's
   first, then the kit's, then a vendor skill.
 - The prompt adds the pattern skills a ticket's type needs when the ticket does not list them:
-  `frontend` gets `frontend-patterns`, `backend` gets `backend-patterns`, `fullstack` both.
+  `frontend` gets `frontend-patterns`, `backend` gets `backend-patterns`, `fullstack` both, when
+  the product has its own copy (the kit's unfilled template is never added).
 - `sdlc prompt review --pr N [--base B]` assembles the review of a lead PR (one that moves no
   ticket): its HEAD and merge base, its files marked against the lead write set, the product's
   pattern skills, and the record to write (`.sdlc-run/lead-review-<N>.md`, `ticket:` empty).

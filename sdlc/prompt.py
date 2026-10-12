@@ -69,7 +69,7 @@ def _ticket_context(cfg: Config, repo: Repo, t: Ticket, play: str) -> list[str]:
         out.append(_section("Shared modules (import these; never re-implement them)", shared))
     if t.type in ("frontend", "fullstack"):
         out.extend(_design_context(cfg, repo, t))
-    for s in ticket_skills(t):
+    for s in ticket_skills(cfg, t):
         # The prompt already carries its own play skill; another play's would contradict it
         # (a ticket listing `build` put build's instructions into the test play).
         if s in TICKET_PLAYS:
@@ -90,11 +90,13 @@ TYPE_SKILLS = {"frontend": ("frontend-patterns",), "backend": ("backend-patterns
                "fullstack": ("frontend-patterns", "backend-patterns")}
 
 
-def ticket_skills(t: Ticket) -> list[str]:
+def ticket_skills(cfg: Config, t: Ticket) -> list[str]:
     """The skills the ticket lists, then the pattern skills its type needs that it left out:
-    a product's conventions reach every agent whether or not the ticket's author named them."""
+    a product's conventions reach every agent whether or not the ticket's author named them.
+    Only a product's own copy is added: the kit's unfilled template would read as rules."""
     out = list(t.skills)
-    return out + [s for s in TYPE_SKILLS.get(t.type, ()) if s not in out]
+    return out + [s for s in TYPE_SKILLS.get(t.type, ())
+                  if s not in out and (cfg.path("skills") / s / "SKILL.md").is_file()]
 
 
 def _lead_pr_context(cfg: Config, n: int, base: str) -> list[str]:
@@ -117,7 +119,8 @@ def _lead_pr_context(cfg: Config, n: int, base: str) -> list[str]:
              for f in changed] or ["- (none)"]
     out = [_section(f"Lead PR #{n}",
                     f"The PR moves no ticket, so the lead wrote or asked for it. You review it as described "
-                    f"under **Lead PRs** in your play skill.\n\n- HEAD: `{head}`\n- BASE: `{mb}` "
+                    f"under **Lead PRs** in your play skill. This HEAD must be PR #{n}'s head: if it is not, "
+                    f"stop and say so (the approval only counts a record for the PR's head).\n\n- HEAD: `{head}`\n- BASE: `{mb}` "
                     f"(merge base with `{base}`)\n- Diff: `git diff {mb} {head}`\n\n"
                     f"### Files this PR changed (open every one)\n\n" + "\n".join(files))]
     for s in ("frontend-patterns", "backend-patterns"):
@@ -125,7 +128,7 @@ def _lead_pr_context(cfg: Config, n: int, base: str) -> list[str]:
         if p.is_file():
             out.append(_section(f"Product conventions: {s} ({cfg.rel(p)})", _body(p)))
     rec = f".sdlc-run/lead-review-{n}.md"
-    out.append(_section("Write set (the gate rejects anything else)", f"- `{rec}` (the review record; nothing in the repository)"))
+    out.append(_section("Write set (write only this)", f"- `{rec}` (the review record; nothing in the repository)"))
     out.append(_section("Definition of done",
                         f"1. Run `sdlc gate pr --base {base}` and `sdlc lint`; quote each verdict line under "
                         "**What I verified**.\n"

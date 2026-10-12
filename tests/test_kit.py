@@ -163,6 +163,14 @@ class KitConsistency(unittest.TestCase):
         text = prompt.render(config.load(p.root), "build", "T-042-02")
         self.assertEqual(text.count("## Skill: frontend-patterns"), 1, "a listed skill is not added twice")
         self.assertLess(text.index("## Skill: frontend-patterns"), text.index("## Skill: backend-patterns"))
+        # A product without its own copy gets nothing added: the kit's unfilled template is not rules.
+        import shutil
+
+        shutil.rmtree(p.root / "skills" / "backend-patterns")
+        p.write(rel, bare.replace("type: frontend", "type: backend", 1))
+        text = prompt.render(config.load(p.root), "build", "T-042-02")
+        self.assertNotIn("## Skill: backend-patterns", text)
+        self.assertNotIn("fill in during the first /architect", text)
 
     def test_init_scaffolds_a_product_that_doctor_explains(self) -> None:
         import contextlib
