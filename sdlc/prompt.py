@@ -100,14 +100,19 @@ def ticket_skills(t: Ticket) -> list[str]:
 def _lead_pr_context(cfg: Config, n: int, base: str) -> list[str]:
     """A PR that moves no ticket: its range, its files against the lead write set, the
     product's pattern skills, and where the record goes (the review skill's Lead PRs section)."""
+    from .config import CONFIG_NAME, load
     from .gate import _glob, lead_write_set
 
     try:
         head, mb = gitutil.git(cfg.root, "rev-parse", "HEAD").strip(), gitutil.merge_base(cfg.root, base)
-        changed = gitutil.changed_files(cfg.root, base)
+        # The committed range only, matching the diff the reviewer is given.
+        changed = sorted(gitutil._paths(gitutil.git(cfg.root, "diff", "--name-only", "-z", "--no-renames",
+                                                    "--relative", mb, head)))
     except gitutil.GitError as e:
         raise SystemExit(f"review --pr {n}: {e}") from None
-    allowed = lead_write_set(cfg)
+    # Like `gate pr`, judge lead ownership by the base's config: the PR could widen lead_allowed.
+    committed = gitutil.show(cfg.root, mb, "./" + CONFIG_NAME)
+    allowed = lead_write_set(load(cfg.root, text=committed) if committed is not None else cfg)
     files = [f"- `{f}`" + ("" if any(_glob(f, g) for g in allowed) else " **(not lead-owned: needs a ticket)**")
              for f in changed] or ["- (none)"]
     out = [_section(f"Lead PR #{n}",

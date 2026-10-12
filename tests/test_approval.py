@@ -246,8 +246,10 @@ class LeadPRs(Base):
         git(self.p.root, "checkout", "-q", "-b", "lead/docs")
         self.p.write("docs/runbook.md", "# Runbook\n")
         self.p.write("app/sneaky.py", "X = 1\n")
-        self.p.write("sdlc.toml", self.p.read("sdlc.toml") + "\n# a comment\n")
+        # The PR widening lead_allowed does not make its own code lead-owned: the base's config decides.
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace("[approval]", '[scope]\nlead_allowed = ["app/**"]\n\n[approval]', 1))
         self.p.commit("lead: runbook")
+        self.p.write("app/uncommitted.py", "Y = 2\n")  # not in the reviewed range
         head = git(self.p.root, "rev-parse", "HEAD").strip()
         code, text = self.p.sdlc("prompt", "review", "--pr", "7", "--base", "main", "--stdout")
         self.assertEqual(code, 0, text)
@@ -259,6 +261,7 @@ class LeadPRs(Base):
                      "`sdlc gate pr --base main`", "`sdlc review publish --pr 7`"):
             self.assertIn(want, text)
         self.assertNotIn("## Ticket ", text)
+        self.assertNotIn("uncommitted.py", text)
         code, out = self.p.sdlc("prompt", "review", "--pr", "7", "--base", "main")
         self.assertEqual((code, out.strip()), (0, ".sdlc-run/prompts/review-pr-7.md"))
         self.assertIn("# sdlc play: REVIEW lead PR #7", self.p.read(".sdlc-run/prompts/review-pr-7.md"))
