@@ -308,11 +308,34 @@ def _records(cfg: Config) -> bool:
     return approval.records_mode(cfg)
 
 
+def _no_test_evidence_needed(cfg: Config, t: Ticket, build: Path) -> str:
+    """Why the gate approves this ticket without test evidence, or "" when it requires it
+    (gate._evidence_problems: a test play, a build outside the mechanical lane, and a
+    non-empty tests.real_stack; the gate refuses approval outright when none of its suites
+    is configured)."""
+    from .gate import real_stack_suites
+
+    if not t.test_play:
+        return t.no_test_play_reason
+    if build.is_file() and json.loads(build.read_text(encoding="utf-8")).get("lane") == "mechanical":
+        return "a mechanical build: its full suite is the proof"
+    if not real_stack_suites(cfg):
+        return "tests.real_stack = []: the lead accepted unit-only proof"
+    return ""
+
+
 def _evidence(cfg: Config, t: Ticket) -> str:
     rows, latest = [], ""
+    # Records mode keeps evidence in CI and the local run directory, never in the tree.
+    where = cfg.root / ".sdlc-run" if _records(cfg) else cfg.path("evidence")
     for play in ("build", "test"):
-        # Records mode keeps evidence in CI and the local run directory, never in the tree.
-        p = (cfg.root / ".sdlc-run" if _records(cfg) else cfg.path("evidence")) / f"{t.id}.{play}.json"
+        p = where / f"{t.id}.{play}.json"
+        why = _no_test_evidence_needed(cfg, t, where / f"{t.id}.build.json") if play == "test" else ""
+        if why and not p.is_file():
+            # Matches the gate: it approves this ticket without test evidence.
+            rows.append(f"### test\n\nNo test evidence needed ({why}): the build evidence is the proof. "
+                        "Do not ask for a test play or test evidence.")
+            continue
         if not p.is_file():
             rows.append(f"### {play}\n\nNo {play} evidence at `{cfg.rel(p)}`."
                         + (" Verdict must be request_changes." if play == "build" else ""))

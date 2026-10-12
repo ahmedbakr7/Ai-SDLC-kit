@@ -78,6 +78,15 @@ class Ticket:
         return self.real_stack_proof and self.type != "test"
 
     @property
+    def no_test_play_reason(self) -> str:
+        """Why `test_play` is false, in words for prompts and refusals."""
+        if str(self.data.get("test", "required")) == "none":
+            return "marked test: none"
+        if self.type == "spike":
+            return "a spike: it delivers findings, not behaviour"
+        return "a test ticket: its build ran the real-stack suites"
+
+    @property
     def lane(self) -> str:
         """The lane the ticket declares, or the default its risk and type imply. The gate may
         still raise it from the diff (lanes.resolve)."""

@@ -18,9 +18,13 @@ every check, AC -> test mapping) in your prompt. Read the diff yourself:
 ## Procedure
 
 1. **Gate.** If the build or test evidence is not `pass`, is from a dirty tree, or the
-   test evidence predates the latest build: `request_changes`. Stop reviewing. When the
-   product configures `commands.integration` or `commands.e2e`, missing test evidence
-   counts too: the test play has not run, and the gate rejects an approval without it.
+   test evidence predates the latest build: `request_changes`. Stop reviewing. Missing test
+   evidence counts too when the gate requires it: the ticket has a test play, its build was
+   not in the mechanical lane, and `tests.real_stack` is not empty. Then the test play has
+   not run, and the gate rejects an approval without it. Otherwise (a ticket marked
+   `test: none`, a `type: test` ticket, a spike, a mechanical build, or
+   `tests.real_stack = []`) the prompt says "No test evidence needed"; the build evidence
+   is the proof, so never ask for test evidence.
 2. **AC by AC.** For each AC, open the test the evidence names and answer: would this
    test fail if the behaviour broke? Reject proof that:
    - asserts on source text, class names or snapshots of markup instead of behaviour;

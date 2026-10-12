@@ -192,6 +192,89 @@ class KitConsistency(unittest.TestCase):
                 text = prompt.render(config.load(p.root), "build", "T-042-02")
                 self.assertEqual("## Skill: backend-patterns" in text, added)
 
+    def test_a_review_prompt_does_not_ask_for_a_test_play_the_ticket_has_none_of(self) -> None:
+        # Pilot (T-001-35): a `test: none` ticket's reviewer read "No test evidence" and the
+        # skill's rule, and asked for a test play the runner refuses to start.
+        from helpers import ProductRepo
+        from sdlc import prompt
+
+        p = ProductRepo()
+        self.addCleanup(p.close)
+        rel = "tickets/T-042-02-order-page.md"
+        text = prompt.render(config.load(p.root), "review", "T-042-02")
+        self.assertIn("No test evidence at", text)
+        self.assertNotIn("No test evidence needed (", text)
+        listed, toml = p.read(rel), p.read("sdlc.toml")
+        for change, why in ((("risk: low", "risk: low\ntest: none"), "marked test: none"),
+                            (("type: frontend", "type: spike"), "a spike"),
+                            (("type: frontend", "type: test"), "a test ticket"),
+                            (("type: frontend", "type: test\ntest: none"), "marked test: none")):
+            with self.subTest(why=why, change=change):
+                p.write(rel, listed.replace(*change, 1))
+                text = prompt.render(config.load(p.root), "review", "T-042-02")
+                self.assertIn(f"No test evidence needed ({why}", text)
+                self.assertIn("Do not ask for a test play", text)
+                self.assertNotIn("No test evidence at", text)
+                self.assertIn("No build evidence at", text)  # the build's proof is still required
+        p.write(rel, listed)
+        # The gate's other two exemptions (gate._evidence_problems): a mechanical build, and a
+        # product whose lead set tests.real_stack = [].
+        self.assertIn("[tests]\n", toml)
+        p.write("sdlc.toml", toml.replace("[tests]\n", "[tests]\nreal_stack = []\n", 1))
+        text = prompt.render(config.load(p.root), "review", "T-042-02")
+        self.assertIn("No test evidence needed (tests.real_stack = []", text)
+        p.write("sdlc.toml", toml)
+        cfg = config.load(p.root)
+        where = p.root / ".sdlc-run" if prompt._records(cfg) else cfg.path("evidence")
+        for lane, needed in (("standard", False), ("mechanical", True)):
+            with self.subTest(lane=lane):
+                p.write(cfg.rel(where / "T-042-02.build.json"),
+                        json.dumps({"result": "pass", "commit": "abc", "lane": lane, "checks": []}))
+                text = prompt.render(config.load(p.root), "review", "T-042-02")
+                self.assertEqual("No test evidence needed (a mechanical build" in text, needed)
+                self.assertEqual("No test evidence at" in text, not needed)
+
+    def test_the_runner_names_why_a_ticket_has_no_test_play(self) -> None:
+        from helpers import ProductRepo
+        from sdlc import run
+
+        p = ProductRepo()
+        self.addCleanup(p.close)
+        rel = "tickets/T-042-02-order-page.md"
+        listed = p.read(rel).replace("status: ready", "status: in_review", 1)
+        for change, why in ((("risk: low", "risk: low\ntest: none"), "marked test: none"),
+                            (("type: frontend", "type: spike"), "a spike"),
+                            (("type: frontend", "type: test"), "a test ticket")):
+            with self.subTest(why=why):
+                p.write(rel, listed.replace(*change, 1))
+                p.commit(why)
+                with self.assertRaises(SystemExit) as e:
+                    run.run(config.load(p.root), "test", "T-042-02", "fake", 1, None, dry_run=True)
+                self.assertIn(f"T-042-02 has no test play ({why}", str(e.exception.code))
+
+    def test_extra_takes_a_file_and_says_so(self) -> None:
+        import contextlib
+        import io
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), self.assertRaises(SystemExit) as e:
+            cli.main(["--root", str(EXAMPLE), "prompt", "build", "T-042-02", "--stdout",
+                      "--extra", "fix the date format"])
+        self.assertIn("--extra 'fix the date format': No such file or directory (it takes the path of a file",
+                      str(e.exception.code))
+        with tempfile.TemporaryDirectory() as d:
+            bad = Path(d) / "extra.bin"
+            bad.write_bytes(b"\xff\xfe\x00")
+            with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(SystemExit) as e:
+                cli.main(["--root", str(EXAMPLE), "prompt", "build", "T-042-02", "--stdout", "--extra", str(bad)])
+            self.assertEqual(f"--extra {str(bad)!r}: not UTF-8 text", e.exception.code)
+        for args in (["prompt", "-h"], ["run", "-h"]):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out), self.assertRaises(SystemExit):
+                cli.main(args)
+            self.assertIn("--extra FILE", out.getvalue())
+            self.assertIn("path to a file whose text is appended", " ".join(out.getvalue().split()))
+
     def test_init_scaffolds_a_product_that_doctor_explains(self) -> None:
         import contextlib
         import io
