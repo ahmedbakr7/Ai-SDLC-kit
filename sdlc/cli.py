@@ -109,6 +109,8 @@ def _extra(path: str | None) -> str:
     except OSError as e:
         raise SystemExit(f"--extra {path!r}: {e.strerror or e} (it takes the path of a file whose text is "
                          "appended to the prompt, not the text itself)") from None
+    except UnicodeDecodeError:
+        raise SystemExit(f"--extra {path!r}: not UTF-8 text") from None
 
 
 def cmd_prompt(args) -> int:

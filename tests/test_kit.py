@@ -226,6 +226,12 @@ class KitConsistency(unittest.TestCase):
                       "--extra", "fix the date format"])
         self.assertIn("--extra 'fix the date format': No such file or directory (it takes the path of a file",
                       str(e.exception.code))
+        with tempfile.TemporaryDirectory() as d:
+            bad = Path(d) / "extra.bin"
+            bad.write_bytes(b"\xff\xfe\x00")
+            with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(SystemExit) as e:
+                cli.main(["--root", str(EXAMPLE), "prompt", "build", "T-042-02", "--stdout", "--extra", str(bad)])
+            self.assertEqual(f"--extra {str(bad)!r}: not UTF-8 text", e.exception.code)
         for args in (["prompt", "-h"], ["run", "-h"]):
             out = io.StringIO()
             with contextlib.redirect_stdout(out), self.assertRaises(SystemExit):

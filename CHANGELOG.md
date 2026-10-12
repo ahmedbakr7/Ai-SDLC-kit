@@ -18,7 +18,7 @@ From the Hangout pilot (T-001-35). PATCH: a review skill and prompt that contrad
   now states the exemption, and the prompt says "No test play (<reason>)" for those tickets.
   `sdlc run test` names a spike as a spike in its refusal.
 - `--extra` on `sdlc prompt` and `sdlc run` takes a file path: `--help` now says so, and a path
-  that cannot be read is a one-line error instead of a traceback.
+  that cannot be read, or is not UTF-8 text, is a one-line error instead of a traceback.
 
 ## v3.2.0 (2026-10-12)
 
