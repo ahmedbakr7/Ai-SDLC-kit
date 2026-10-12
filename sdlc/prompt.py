@@ -98,14 +98,37 @@ def ticket_skills(cfg: Config, t: Ticket) -> list[str]:
     return out + [s for s in TYPE_SKILLS.get(t.type, ()) if s not in out and _filled(cfg, s)]
 
 
+UNFILLED = "(fill in during the first /architect"
+
+
 def _filled(cfg: Config, s: str, text: str | None = None) -> bool:
-    """The product has its own `s` skill (`text`, else the file on disk) and it is not the kit's
-    template unchanged, as `sdlc init` copies it."""
+    """The product has its own `s` skill (`text`, else the file on disk) and has filled it in.
+    A copy `sdlc init` made, from this kit version or an older one, keeps the template's
+    heading and its tables' blank value cells until someone fills a row in."""
     if text is None:
         p = cfg.path("skills") / s / "SKILL.md"
         text = p.read_text(encoding="utf-8") if p.is_file() else None
+    if text is None:
+        return False
     tpl = KIT_ROOT / "skills" / s / "SKILL.md"
-    return text is not None and not (tpl.is_file() and text == tpl.read_text(encoding="utf-8"))
+    if tpl.is_file() and text == tpl.read_text(encoding="utf-8"):
+        return False
+    return UNFILLED not in text or _has_table_value(text)
+
+
+def _has_table_value(text: str) -> bool:
+    """Any markdown table row, other than a header or separator, with a value after its first cell."""
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        cells = [c.strip() for c in line.strip().strip("|").split("|")] if line.lstrip().startswith("|") else []
+        if len(cells) < 2 or all(set(c) <= set("-: ") for c in cells):
+            continue
+        nxt = lines[i + 1].strip().strip("|") if i + 1 < len(lines) else ""
+        if nxt and set(nxt) <= set("-:| "):
+            continue  # a header row
+        if any(cells[1:]):
+            return True
+    return False
 
 
 def _lead_pr_context(cfg: Config, n: int, base: str) -> list[str]:
@@ -122,7 +145,8 @@ def _lead_pr_context(cfg: Config, n: int, base: str) -> list[str]:
         raise SystemExit(f"review --pr {n}: {e}") from None
     # Like `gate pr`, judge lead ownership by the base's config: the PR could widen lead_allowed.
     committed = gitutil.show(cfg.root, mb, "./" + CONFIG_NAME)
-    allowed = lead_write_set(load(cfg.root, text=committed) if committed is not None else cfg)
+    base_cfg = load(cfg.root, text=committed) if committed is not None else cfg
+    allowed = lead_write_set(base_cfg)
     files = [f"- `{f}`" + ("" if any(_glob(f, g) for g in allowed) else " **(not lead-owned: needs a ticket)**")
              for f in changed] or ["- (none)"]
     out = [_section(f"Lead PR #{n}",
@@ -133,7 +157,7 @@ def _lead_pr_context(cfg: Config, n: int, base: str) -> list[str]:
                     f"### Files this PR changed (open every one)\n\n" + "\n".join(files))]
     # The base's conventions, like its config: a PR that edits them is judged against the old ones.
     for s in ("frontend-patterns", "backend-patterns"):
-        rel = cfg.rel(cfg.path("skills") / s / "SKILL.md")
+        rel = base_cfg.rel(base_cfg.path("skills") / s / "SKILL.md")
         text = gitutil.show(cfg.root, mb, "./" + rel)
         if text is not None and _filled(cfg, s, text):
             note = (f"\n\nThis PR changes `{rel}`: judge the change against the accepted ADRs; the "

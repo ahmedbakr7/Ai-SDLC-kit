@@ -250,7 +250,9 @@ class LeadPRs(Base):
         self.p.write(fe, self.p.read(fe).replace("# Frontend patterns (locked by ADR-0001)",
                                                  "# Frontend patterns (locked by ADR-0001)\n\nPR-EDITED RULE", 1))
         # The PR widening lead_allowed does not make its own code lead-owned: the base's config decides.
-        self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace("[approval]", '[scope]\nlead_allowed = ["app/**"]\n\n[approval]', 1))
+        # Moving paths.skills does not hide the base's conventions either.
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace(
+            "[approval]", '[scope]\nlead_allowed = ["app/**"]\n\n[paths]\nskills = "moved-skills"\n\n[approval]', 1))
         self.p.commit("lead: runbook")
         self.p.write("app/uncommitted.py", "Y = 2\n")  # not in the reviewed range
         head = git(self.p.root, "rev-parse", "HEAD").strip()

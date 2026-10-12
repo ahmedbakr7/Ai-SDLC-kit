@@ -177,6 +177,20 @@ class KitConsistency(unittest.TestCase):
                 self.assertNotIn("## Skill: backend-patterns", text)
                 self.assertNotIn("## Skill: frontend-patterns", text)
                 self.assertNotIn("fill in during the first /architect", text)
+        # An untouched copy from an older kit (v3.1.0: no Conventions section) is unfilled too;
+        # one filled row makes it the product's rules.
+        import re as _re
+
+        tpl = (KIT / "skills" / "backend-patterns" / "SKILL.md").read_text(encoding="utf-8")
+        old_copy = _re.sub(r"## Conventions\n.*?(?=\n## )", "", tpl, flags=_re.S)
+        self.assertNotEqual(old_copy, tpl)
+        p.write(rel, bare.replace("type: frontend", "type: backend", 1))
+        for copy, added in ((old_copy, False), (old_copy.replace("| Routing / handlers | | |",
+                                                                  "| Routing / handlers | one router | `app/router.py` |"), True)):
+            with self.subTest(added=added):
+                p.write("skills/backend-patterns/SKILL.md", copy)
+                text = prompt.render(config.load(p.root), "build", "T-042-02")
+                self.assertEqual("## Skill: backend-patterns" in text, added)
 
     def test_init_scaffolds_a_product_that_doctor_explains(self) -> None:
         import contextlib
