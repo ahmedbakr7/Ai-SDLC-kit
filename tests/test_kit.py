@@ -166,11 +166,17 @@ class KitConsistency(unittest.TestCase):
         # A product without its own copy gets nothing added: the kit's unfilled template is not rules.
         import shutil
 
-        shutil.rmtree(p.root / "skills" / "backend-patterns")
         p.write(rel, bare.replace("type: frontend", "type: backend", 1))
-        text = prompt.render(config.load(p.root), "build", "T-042-02")
-        self.assertNotIn("## Skill: backend-patterns", text)
-        self.assertNotIn("fill in during the first /architect", text)
+        # `sdlc init` copies the kit's template into the product; unchanged, it is not rules either.
+        shutil.copy(KIT / "skills" / "backend-patterns" / "SKILL.md", p.root / "skills" / "backend-patterns" / "SKILL.md")
+        shutil.rmtree(p.root / "skills" / "frontend-patterns")
+        for kind in ("backend", "fullstack"):
+            with self.subTest(unfilled=kind):
+                p.write(rel, bare.replace("type: frontend", f"type: {kind}", 1))
+                text = prompt.render(config.load(p.root), "build", "T-042-02")
+                self.assertNotIn("## Skill: backend-patterns", text)
+                self.assertNotIn("## Skill: frontend-patterns", text)
+                self.assertNotIn("fill in during the first /architect", text)
 
     def test_init_scaffolds_a_product_that_doctor_explains(self) -> None:
         import contextlib

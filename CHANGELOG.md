@@ -18,10 +18,11 @@ that passes on v3.1.0.
   first, then the kit's, then a vendor skill.
 - The prompt adds the pattern skills a ticket's type needs when the ticket does not list them:
   `frontend` gets `frontend-patterns`, `backend` gets `backend-patterns`, `fullstack` both, when
-  the product has its own copy (the kit's unfilled template is never added).
+  the product has filled in its own copy (a copy still identical to the kit's template is not
+  added).
 - `sdlc prompt review --pr N [--base B]` assembles the review of a lead PR (one that moves no
-  ticket): its HEAD and merge base, its files marked against the lead write set, the product's
-  pattern skills, and the record to write (`.sdlc-run/lead-review-<N>.md`, `ticket:` empty).
+  ticket): its HEAD and merge base, its files marked against the base's lead write set, the
+  base's pattern skills, and the record to write (`.sdlc-run/lead-review-<N>.md`, `ticket:` empty).
   `sdlc review publish --pr N` without a ticket publishes that record. The review skill has a
   **Lead PRs** section.
 - The pattern skill templates gain a short **Conventions** section: where new things go, "use,

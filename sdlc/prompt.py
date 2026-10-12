@@ -93,10 +93,19 @@ TYPE_SKILLS = {"frontend": ("frontend-patterns",), "backend": ("backend-patterns
 def ticket_skills(cfg: Config, t: Ticket) -> list[str]:
     """The skills the ticket lists, then the pattern skills its type needs that it left out:
     a product's conventions reach every agent whether or not the ticket's author named them.
-    Only a product's own copy is added: the kit's unfilled template would read as rules."""
+    Only a product's filled-in copy is added: the kit's unfilled template would read as rules."""
     out = list(t.skills)
-    return out + [s for s in TYPE_SKILLS.get(t.type, ())
-                  if s not in out and (cfg.path("skills") / s / "SKILL.md").is_file()]
+    return out + [s for s in TYPE_SKILLS.get(t.type, ()) if s not in out and _filled(cfg, s)]
+
+
+def _filled(cfg: Config, s: str, text: str | None = None) -> bool:
+    """The product has its own `s` skill (`text`, else the file on disk) and it is not the kit's
+    template unchanged, as `sdlc init` copies it."""
+    if text is None:
+        p = cfg.path("skills") / s / "SKILL.md"
+        text = p.read_text(encoding="utf-8") if p.is_file() else None
+    tpl = KIT_ROOT / "skills" / s / "SKILL.md"
+    return text is not None and not (tpl.is_file() and text == tpl.read_text(encoding="utf-8"))
 
 
 def _lead_pr_context(cfg: Config, n: int, base: str) -> list[str]:
@@ -108,8 +117,7 @@ def _lead_pr_context(cfg: Config, n: int, base: str) -> list[str]:
     try:
         head, mb = gitutil.git(cfg.root, "rev-parse", "HEAD").strip(), gitutil.merge_base(cfg.root, base)
         # The committed range only, matching the diff the reviewer is given.
-        changed = sorted(gitutil._paths(gitutil.git(cfg.root, "diff", "--name-only", "-z", "--no-renames",
-                                                    "--relative", mb, head)))
+        changed = gitutil.committed_between(cfg.root, mb, head)
     except gitutil.GitError as e:
         raise SystemExit(f"review --pr {n}: {e}") from None
     # Like `gate pr`, judge lead ownership by the base's config: the PR could widen lead_allowed.
@@ -123,10 +131,14 @@ def _lead_pr_context(cfg: Config, n: int, base: str) -> list[str]:
                     f"stop and say so (the approval only counts a record for the PR's head).\n\n- HEAD: `{head}`\n- BASE: `{mb}` "
                     f"(merge base with `{base}`)\n- Diff: `git diff {mb} {head}`\n\n"
                     f"### Files this PR changed (open every one)\n\n" + "\n".join(files))]
+    # The base's conventions, like its config: a PR that edits them is judged against the old ones.
     for s in ("frontend-patterns", "backend-patterns"):
-        p = cfg.path("skills") / s / "SKILL.md"
-        if p.is_file():
-            out.append(_section(f"Product conventions: {s} ({cfg.rel(p)})", _body(p)))
+        rel = cfg.rel(cfg.path("skills") / s / "SKILL.md")
+        text = gitutil.show(cfg.root, mb, "./" + rel)
+        if text is not None and _filled(cfg, s, text):
+            note = (f"\n\nThis PR changes `{rel}`: judge the change against the accepted ADRs; the "
+                    "conventions above are the base's." if rel in changed else "")
+            out.append(_section(f"Product conventions on {base}: {s} ({rel})", fm.split(text)[1].strip() + note))
     rec = f".sdlc-run/lead-review-{n}.md"
     out.append(_section("Write set (write only this)", f"- `{rec}` (the review record; nothing in the repository)"))
     out.append(_section("Definition of done",

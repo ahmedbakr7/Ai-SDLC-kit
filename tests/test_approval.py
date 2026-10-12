@@ -246,6 +246,9 @@ class LeadPRs(Base):
         git(self.p.root, "checkout", "-q", "-b", "lead/docs")
         self.p.write("docs/runbook.md", "# Runbook\n")
         self.p.write("app/sneaky.py", "X = 1\n")
+        fe = "skills/frontend-patterns/SKILL.md"
+        self.p.write(fe, self.p.read(fe).replace("# Frontend patterns (locked by ADR-0001)",
+                                                 "# Frontend patterns (locked by ADR-0001)\n\nPR-EDITED RULE", 1))
         # The PR widening lead_allowed does not make its own code lead-owned: the base's config decides.
         self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace("[approval]", '[scope]\nlead_allowed = ["app/**"]\n\n[approval]', 1))
         self.p.commit("lead: runbook")
@@ -255,13 +258,16 @@ class LeadPRs(Base):
         self.assertEqual(code, 0, text)
         for want in ("# sdlc play: REVIEW lead PR #7", "## Play skill: review", "## Lead PRs", f"- HEAD: `{head}`",
                      f"- BASE: `{mb}`", f"`git diff {mb} {head}`", "- `app/sneaky.py` **(not lead-owned: needs a ticket)**",
-                     "- `docs/runbook.md` **(not lead-owned", "- `sdlc.toml`\n", "## Product conventions: frontend-patterns",
-                     "# Frontend patterns (locked by ADR-0001)", "## Product conventions: backend-patterns",
+                     "- `docs/runbook.md` **(not lead-owned", "- `sdlc.toml`\n", "## Product conventions on main: frontend-patterns",
+                     "# Frontend patterns (locked by ADR-0001)", "## Product conventions on main: backend-patterns",
+                     "This PR changes `skills/frontend-patterns/SKILL.md`",
                      "`.sdlc-run/lead-review-7.md`", f"`commit: {head}`", "`ticket:` left empty",
                      "`sdlc gate pr --base main`", "`sdlc review publish --pr 7`"):
             self.assertIn(want, text)
         self.assertNotIn("## Ticket ", text)
         self.assertNotIn("uncommitted.py", text)
+        self.assertNotIn("PR-EDITED RULE", text)  # the base's conventions, not the PR's
+        self.assertEqual(text.count("This PR changes"), 1)
         self.assertIn("This HEAD must be PR #7's head", text)
         code, out = self.p.sdlc("prompt", "review", "--pr", "7", "--base", "nope", "--stdout")
         self.assertNotEqual(code, 0)
