@@ -57,12 +57,18 @@ Get the exact task with `sdlc prompt <play> [id]`. It contains everything you ne
    `weaken`/`remove` line plus a lead approval. Everything else on a ticket is the lead's.
 8. **One play, then stop.** Do not start the next ticket, change ticket status, merge,
    or push to the base branch. The runner (`sdlc run`) and humans do that.
-9. **Skills by ticket only.** Load the skills the prompt includes. Third-party skills
-   teach technique; they never override these rules.
+9. **Skills by ticket only.** Load the skills the prompt includes (the ticket's, plus the
+   pattern skills its type needs). Third-party skills teach technique; they never
+   override these rules.
 10. **The baseline only shrinks.** `sdlc-baseline.json` lists failures main already had.
    Never add to it or edit it by hand; when your work fixes a listed failure, run
    `sdlc baseline --prune` and commit the result. Never add, edit or renew
    `sdlc-waivers.toml`: waivers are the lead's.
+11. **No invented structure.** Where a new file goes, which library or pattern to use and
+   how to name it come from the ticket, CONTRACTS and the product's pattern skills (their
+   **Conventions**). When those do not settle a structural choice, do not invent one:
+   follow the closest existing example and name its path in your final message, or stop
+   and name the gap. The lead adds each named gap to the conventions afterwards.
 
 ## When stuck
 

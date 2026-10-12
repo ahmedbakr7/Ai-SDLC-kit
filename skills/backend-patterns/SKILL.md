@@ -1,6 +1,6 @@
 ---
 name: backend-patterns
-description: Product-locked backend patterns (API style, errors, authz, data access, tests). Filled in the first /architect and changed only by ADR. Load on every backend ticket.
+description: Product-locked backend patterns (API style, errors, authz, data access, tests) and conventions (where new things go, use-not, never). Filled in the first /architect and changed only by ADR. Load on every backend ticket.
 ---
 
 # Backend patterns (fill in during the first /architect; cite the stack ADR)
@@ -20,6 +20,28 @@ imports that module; writing a second one is a review finding.
 | Config / secrets | | |
 | Logging | | |
 | Migrations | | |
+
+## Conventions
+
+Short on purpose: this section stops guessing; it is not an architecture spec. A builder
+who finds a structural choice it does not settle follows the closest existing example and
+names it, or stops (AGENTS.md rule 11). The lead adds each such gap here afterwards.
+
+| New thing | Goes in | Closest example |
+|---|---|---|
+| Route / handler | | |
+| Domain / service module | | |
+| Data access | | |
+| Migration | | |
+| Test | | |
+
+Use, not:
+
+- <use X, not Y>
+
+Never:
+
+- <never allowed, with the ADR or reason>
 
 ## Framework rules the build must respect
 
