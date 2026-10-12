@@ -70,6 +70,7 @@ it never trusts committed evidence on its own.
 | `sdlc lint` / `sdlc trace` | validate artifacts; requirement → ticket → AC → passing test matrix |
 | `sdlc next` | the next ticket whose dependencies are done |
 | `sdlc prompt build T-001-03` | the exact, complete prompt for a play: rules, skill, ticket, cited requirements and contracts, write set, definition of done |
+| `sdlc prompt review --pr N` | the review prompt for a lead PR (one that moves no ticket) |
 | `sdlc gate build T-001-03` | run every check for the play; write evidence |
 | `sdlc gate pr [T-001-03]` | CI: judge a ticket's whole branch (write sets, status moves, the ticket is reviewed and `done`, the approval covers what merges); without an id it finds the ticket the branch moves, or reports code changed without one |
 | `sdlc run build T-001-03 --agent X` | branch → status → prompt → agent → commit → gate → retry with the failures → evidence → `in_review` |
@@ -79,7 +80,7 @@ it never trusts committed evidence on its own.
 | `sdlc routes` | list routes: declared and built, built but undeclared, declared but not built |
 | `sdlc migrate` | upgrade v0.x tickets (number acceptance criteria) |
 | `sdlc approval [--pr N]` | CI (`[approval] mode = forge` or `git`): an approval covers the PR's head for every role its lane needs |
-| `sdlc review publish T-001-03 [--pr N]` | publish the review agent's record: a PR comment (forge) or a note on the reviewed commit (git) |
+| `sdlc review publish T-001-03 [--pr N]` | publish the review agent's record: a PR comment (forge) or a note on the reviewed commit (git); `review publish --pr N` alone publishes a lead PR's record |
 | `sdlc commit T-001-03 -m "..." --agent NAME --play build` | commit with the `Sdlc-Agent`, `Sdlc-Play` and `Sdlc-Ticket` trailers the approval and derived status read |
 | `sdlc followups --pr N` | draft tickets from an approval's `[follow-up]` findings |
 | `sdlc baseline [--prune]` | record the failures a red base branch already has; gates and `trace` then fail only on new ones, and the file only shrinks |

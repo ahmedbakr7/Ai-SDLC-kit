@@ -103,11 +103,12 @@ def cmd_status(args) -> int:
 def cmd_prompt(args) -> int:
     cfg = _cfg(args)
     extra = Path(args.extra).read_text(encoding="utf-8") if args.extra else ""
-    text = prompt.render(cfg, args.play, args.ticket, extra=extra)
+    text = prompt.render(cfg, args.play, args.ticket, extra=extra, pr=args.pr, base=args.base)
     if args.stdout:
         sys.stdout.write(text)
     else:
-        print(cfg.rel(prompt.write(cfg, args.play, args.ticket, text)))
+        name = args.ticket or (f"pr-{args.pr}" if args.pr is not None else None)
+        print(cfg.rel(prompt.write(cfg, args.play, name, text)))
     return 0
 
 
@@ -300,13 +301,16 @@ def cmd_review(args) -> int:
     from . import approval, gitutil
 
     cfg = _cfg(args)
-    p = cfg.root / ".sdlc-run" / f"review-{args.ticket}.md"
+    if not args.ticket and not args.pr:
+        raise SystemExit("review publish: pass a ticket id, or --pr N for a lead PR's record")
+    p = cfg.root / ".sdlc-run" / (f"review-{args.ticket}.md" if args.ticket else f"lead-review-{args.pr}.md")
     if not p.is_file():
         raise SystemExit(f"no review record at {cfg.rel(p)}; run the review play first")
     text = p.read_text(encoding="utf-8")
     d = approval.parse(text)
-    if d is None or str(d.get("ticket", "")) != args.ticket:
-        raise SystemExit(f"{cfg.rel(p)} is not an approval record for {args.ticket}")
+    want = args.ticket or ""
+    if d is None or str(d.get("ticket") or "") != want:
+        raise SystemExit(f"{cfg.rel(p)} is not an approval record for " + (want or f"lead PR #{args.pr} (ticket: empty)"))
     m = approval.mode(cfg)
     if m == "forge":
         n = approval.pr_number(args.pr)
@@ -722,6 +726,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("play")
     p.add_argument("ticket", nargs="?")
     p.add_argument("--extra", help="file with extra lead instructions")
+    p.add_argument("--pr", type=int, help="review: the lead PR (moves no ticket) to review instead of a ticket")
+    p.add_argument("--base", help="--pr: base branch (default vcs.base)")
     p.add_argument("--stdout", action="store_true")
     p.set_defaults(fn=cmd_prompt)
 
@@ -774,7 +780,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sp.add_parser("review", help="publish a review record (forge comment or git note)")
     p.add_argument("action", choices=["publish"])
-    p.add_argument("ticket")
+    p.add_argument("ticket", nargs="?", help="omit for a lead PR's record (.sdlc-run/lead-review-<pr>.md)")
     p.add_argument("--pr", type=int)
     p.set_defaults(fn=cmd_review)
 

@@ -128,6 +128,8 @@ the test play's files stay off limits. The build amends its own ticket in `## Am
 Set `[approval] mode = "forge"` (GitHub) or `"git"` (signed notes in `refs/notes/sdlc`) in a lead PR:
 
 - The review play writes `.sdlc-run/review-<id>.md`; `sdlc review publish <id> --pr N` posts it.
+- A lead PR's reviewer gets `sdlc prompt review --pr N` and writes `.sdlc-run/lead-review-N.md`;
+  `sdlc review publish --pr N` posts it.
 - CI runs the `gate` job (`.github/workflows/sdlc.yml`: the lane's checks on the head) and
   `.github/workflows/sdlc-approval.yml`, which `sdlc init` installs with its relay
   `sdlc-approval-review.yml`: on `pull_request_target`, comments, and each review (relayed with
