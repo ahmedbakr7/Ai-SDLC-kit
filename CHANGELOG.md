@@ -15,8 +15,11 @@ From the Hangout pilot (T-001-35). PATCH: a review skill and prompt that contrad
   configures integration or e2e commands, and the review prompt printed "No test evidence". The
   gate and the runner exempt tickets with no test play (`test: none`, `type: test`, spikes), so a
   reviewer following the skill asked for a test play `sdlc run test` refuses to start. The skill
-  now states the exemption, and the prompt says "No test play (<reason>)" for those tickets.
-  `sdlc run test` names a spike as a spike in its refusal.
+  and the prompt now follow the gate's rule: test evidence is required only for a ticket with a
+  test play, built outside the mechanical lane, in a product whose `tests.real_stack` is not
+  empty. Otherwise the prompt says "No test evidence needed (<reason>)".
+  `sdlc run test` names a spike as a spike in its refusal, and a `type: test` ticket marked
+  `test: none` as marked `test: none`.
 - `--extra` on `sdlc prompt` and `sdlc run` takes a file path: `--help` now says so, and a path
   that cannot be read, or is not UTF-8 text, is a one-line error instead of a traceback.
 
