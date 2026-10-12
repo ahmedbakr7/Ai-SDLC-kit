@@ -30,6 +30,15 @@ timeout = 3600    # seconds per attempt
 Consult your agent CLI's documentation for its non-interactive mode and permission
 flags, and grant the narrowest set that allows the above.
 
+## Starting the runner from an agent session
+
+`sdlc run` starts agents that edit, commit and (with `vcs.pr_command`) open PRs, so a
+harness that screens an interactive agent's commands may block it as an unreviewed
+change. Either the lead starts each run, or the harness's permission rules allow the
+runner explicitly (for example a rule for `.sdlc/bin/sdlc run:*`). Grant that only where
+the lead has agreed that the session may start runs; the gate and the approvals still
+judge everything the run produces.
+
 ## Where to run
 
 Give unattended agents a disposable environment: a container, a CI runner, or a

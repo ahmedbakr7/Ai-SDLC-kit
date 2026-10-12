@@ -240,6 +240,81 @@ class LeadPRs(Base):
         self.record("rev", head, agent="", body="ok", ticket="")
         self.assertEqual(self.approval()[0], 0)
 
+    def test_prompt_review_pr_assembles_a_lead_pr_review(self) -> None:
+        # K6: `sdlc prompt review` needed a ticket, so lead PRs got hand-built reviewer prompts.
+        mb = git(self.p.root, "rev-parse", "HEAD").strip()
+        git(self.p.root, "checkout", "-q", "-b", "lead/docs")
+        self.p.write("docs/runbook.md", "# Runbook\n")
+        self.p.write("app/sneaky.py", "X = 1\n")
+        fe = "skills/frontend-patterns/SKILL.md"
+        self.p.write(fe, self.p.read(fe).replace("# Frontend patterns (locked by ADR-0001)",
+                                                 "# Frontend patterns (locked by ADR-0001)\n\nPR-EDITED RULE", 1))
+        # The PR widening lead_allowed does not make its own code lead-owned: the base's config decides.
+        # Moving paths.skills does not hide the base's conventions either.
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace(
+            "[approval]", '[scope]\nlead_allowed = ["app/**"]\n\n[paths]\nskills = "moved-skills"\n\n[approval]', 1))
+        self.p.commit("lead: runbook")
+        self.p.write("app/uncommitted.py", "Y = 2\n")  # not in the reviewed range
+        head = git(self.p.root, "rev-parse", "HEAD").strip()
+        code, text = self.p.sdlc("prompt", "review", "--pr", "7", "--base", "main", "--stdout")
+        self.assertEqual(code, 0, text)
+        for want in ("# sdlc play: REVIEW lead PR #7", "## Play skill: review", "## Lead PRs", f"- HEAD: `{head}`",
+                     f"- BASE: `{mb}`", f"`git diff {mb} {head}`", "- `app/sneaky.py` **(not lead-owned: needs a ticket)**",
+                     "- `docs/runbook.md` **(not lead-owned", "- `sdlc.toml`\n", "## Product conventions on main: frontend-patterns",
+                     "# Frontend patterns (locked by ADR-0001)", "## Product conventions on main: backend-patterns",
+                     "This PR changes `skills/frontend-patterns/SKILL.md`",
+                     "`.sdlc-run/lead-review-7.md`", f"`commit: {head}`", "`ticket:` left empty",
+                     "`sdlc gate pr --base main`", "`sdlc review publish --pr 7`"):
+            self.assertIn(want, text)
+        self.assertNotIn("## Ticket ", text)
+        self.assertNotIn("uncommitted.py", text)
+        self.assertNotIn("PR-EDITED RULE", text)  # the base's conventions, not the PR's
+        self.assertEqual(text.count("This PR changes"), 1)
+        self.assertIn("This HEAD must be PR #7's head", text)
+        code, out = self.p.sdlc("prompt", "review", "--pr", "7", "--base", "nope", "--stdout")
+        self.assertNotEqual(code, 0)
+        self.assertIn("review --pr 7: cannot find merge base with 'nope'", out)
+        git(self.p.root, "checkout", "-q", "main")
+        code, text = self.p.sdlc("prompt", "review", "--pr", "7", "--base", "main", "--stdout")
+        self.assertEqual(code, 0, text)
+        self.assertIn("open every one)\n\n- (none)", text)
+        code, out = self.p.sdlc("prompt", "review", "--pr", "7", "--base", "main")
+        self.assertEqual((code, out.strip()), (0, ".sdlc-run/prompts/review-pr-7.md"))
+        self.assertIn("# sdlc play: REVIEW lead PR #7", self.p.read(".sdlc-run/prompts/review-pr-7.md"))
+        for args, why in ((("review",), "or, for a lead PR, --pr N"), (("review", "T-042-02", "--pr", "7"), "without a ticket id"),
+                          (("build", "--pr", "7"), "without a ticket id")):
+            with self.subTest(args=args):
+                code, out = self.p.sdlc("prompt", *args, "--stdout")
+                self.assertNotEqual(code, 0)
+                self.assertIn(why, out)
+
+    def test_a_lead_pr_review_record_publishes_and_counts(self) -> None:
+        git(self.p.root, "checkout", "-q", "-b", "lead/docs")
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml") + "\n# a comment\n")
+        self.p.commit("lead: comment")
+        head = git(self.p.root, "rev-parse", "HEAD").strip()
+        self.forge()
+        code, out = self.p.sdlc("review", "publish", "--pr", "7")
+        self.assertNotEqual(code, 0)
+        self.assertIn("no review record at .sdlc-run/lead-review-7.md", out)
+        self.p.write(".sdlc-run/lead-review-7.md", approval.render("T-042-02", head, "approve", "review", "reviewer", "ok"))
+        code, out = self.p.sdlc("review", "publish", "--pr", "7")
+        self.assertNotEqual(code, 0)
+        self.assertIn("is not an approval record for lead PR #7", out)
+        text = approval.render("", head, "approve", "review", "reviewer", "ok")
+        self.p.write(".sdlc-run/lead-review-7.md", text)
+        code, out = self.p.sdlc("review", "publish")
+        self.assertNotEqual(code, 0)
+        self.assertIn("pass a ticket id, or --pr N", out)
+        code, out = self.p.sdlc("review", "publish", "--pr", "7")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.fake.posted, [("/issues/7/comments", {"body": text})])
+        self.fake.comments.append({"user": {"login": "rev"}, "author_association": "COLLABORATOR",
+                                   "created_at": "2026-10-04T10:00:00Z", "body": text})
+        self.record("lead", head, role="lead", agent="", body="ok", ticket="")
+        code, out, _ = self.approval()
+        self.assertEqual(code, 0, out)
+
     def test_the_review_of_a_lead_pr_comes_from_another_identity(self) -> None:
         # The lead is also a listed reviewer: one identity still cannot be both records.
         self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace('reviewers = ["rev"]', 'reviewers = ["rev", "lead"]'))

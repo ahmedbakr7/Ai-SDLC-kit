@@ -119,9 +119,17 @@ def _loose_name(p: Path) -> dict:
     return out
 
 
+PLAYS = ("intent", "design", "architect", "ticketize", "build", "test", "review", "observe", "research")
+
+
 def resolve(cfg: Config, name: str) -> Path | None:
-    """Locate a skill named on a ticket: kit play skill, product skill, or vendor skill."""
-    for base in (KIT_ROOT / "skills", cfg.path("skills"), vendor_dir(cfg)):
+    """Locate a skill named on a ticket: kit play skill, product skill, or vendor skill.
+
+    Play skills come from the kit, so a product cannot rewrite a play. Every other name is the
+    product's first: the kit's `*-patterns` skills are the empty templates `sdlc init` copies
+    into the product, and serving them would hide the product's filled-in rules."""
+    kit, product = KIT_ROOT / "skills", cfg.path("skills")
+    for base in ((kit, product) if name in PLAYS else (product, kit)) + (vendor_dir(cfg),):
         p = base / name / "SKILL.md"
         if p.is_file():
             return p

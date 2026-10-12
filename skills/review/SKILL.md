@@ -26,10 +26,18 @@ every check, AC -> test mapping) in your prompt. Read the diff yourself:
    - asserts on source text, class names or snapshots of markup instead of behaviour;
    - mocks the function under test, or stubs the network call the AC is about;
    - checks only the happy path when the AC names an error/empty case.
-3. **Contract.** Compare each changed route/handler with CONTRACTS line by line: path,
-   method, status codes, payload field names and types, error codes, auth rule.
-4. **Reuse.** Search the codebase for logic the diff re-implements (auth/role checks,
-   db clients, formatters, API clients, parsing). Copied logic is a blocking finding.
+3. **Contract and ADRs.** Compare each changed route/handler with CONTRACTS line by line:
+   path, method, status codes, payload field names and types, error codes, auth rule.
+   Open every ADR in the ticket's `source_adr`; the diff must agree with each. A change
+   to what another accepted ADR decides (its subject, the modules or libraries it names)
+   that the ticket does not cite is a finding: blocking when it contradicts the ADR,
+   otherwise ask the lead to cite it.
+4. **Reuse and conventions.** Search the codebase for logic the diff re-implements
+   (auth/role checks, db clients, formatters, API clients, parsing). Copied logic is a
+   blocking finding. Check each new file's location, library and pattern against the
+   **Conventions** in the pattern skills: a deviation is blocking. Where the conventions
+   do not settle a choice, the diff must follow the closest existing example (find it);
+   name the gap under `## Findings` so the lead can add it to the conventions.
 5. **Edges.** Check the failure paths the spec and page files list: empty, error,
    unauthorised, concurrent, invalid input. Missing = finding.
 6. **Security.** Authorisation enforced server-side on every new route; input
@@ -49,6 +57,26 @@ every check, AC -> test mapping) in your prompt. Read the diff yourself:
    commit in the latest evidence: test if the test play ran, else build). One AC table row per AC. Each finding has
    `file:line`, the rule it breaks, and the change you want.
 9. Run `sdlc gate review <id>` until it passes. Stop.
+
+## Lead PRs
+
+A PR that moves no ticket is the lead's (config, CI, the kit pin, specs, plans, ADRs,
+tickets, docs). Its prompt (`sdlc prompt review --pr N`) has no ticket, AC or evidence,
+so the procedure's steps 1, 2, 7 and 8 do not apply. Do these instead:
+
+- **Range.** `git log -1` is the HEAD the prompt names. Read the whole diff and every
+  changed file at HEAD.
+- **Lead write set.** A file the prompt marks "not lead-owned" is code without a ticket:
+  blocking. Run `sdlc gate pr` and `sdlc lint`; a failure, or a lint issue the base did
+  not have, is blocking.
+- **Claims.** Check every factual claim the diff makes (paths, commands, versions,
+  shas, what the kit does) against the repository, and run any local, safe command a
+  doc tells someone to run. A claim you could not check is a finding.
+- **Conventions and ADRs.** A changed pattern skill, CONTRACTS or ticket must agree
+  with the accepted ADRs; changing an accepted ADR's decision needs a new ADR.
+
+Then apply steps 3 to 6 where the diff touches what they cover, write the record the
+prompt names (**What I verified** and **Findings**, not the template below), and stop.
 
 ## Verdict
 

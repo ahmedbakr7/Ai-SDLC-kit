@@ -1,6 +1,6 @@
 ---
 name: frontend-patterns
-description: Product-locked frontend patterns (routing, data fetching, state, forms, i18n, tokens, component library, tests). Filled in the first /architect and changed only by ADR. Load on every frontend ticket.
+description: Product-locked frontend patterns (routing, data fetching, state, forms, i18n, tokens, component library, tests) and conventions (where new things go, use-not, never). Filled in the first /architect and changed only by ADR. Load on every frontend ticket.
 ---
 
 # Frontend patterns (fill in during the first /architect; cite the stack ADR)
@@ -16,6 +16,28 @@ description: Product-locked frontend patterns (routing, data fetching, state, fo
 | i18n / RTL | | |
 | Component library | | |
 | Design tokens (from DESIGN.md only) | | |
+
+## Conventions
+
+Short on purpose: this section stops guessing; it is not an architecture spec. A builder
+who finds a structural choice it does not settle follows the closest existing example and
+names it, or stops (AGENTS.md rule 11). The lead adds each such gap here afterwards.
+
+| New thing | Goes in | Closest example |
+|---|---|---|
+| Page | | |
+| Component | | |
+| Hook / client helper | | |
+| Server call (API client use) | | |
+| Test | | |
+
+Use, not:
+
+- <use X, not Y>
+
+Never:
+
+- <never allowed, with the ADR or reason>
 
 ## Rules
 

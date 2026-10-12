@@ -7,6 +7,34 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 
 ## Unreleased
 
+## v3.2.0 (2026-10-12)
+
+From the Hangout pilot. MINOR: prompts, skills and docs change; no check can fail a product
+that passes on v3.1.0.
+
+- Fix: a ticket naming `frontend-patterns` or `backend-patterns` got the kit's empty template,
+  not the product's filled-in skill, because skill lookup searched the kit first. Play skills
+  (`build`, `review`, ...) still come only from the kit; every other name is the product's
+  first, then the kit's, then a vendor skill.
+- The prompt adds the pattern skills a ticket's type needs when the ticket does not list them:
+  `frontend` gets `frontend-patterns`, `backend` gets `backend-patterns`, `fullstack` both, when
+  the product has filled in its own copy (an untouched copy of the kit's template, from any
+  version, is not added).
+- `sdlc prompt review --pr N [--base B]` assembles the review of a lead PR (one that moves no
+  ticket): its HEAD and merge base, its files marked against the base's lead write set, the
+  base's pattern skills, and the record to write (`.sdlc-run/lead-review-<N>.md`, `ticket:` empty).
+  `sdlc review publish --pr N` without a ticket publishes that record. The review skill has a
+  **Lead PRs** section.
+- The pattern skill templates gain a short **Conventions** section: where new things go, "use,
+  not" and "never". AGENTS.md rule 11: when the ticket, CONTRACTS and the conventions do not
+  settle a structural choice, follow the closest existing example and name it, or stop and
+  name the gap. Products fill in their own copies; the templates only change new products.
+- The review skill opens every `source_adr` and checks the diff against it, flags a change to
+  an accepted ADR's subject that the ticket does not cite, and checks new files against the
+  conventions.
+- `adapters/AGENTS-RUNNER.md`: a harness that screens an agent session's commands may block
+  `sdlc run`; the lead starts runs, or a permission rule allows the runner.
+
 ## v3.1.0 (2026-10-11)
 
 From the v3.0.2 review (finding 4). MINOR: a new warning, and a failure only behind a new

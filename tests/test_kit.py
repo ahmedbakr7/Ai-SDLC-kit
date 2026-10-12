@@ -110,6 +110,88 @@ class KitConsistency(unittest.TestCase):
         self.assertNotIn("## Skill: build", text)
         self.assertNotIn("# Play: build", text)
 
+    def test_the_prompt_carries_the_products_patterns_not_the_kit_template(self) -> None:
+        # Pilot: the kit's empty `frontend-patterns` template shadowed the product's filled-in
+        # one, so no builder or reviewer ever saw the product's rules.
+        from sdlc import prompt
+
+        for play in ("build", "review"):
+            with self.subTest(play=play):
+                text = prompt.render(config.load(EXAMPLE), play, "T-042-02")
+                self.assertIn("# Frontend patterns (locked by ADR-0001)", text)
+                self.assertNotIn("fill in during the first /architect", text)
+
+    def test_a_product_cannot_replace_a_play_skill(self) -> None:
+        from helpers import ProductRepo
+        from sdlc import prompt, skills
+
+        self.assertEqual(set(skills.PLAYS), {*prompt.TICKET_PLAYS, *prompt.LEAD_PLAYS})
+        p = ProductRepo()
+        self.addCleanup(p.close)
+        p.write("skills/build/SKILL.md", "---\nname: build\ndescription: x\n---\n\nPRODUCT BUILD SKILL\n")
+        p.write("skills/review/SKILL.md", "---\nname: review\ndescription: x\n---\n\nPRODUCT REVIEW SKILL\n")
+        cfg = config.load(p.root)
+        self.assertEqual(skills.resolve(cfg, "build"), KIT / "skills" / "build" / "SKILL.md")
+        for play in ("build", "review"):
+            with self.subTest(play=play):
+                text = prompt.render(cfg, play, "T-042-02")
+                self.assertNotIn("PRODUCT BUILD SKILL", text)
+                self.assertNotIn("PRODUCT REVIEW SKILL", text)
+
+    def test_the_tickets_type_brings_its_pattern_skills(self) -> None:
+        # K3: a ticket whose author left the pattern skill out still gets the product's rules.
+        from helpers import ProductRepo
+        from sdlc import prompt
+
+        p = ProductRepo()
+        self.addCleanup(p.close)
+        rel = "tickets/T-042-02-order-page.md"
+        listed = p.read(rel)
+        bare = listed.replace("  - frontend-patterns\n", "")
+        self.assertNotEqual(bare, listed)
+        backend = "# Backend patterns (locked by ADR-0001)"
+        self.assertIn(backend, p.read("skills/backend-patterns/SKILL.md"))
+        cases = {"frontend": (1, 0), "fullstack": (1, 1), "backend": (0, 1), "chore": (0, 0)}
+        for kind, (fe, be) in cases.items():
+            with self.subTest(type=kind):
+                p.write(rel, bare.replace("type: frontend", f"type: {kind}", 1))
+                text = prompt.render(config.load(p.root), "build", "T-042-02")
+                self.assertEqual(text.count("## Skill: frontend-patterns"), fe)
+                self.assertEqual(text.count("## Skill: backend-patterns"), be)
+                self.assertEqual(text.count(backend), be)
+        p.write(rel, listed.replace("type: frontend", "type: fullstack", 1))
+        text = prompt.render(config.load(p.root), "build", "T-042-02")
+        self.assertEqual(text.count("## Skill: frontend-patterns"), 1, "a listed skill is not added twice")
+        self.assertLess(text.index("## Skill: frontend-patterns"), text.index("## Skill: backend-patterns"))
+        # A product without its own copy gets nothing added: the kit's unfilled template is not rules.
+        import shutil
+
+        p.write(rel, bare.replace("type: frontend", "type: backend", 1))
+        # `sdlc init` copies the kit's template into the product; unchanged, it is not rules either.
+        shutil.copy(KIT / "skills" / "backend-patterns" / "SKILL.md", p.root / "skills" / "backend-patterns" / "SKILL.md")
+        shutil.rmtree(p.root / "skills" / "frontend-patterns")
+        for kind in ("backend", "fullstack"):
+            with self.subTest(unfilled=kind):
+                p.write(rel, bare.replace("type: frontend", f"type: {kind}", 1))
+                text = prompt.render(config.load(p.root), "build", "T-042-02")
+                self.assertNotIn("## Skill: backend-patterns", text)
+                self.assertNotIn("## Skill: frontend-patterns", text)
+                self.assertNotIn("fill in during the first /architect", text)
+        # An untouched copy from an older kit (v3.1.0: no Conventions section) is unfilled too;
+        # one filled row makes it the product's rules.
+        import re as _re
+
+        tpl = (KIT / "skills" / "backend-patterns" / "SKILL.md").read_text(encoding="utf-8")
+        old_copy = _re.sub(r"## Conventions\n.*?(?=\n## )", "", tpl, flags=_re.S)
+        self.assertNotEqual(old_copy, tpl)
+        p.write(rel, bare.replace("type: frontend", "type: backend", 1))
+        for copy, added in ((old_copy, False), (old_copy.replace("| Routing / handlers | | |",
+                                                                  "| Routing / handlers | one router | `app/router.py` |"), True)):
+            with self.subTest(added=added):
+                p.write("skills/backend-patterns/SKILL.md", copy)
+                text = prompt.render(config.load(p.root), "build", "T-042-02")
+                self.assertEqual("## Skill: backend-patterns" in text, added)
+
     def test_init_scaffolds_a_product_that_doctor_explains(self) -> None:
         import contextlib
         import io
