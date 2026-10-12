@@ -7,6 +7,19 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 
 ## Unreleased
 
+## v3.2.1 (2026-10-12)
+
+From the Hangout pilot (T-001-35). PATCH: a review skill and prompt that contradicted the gate.
+
+- The review skill told reviewers to reject a ticket without test evidence whenever the product
+  configures integration or e2e commands, and the review prompt printed "No test evidence". The
+  gate and the runner exempt tickets with no test play (`test: none`, `type: test`, spikes), so a
+  reviewer following the skill asked for a test play `sdlc run test` refuses to start. The skill
+  now states the exemption, and the prompt says "No test play (<reason>)" for those tickets.
+  `sdlc run test` names a spike as a spike in its refusal.
+- `--extra` on `sdlc prompt` and `sdlc run` takes a file path: `--help` now says so, and a path
+  that cannot be read is a one-line error instead of a traceback.
+
 ## v3.2.0 (2026-10-12)
 
 From the Hangout pilot. MINOR: prompts, skills and docs change; no check can fail a product
