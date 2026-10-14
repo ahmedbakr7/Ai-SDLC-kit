@@ -1058,7 +1058,8 @@ class PilotGaps(Base):
 
     def test_a_squash_merged_ticket_fails_gate_ci_until_it_is_reverted_and_merged(self) -> None:
         self.squash_merge()
-        self.assertEqual(self.p.sdlc("status", "T-042-02")[1].strip(), "ready")  # what the trailers say
+        # What the trailers say: not delivered, and its branch is still unmerged.
+        self.assertEqual(self.p.sdlc("status", "T-042-02")[1].strip(), "in_progress")
         code, out = self.p.sdlc("gate", "ci")
         self.assertNotEqual(code, 0, out)
         self.assertIn("1 merged commit(s) name Sdlc-Ticket outside their trailers", out)

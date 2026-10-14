@@ -161,11 +161,11 @@ Set `[approval] mode = "forge"` (GitHub) or `"git"` (signed notes in `refs/notes
   naming the ticket, `done` once one is merged. `sdlc status` lists every ticket that way (run
   `git fetch` first to see other people's branches); `sdlc next` skips tickets in progress, and
   `sdlc run build` refuses one in progress on another branch. Delete an abandoned branch to free
-  its ticket. `reviews/` and
-  `evidence/` stay as read-only history.
+  its ticket. `reviews/` and `evidence/` stay as read-only history.
 - Merge ticket PRs with a merge commit; turn off squash and rebase merging in the repository
   settings. A squash folds the trailers into the commit body, where derived status cannot read
-  them, so the ticket stays `ready` and `sdlc next` offers it again. `gate ci` fails on such a
+  them, so the ticket never becomes `done`: it shows `in_progress` while its branch exists and
+  `ready` (offered again by `sdlc next`) once the branch is deleted. `gate ci` fails on such a
   commit until the PR's own commits are merged with a merge commit (no revert needed).
 - Weakening or removing an AC by amendment needs a lead approval; a strict ticket needs one too.
 
