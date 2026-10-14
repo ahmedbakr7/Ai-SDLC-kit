@@ -7,7 +7,7 @@ import sys
 import unittest
 from pathlib import Path
 
-from helpers import FIXTURES as FIXTURES_DIR, ProductRepo
+from helpers import FIXTURES as FIXTURES_DIR, ProductRepo, git
 
 
 class GateCatches(unittest.TestCase):
@@ -2251,3 +2251,37 @@ class NestedRevert(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StatusBoard(unittest.TestCase):
+    """`sdlc status` lists every ticket with what it waits on; file mode keeps stored status."""
+
+    def setUp(self) -> None:
+        self.p = ProductRepo()
+        rel = "tickets/T-042-01-returns-api.md"
+        self.p.write(rel, self.p.read(rel).replace("status: done", "status: ready"))
+        self.p.commit("lead: T-042-01 not shipped yet")
+
+    def tearDown(self) -> None:
+        self.p.close()
+
+    def test_the_board_names_unfinished_dependencies(self) -> None:
+        code, out = self.p.sdlc("status")
+        self.assertEqual(code, 0, out)
+        self.assertIn("T-042-01\tready\t-\t", out)
+        self.assertIn("T-042-02\tready\twaiting on T-042-01\t", out)
+        self.assertIn("2 ready", out)
+        rows = {r["id"]: r for r in json.loads(self.p.sdlc("status", "--json")[1])}
+        self.assertEqual(rows["T-042-02"]["pending"], ["T-042-01"])
+        self.assertEqual(rows["T-042-02"]["depends_on"], ["T-042-01"])
+        self.assertEqual(self.p.sdlc("next", "--all")[1].split("\t")[0], "T-042-01")
+        self.assertNotIn("T-042-02", self.p.sdlc("next", "--all")[1])
+
+    def test_file_mode_does_not_derive_in_progress_from_branches(self) -> None:
+        git(self.p.root, "checkout", "-q", "-b", "build/T-042-01")
+        self.p.write("notes.txt", "x\n")
+        git(self.p.root, "add", "-A")
+        git(self.p.root, "commit", "-q", "-m", "work", "-m", "Sdlc-Ticket: T-042-01")
+        git(self.p.root, "checkout", "-q", "main")
+        self.assertEqual(self.p.sdlc("status", "T-042-01")[1].strip(), "ready")
+        self.assertEqual(self.p.sdlc("next")[1].strip(), "T-042-01")

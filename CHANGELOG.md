@@ -7,6 +7,22 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 
 ## Unreleased
 
+## v3.3.0 (2026-10-14)
+
+MINOR: ticket status is tracked end to end. No gate check changes: checks that judge a branch
+still read merged trailers and stored status.
+
+- Records mode derives `in_progress` as well as `done`: a `ready` ticket is in progress while an
+  unmerged branch (local, or fetched under `refs/remotes`) has a commit naming it in an
+  `Sdlc-Ticket:` trailer. Lead decisions (`draft`, `blocked`) are never overridden, and `done`
+  still wins. File mode keeps its stored status.
+- `sdlc status` with no ticket lists every ticket: its status, the dependencies not yet done, the
+  branches building it, and why it is blocked; `--json` prints the same rows for tools.
+  `sdlc status <id>` prints the derived status (so `in_progress` where it printed `ready`).
+- `sdlc next` skips a ticket an unmerged branch is building, so two agents do not take the same
+  ticket. `sdlc run build` refuses one in progress on any branch but its own; delete an abandoned
+  branch to free its ticket.
+
 ## v3.2.1 (2026-10-12)
 
 From the Hangout pilot (T-001-35). PATCH: a review skill and prompt that contradicted the gate.

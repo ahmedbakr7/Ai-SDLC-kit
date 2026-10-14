@@ -6,6 +6,7 @@ import os
 import json
 import shutil
 import sys
+from collections import Counter
 from pathlib import Path
 
 from . import __version__, adapters, config, fm, gitutil, lint, presets, prompt, skills, tickets, trace
@@ -84,12 +85,33 @@ def cmd_next(args) -> int:
     return 0 if q else 3
 
 
+def _status_row(repo: Repo, t) -> dict:
+    status = repo.tracked_status(t)
+    return {"id": t.id, "status": status, "stored": t.status, "title": str(t.data.get("title", "")),
+            "depends_on": list(t.depends_on), "pending": [] if status == "done" else repo.pending_deps(t),
+            "branches": repo.in_flight().get(t.id, []) if status == "in_progress" else [],
+            "blocked_by": str(t.data.get("blocked_by") or "") if status == "blocked" else ""}
+
+
 def cmd_status(args) -> int:
     cfg = _cfg(args)
     repo = Repo(cfg)
+    if not args.ticket:
+        rows = [_status_row(repo, t) for _, t in sorted(repo.tickets.items())]
+        if args.json:
+            print(json.dumps(rows, indent=2))
+            return 0
+        for r in rows:
+            notes = ([f"on {', '.join(r['branches'])}"] if r["branches"] else []) \
+                + ([f"waiting on {', '.join(r['pending'])}"] if r["pending"] else []) \
+                + ([f"blocked: {r['blocked_by']}"] if r["blocked_by"] else [])
+            print(f"{r['id']}\t{r['status']}\t{'; '.join(notes) or '-'}\t{r['title']}")
+        counts = Counter(r["status"] for r in rows)
+        print(", ".join(f"{n} {s}" for s, n in sorted(counts.items())) or "no tickets")
+        return 0
     t = repo.ticket(args.ticket)
     if not args.to:
-        print(repo.status_of(t))
+        print(json.dumps(_status_row(repo, t), indent=2) if args.json else repo.tracked_status(t))
         return 0
     try:
         frm = tickets.set_status(repo, t, args.to, args.as_role, args.reason or "")
@@ -727,12 +749,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--all", action="store_true")
     p.set_defaults(fn=cmd_next)
 
-    p = sp.add_parser("status", help="read or move a ticket's status through the state machine")
-    p.add_argument("ticket")
+    p = sp.add_parser("status", help="list every ticket's status, or read or move one ticket's",
+                      description="With no ticket: every ticket with its status, unfinished dependencies and "
+                                  "(records mode) the unmerged branches building it. Run `git fetch` first to "
+                                  "see other people's branches.")
+    p.add_argument("ticket", nargs="?")
     p.add_argument("to", nargs="?")
     p.add_argument("--as", dest="as_role", default="lead",
                    choices=["lead", "build", "test", "review", "merge"])
     p.add_argument("--reason", default="")
+    p.add_argument("--json", action="store_true", help="print the status as JSON")
     p.set_defaults(fn=cmd_status)
 
     p = sp.add_parser("prompt", help="assemble the exact prompt for a play")

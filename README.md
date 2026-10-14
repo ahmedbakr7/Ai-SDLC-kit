@@ -52,8 +52,8 @@ it), and it counts only from identities in `[approval] reviewers` / `leads` / `b
 opened the PR nor wrote its commits. With one identity for everyone that cannot hold: the lead sets
 `trust_unsigned = true`, write access is still required, and every result says it is trust-based.
 Evidence stays in CI (`.sdlc-run/`, uploaded as an artifact), `gate pr` re-proves the lane's checks
-on the head, and a ticket's delivery status is derived: `done` once a merged commit carries
-`Sdlc-Ticket: <id>`. The default `mode = "file"` keeps `reviews/<id>.md`, committed evidence and
+on the head, and a ticket's delivery status is derived: `in_progress` while an unmerged branch has a
+commit that carries `Sdlc-Ticket: <id>`, `done` once a merged commit does. The default `mode = "file"` keeps `reviews/<id>.md`, committed evidence and
 stored status.
 
 Every full gate run writes JSON evidence (`--only` runs are partial and never count).
@@ -68,7 +68,8 @@ it never trusts committed evidence on its own.
 | `sdlc init --profile nextjs` | scaffold `sdlc.toml`, folders, AGENTS.md, CI workflow, tool adapters |
 | `sdlc doctor` | fail if any required check could pass vacuously (missing command, no `{junit}`, no route extractor) |
 | `sdlc lint` / `sdlc trace` | validate artifacts; requirement → ticket → AC → passing test matrix |
-| `sdlc next` | the next ticket whose dependencies are done |
+| `sdlc status` | every ticket: status, dependencies not yet done, and (records mode) the unmerged branches building it; `--json` for tools |
+| `sdlc next` | the next ticket whose dependencies are done and that no unmerged branch is building |
 | `sdlc prompt build T-001-03` | the exact, complete prompt for a play: rules, skill, ticket, cited requirements and contracts, write set, definition of done |
 | `sdlc prompt review --pr N` | the review prompt for a lead PR (one that moves no ticket) |
 | `sdlc gate build T-001-03` | run every check for the play; write evidence |
