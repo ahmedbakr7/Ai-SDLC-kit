@@ -7,6 +7,10 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 
 ## Unreleased
 
+- ADR-0003 records v3.3.0's status derivation: `in_progress` comes from unmerged branches in both
+  records modes, replacing the `in_progress` / `in_review` bullet of ADR-0001 section 5 (which
+  named open PRs in `forge` mode). No behaviour change.
+
 ## v3.3.0 (2026-10-14)
 
 MINOR: ticket status is tracked end to end. No gate check changes: checks that judge a branch
