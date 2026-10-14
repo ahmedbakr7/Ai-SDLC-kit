@@ -4,7 +4,7 @@ title: In-progress status comes from unmerged branches in every records mode
 status: accepted
 date: 2026-10-14
 source: ADR-0001 section 5; kit PR #43 (v3.3.0); lead request for tracked ticket status
-supersedes: ADR-0001 section 5, the `in_progress` / `in_review` bullet only
+supersedes: ADR-0001
 ---
 
 # ADR-0003: In-progress status comes from unmerged branches in every records mode
@@ -18,7 +18,8 @@ come from the forge's open PRs.
 
 v3.3.0 shipped the derivation that the product needed to stop two agents taking the same
 ticket, and it uses unmerged branches in both modes. The record and the code disagree, and an
-accepted ADR cannot be edited, so this ADR replaces that one bullet.
+accepted ADR cannot be edited, so this ADR replaces that one bullet of ADR-0001 section 5, and
+nothing else in ADR-0001.
 
 Options considered:
 
@@ -40,10 +41,11 @@ Options considered:
 - `done` (a merged trailer) wins over `in_progress`. The stored lead decisions `draft` and
   `blocked` are never overridden.
 - `in_review` is not derived. A ticket under review reads `in_progress`.
-- `Repo.tracked_status` gives this status. People and scheduling read it: `sdlc status`,
-  `sdlc next`, and `sdlc run build`'s refusal of a ticket in progress on another branch. Checks
-  that judge a branch keep reading `Repo.status_of` (merged trailers and stored status). Work on
-  another branch therefore never changes a gate verdict.
+- `Repo.tracked_status` gives this status, and `sdlc status` and `sdlc next` read it.
+  `sdlc run build` reads `Repo.in_flight` instead: it refuses a ready ticket that an unmerged
+  branch other than the one being built (`<branch>` or `origin/<branch>`) names, so a build can
+  resume on its own branch. Checks that judge a branch keep reading `Repo.status_of` (merged
+  trailers and stored status). Work on another branch therefore never changes a gate verdict.
 - File mode keeps stored status, unchanged.
 - The rest of ADR-0001 section 5 stands.
 
@@ -51,10 +53,13 @@ Options considered:
 
 - Status works without network access or credentials. To see other people's branches, run
   `git fetch` first. The board reflects the last fetch.
-- A branch that is abandoned holds its ticket until it is deleted. A squash-merged ticket reads
-  `in_progress` while its branch exists, since the squash drops the trailer from the base.
-- Anyone with push access can name a ticket in a commit on any branch and so hold it out of
-  `sdlc next` and `sdlc run build`. This affects scheduling only. Approvals, gates and merges do
+- A branch that is abandoned holds its ticket until it is deleted. A squash merge whose message
+  drops the trailer leaves the ticket `in_progress` while its branch exists, and `ready` once the
+  branch is deleted: it never reads `done`. A squash message that keeps the trailer delivers the
+  ticket as ADR-0001 section 5 says, and `done` wins.
+- Anyone with push access can name a ready ticket in a commit on any branch and so hold it out
+  of `sdlc next` and `sdlc run build`. Naming a `draft`, `blocked` or `done` ticket changes
+  nothing: only a stored `ready` ticket becomes `in_progress`. This affects scheduling only. Approvals, gates and merges do
   not read it. Deleting the branch frees the ticket. Push access is already the trust boundary
   for every branch, so no ownership claim is added.
 - The derivation runs one `git log` per branch ref. Repositories with many stale
