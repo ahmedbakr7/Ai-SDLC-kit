@@ -85,6 +85,11 @@ def run(cfg: Config, play: str, tid: str, agent: str, attempts: int | None, base
             if t.status != "ready" or pending:
                 raise SystemExit(f"refused: {tid} must be ready with its dependencies done"
                                  + (f" (pending: {', '.join(pending)})" if pending else f" (it is {t.status})"))
+            # Resuming this ticket's own branch is fine; another branch already building it is not.
+            elsewhere = [b for b in repo.in_flight().get(tid, []) if b not in (branch, f"origin/{branch}")]
+            if elsewhere:
+                raise SystemExit(f"refused: {tid} is in progress on {', '.join(elsewhere)}; finish or delete "
+                                 "that branch first")
         elif play == "test" and not t.test_play:
             raise SystemExit(f"{tid} has no test play ({t.no_test_play_reason}); review it after the build")
     elif play == "build":

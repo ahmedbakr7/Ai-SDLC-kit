@@ -106,6 +106,7 @@ class Lifecycle(unittest.TestCase):
         self.branch(f"build/{TICKET}")
         copy_solution(self.p, f"build-{TICKET}")
         commit(self.p, f"{TICKET}: order page returns section", agent="builder", play="build")
+        self.assertEqual(self.p.sdlc("status", TICKET)[1].strip(), "in_progress")  # derived from the branch
         copy_solution(self.p, f"test-{TICKET}")
         commit(self.p, f"{TICKET}: real-stack tests", agent="tester", play="test")
         self.assertIn(f"gate pr: ticket {TICKET}", self.assert_passes(self.p.sdlc("gate", "pr", "--base", "main")))

@@ -626,7 +626,7 @@ class GitNotes(Base):
 class DerivedStatus(Base):
     def test_merged_trailer_makes_a_ticket_done(self) -> None:
         self.build()
-        self.assertEqual(self.p.sdlc("status", "T-042-02")[1].strip(), "ready")
+        self.assertEqual(self.p.sdlc("status", "T-042-02")[1].strip(), "in_progress")
         git(self.p.root, "checkout", "-q", "main")
         git(self.p.root, "merge", "-q", "--no-ff", "--no-edit", "build/T-042-02")
         self.assertEqual(self.p.sdlc("status", "T-042-02")[1].strip(), "done")
@@ -660,6 +660,52 @@ class DerivedStatus(Base):
         git(self.p.root, "add", "-A")
         git(self.p.root, "commit", "-q", "-m", "not a build", "-m", "Sdlc-Play: other, build")
         self.assertIsNone(gate._play_commit(config.load(self.p.root), "main", ("build",)))
+
+    def test_an_unmerged_branch_makes_a_ready_ticket_in_progress(self) -> None:
+        self.build()
+        git(self.p.root, "checkout", "-q", "main")
+        self.assertEqual(self.p.sdlc("status", "T-042-02")[1].strip(), "in_progress")
+        code, out = self.p.sdlc("next")
+        self.assertEqual(code, 3, out)                          # nothing else is ready
+        self.assertNotIn("T-042-02", out)
+        code, out = self.p.sdlc("status")
+        self.assertEqual(code, 0, out)
+        self.assertIn("T-042-02\tin_progress\ton build/T-042-02\t", out)
+        self.assertIn("1 done, 1 in_progress", out)
+        row = json.loads(self.p.sdlc("status", "T-042-02", "--json")[1])
+        self.assertEqual((row["status"], row["stored"], row["branches"]), ("in_progress", "ready", ["build/T-042-02"]))
+
+    def test_a_fetched_branch_counts_and_a_deleted_one_frees_the_ticket(self) -> None:
+        sha = self.build()
+        git(self.p.root, "checkout", "-q", "main")
+        git(self.p.root, "branch", "-q", "-D", "build/T-042-02")
+        self.assertEqual(self.p.sdlc("status", "T-042-02")[1].strip(), "ready")
+        self.assertEqual(self.p.sdlc("next")[1].strip(), "T-042-02")
+        git(self.p.root, "update-ref", "refs/remotes/origin/build/T-042-02", sha)
+        self.assertIn("T-042-02\tin_progress\ton origin/build/T-042-02\t", self.p.sdlc("status")[1])
+        self.assertNotIn("T-042-02", self.p.sdlc("next")[1])
+
+    def test_a_branch_does_not_move_a_lead_decision(self) -> None:
+        rel = "tickets/T-042-02-order-page.md"
+        self.p.write(rel, self.p.read(rel).replace("status: ready", "status: blocked\nblocked_by: waiting on legal"))
+        self.p.commit("lead: block T-042-02")
+        self.build()
+        git(self.p.root, "checkout", "-q", "main")
+        self.assertEqual(self.p.sdlc("status", "T-042-02")[1].strip(), "blocked")
+        self.assertIn("T-042-02\tblocked\tblocked: waiting on legal\t", self.p.sdlc("status")[1])
+
+    def test_the_runner_will_not_build_a_ticket_another_branch_is_building(self) -> None:
+        git(self.p.root, "checkout", "-q", "-b", "someone-else")
+        copy_solution(self.p, "build-T-042-02")
+        commit(self.p, "T-042-02: started elsewhere")
+        git(self.p.root, "checkout", "-q", "main")
+        code, out = self.p.sdlc("run", "build", "T-042-02", "--agent", "fake", "--dry-run")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("T-042-02 is in progress on someone-else", out)
+        git(self.p.root, "branch", "-q", "-m", "someone-else", "build/T-042-02")  # its own branch resumes
+        code, out = self.p.sdlc("run", "build", "T-042-02", "--agent", "fake", "--dry-run")
+        self.assertEqual(code, 0, out)
+        self.assertIn("would checkout build/T-042-02", out)
 
     def test_delivery_statuses_are_not_stored(self) -> None:
         code, out = self.p.sdlc("status", "T-042-02", "in_progress", "--as", "build")

@@ -88,11 +88,8 @@ def ready_queue(repo: Repo) -> list[Ticket]:
     out = []
     for tid in sorted(repo.tickets):
         t = repo.tickets[tid]
-        if t.status != "ready":
-            continue
-        if repo.status_of(t) == "done":
-            continue
-        if all(repo.tickets.get(d) is not None and repo.status_of(repo.tickets[d]) == "done" for d in t.depends_on):
+        # Not done, and (records mode) no unmerged branch is already building it.
+        if t.status == "ready" and repo.tracked_status(t) == "ready" and not repo.pending_deps(t):
             out.append(t)
     # Lower risk and fewer dependents last: unblock the graph first.
     dependents = {tid: 0 for tid in repo.tickets}

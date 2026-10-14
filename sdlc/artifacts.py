@@ -252,6 +252,7 @@ class Repo:
         self._specs: list[Spec] | None = None
         self._contracts: Contracts | None = None
         self._delivered: set[str] | None = None
+        self._in_flight: dict[str, list[str]] | None = None
 
     # -- tickets ----------------------------------------------------------
     @property
@@ -331,11 +332,9 @@ class Repo:
 
             self._delivered = set()
             if approval.records_mode(self.cfg):
-                base = str(self.cfg.section("vcs").get("base", "main"))
                 # Both refs: a local base that lags the remote must not hide merged tickets.
-                for ref in (base, f"origin/{base}"):
-                    if gitutil.git(self.cfg.root, "rev-parse", "--verify", "-q", ref, check=False).strip():
-                        self._delivered |= set(gitutil.trailer_values(self.cfg.root, ref, "Sdlc-Ticket"))
+                for ref in self._bases():
+                    self._delivered |= set(gitutil.trailer_values(self.cfg.root, ref, "Sdlc-Ticket"))
         return self._delivered
 
     def status_of(self, t: Ticket) -> str:
@@ -344,6 +343,45 @@ class Repo:
         if t.status != "done" and t.id in self.delivered():
             return "done"
         return t.status
+
+    def _bases(self) -> list[str]:
+        from . import gitutil
+
+        base = str(self.cfg.section("vcs").get("base", "main"))
+        return [r for r in (base, f"origin/{base}")
+                if gitutil.git(self.cfg.root, "rev-parse", "--verify", "-q", r, check=False).strip()]
+
+    def in_flight(self) -> dict[str, list[str]]:
+        """Records mode: ticket -> the unmerged branches (local or fetched) with a commit that names it
+        in an `Sdlc-Ticket:` trailer. Fetch first to see other people's branches."""
+        if self._in_flight is None:
+            from . import approval, gitutil
+
+            self._in_flight = {}
+            bases = self._bases() if approval.records_mode(self.cfg) else []
+            if bases:
+                root = self.cfg.root
+                refs = gitutil.git(root, "for-each-ref", "--format=%(refname)%09%(refname:short)%09%(symref)",
+                                   "refs/heads", "refs/remotes", check=False)
+                for line in refs.splitlines():
+                    full, short, sym = (line.split("\t") + ["", ""])[:3]
+                    if sym or short in bases:
+                        continue
+                    out = gitutil.git(root, "log", "--format=%(trailers:key=Sdlc-Ticket,valueonly,separator=%x0A)",
+                                      full, "--not", *bases, check=False)
+                    for tid in sorted({v.strip() for v in out.splitlines() if v.strip()}):
+                        self._in_flight.setdefault(tid, []).append(short)
+        return self._in_flight
+
+    def tracked_status(self, t: Ticket) -> str:
+        """status_of, and `in_progress` for a ready ticket that an unmerged branch names (records
+        mode). For people and scheduling: checks that judge a branch use status_of."""
+        s = self.status_of(t)
+        return "in_progress" if s == "ready" and t.id in self.in_flight() else s
+
+    def pending_deps(self, t: Ticket) -> list[str]:
+        """The tickets `t` depends on that are not done (an unknown id counts as not done)."""
+        return [d for d in t.depends_on if d not in self.tickets or self.status_of(self.tickets[d]) != "done"]
 
     # -- reviews ----------------------------------------------------------
     def review_for(self, tid: str) -> Review | None:
