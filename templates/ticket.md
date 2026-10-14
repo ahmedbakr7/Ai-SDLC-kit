@@ -3,6 +3,7 @@ id: T-NNN-01
 title: <imperative, specific>
 type: backend             # backend | frontend | fullstack | contract | test | ops | chore | spike
 status: draft             # draft -> ready (lead) -> in_progress -> in_review -> done; or blocked
+                          # With [approval] mode set, only draft | ready | blocked are stored: `sdlc status` shows the rest.
 risk: low                 # low | medium | high (high = strict lane: needs accepted_by, set by the lead)
 # lane: standard          # mechanical | standard | strict. Default: strict for risk high or type contract,
                           # else standard. The gate may raise it from the diff, never lower it.

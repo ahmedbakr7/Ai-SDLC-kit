@@ -156,7 +156,12 @@ Set `[approval] mode = "forge"` (GitHub) or `"git"` (signed notes in `refs/notes
 - Commits carry `Sdlc-Agent`, `Sdlc-Play` and `Sdlc-Ticket` trailers (`sdlc run` and
   `sdlc commit --agent NAME --play build|test` add them). A ticket PR with a commit that names no
   agent gets no approval: nothing would show the reviewer is not the builder. Tickets store only
-  `draft`, `ready` or `blocked`; `sdlc migrate` rewrites old delivery statuses. `reviews/` and
+  `draft`, `ready` or `blocked`; `sdlc migrate` rewrites old delivery statuses. The rest is
+  derived: `in_progress` while an unmerged branch (local, or fetched from the remote) has a commit
+  naming the ticket, `done` once one is merged. `sdlc status` lists every ticket that way (run
+  `git fetch` first to see other people's branches); `sdlc next` skips tickets in progress, and
+  `sdlc run build` refuses one in progress on another branch. Delete an abandoned branch to free
+  its ticket. `reviews/` and
   `evidence/` stay as read-only history.
 - Merge ticket PRs with a merge commit; turn off squash and rebase merging in the repository
   settings. A squash folds the trailers into the commit body, where derived status cannot read
