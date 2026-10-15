@@ -367,7 +367,8 @@ class Repo:
                 listed = [gitutil.git(root, "for-each-ref", "--format=%(refname)%09%(refname:short)%09%(symref)",
                                       f"--no-merged={b}", "refs/heads", "refs/remotes").splitlines()
                           for b in bases]
-                refs = [line for line in listed[0] if all(line in other for other in listed[1:])]
+                others = [set(lines) for lines in listed[1:]]
+                refs = [line for line in listed[0] if all(line in other for other in others)]
                 for line in refs:
                     full, short, sym = (line.split("\t") + ["", ""])[:3]
                     if sym or short in bases:
