@@ -802,6 +802,7 @@ class DerivedStatus(Base):
         code, out = self.p.sdlc("status", "T-042-02", "in_progress", "--as", "build")
         self.assertNotEqual(code, 0)
         self.assertIn("in_progress is derived, not stored", out)
+        self.assertIn("unmerged branch", out)                   # ADR-0003, not open PRs
         rel = "tickets/T-042-02-order-page.md"
         self.p.write(rel, self.p.read(rel).replace("status: ready", "status: in_progress"))
         code, out = self.p.sdlc("lint")

@@ -44,8 +44,9 @@ def check_transition(repo: Repo, t: Ticket, to: str, role: str, reason: str = ""
 
     frm = t.status
     if approval.records_mode(repo.cfg) and to in DERIVED:
-        raise TransitionError(f"{t.id}: {to} is derived, not stored: an open PR whose commits carry "
-                              f"`Sdlc-Ticket: {t.id}` is in progress, and merging it makes the ticket done")
+        raise TransitionError(f"{t.id}: {to} is derived, not stored: a ready ticket is in progress while an "
+                              f"unmerged branch has a commit carrying `Sdlc-Ticket: {t.id}`, and done once one "
+                              "is merged; commit with `sdlc commit` to start it")
     if to == "blocked":
         if role not in ANY_TO_BLOCKED:
             raise TransitionError(f"role {role} may not block tickets")
