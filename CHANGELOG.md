@@ -7,6 +7,19 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 
 ## Unreleased
 
+## v3.3.2 (2026-10-15)
+
+PATCH: documentation and one message, no behaviour change.
+
+- CONSUME.md section 3 covers v3.3.1's runner behaviour: unknown `depends_on` ids count as not
+  done, `sdlc run build` resumes a fetched `origin/<branch>`, and it refuses without a base.
+- CONSUME.md gives the records-mode steps for building without `sdlc run`. The old steps set
+  `in_progress` and `in_review` by hand, which records mode refuses.
+- `sdlc status <id> in_progress` (or `in_review`) in records mode says the status comes from an
+  unmerged branch, as ADR-0003 decided, instead of "an open PR", and points to `sdlc commit`.
+- Correction to v3.3.1: the one-`--no-merged`-per-call change is defensive only. The kit already
+  requires git 2.32 or later, which accepts several.
+
 ## v3.3.1 (2026-10-15)
 
 PATCH: follow-ups from the v3.3.0 review.
