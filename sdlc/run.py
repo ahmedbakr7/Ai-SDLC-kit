@@ -81,7 +81,7 @@ def run(cfg: Config, play: str, tid: str, agent: str, attempts: int | None, base
         if repo.status_of(t) == "done":
             raise SystemExit(f"{tid} is done (a merged commit names it)")
         if play == "build":
-            pending = [d for d in t.depends_on if repo.tickets.get(d) and repo.status_of(repo.tickets[d]) != "done"]
+            pending = repo.pending_deps(t)
             if t.status != "ready" or pending:
                 raise SystemExit(f"refused: {tid} must be ready with its dependencies done"
                                  + (f" (pending: {', '.join(pending)})" if pending else f" (it is {t.status})"))

@@ -707,6 +707,35 @@ class DerivedStatus(Base):
         self.assertEqual(code, 0, out)
         self.assertIn("would checkout build/T-042-02", out)
 
+    def test_the_runner_resumes_its_own_fetched_branch(self) -> None:
+        # ADR-0003: the runner exempts <branch> and origin/<branch>, nothing else.
+        sha = self.build()
+        git(self.p.root, "checkout", "-q", "main")
+        git(self.p.root, "branch", "-q", "-D", "build/T-042-02")
+        run = lambda: self.p.sdlc("run", "build", "T-042-02", "--agent", "fake", "--dry-run")
+        git(self.p.root, "update-ref", "refs/remotes/origin/build/T-042-02", sha)
+        code, out = run()
+        self.assertEqual(code, 0, out)                          # the ticket's own branch, fetched
+        git(self.p.root, "update-ref", "-d", "refs/remotes/origin/build/T-042-02")
+        git(self.p.root, "update-ref", "refs/remotes/origin/x/build/T-042-02", sha)  # another remote branch
+        code, out = run()
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("T-042-02 is in progress on origin/x/build/T-042-02", out)
+        git(self.p.root, "update-ref", "-d", "refs/remotes/origin/x/build/T-042-02")
+        git(self.p.root, "branch", "-q", "someone/build/T-042-02", sha)  # a local branch, not a remote's
+        code, out = run()
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("T-042-02 is in progress on someone/build/T-042-02", out)
+
+    def test_an_unknown_dependency_is_not_done(self) -> None:
+        rel = "tickets/T-042-02-order-page.md"
+        self.p.write(rel, self.p.read(rel).replace("depends_on:\n", "depends_on:\n  - T-042-99\n", 1))
+        self.p.commit("lead: a dependency that does not exist")
+        self.assertIn("T-042-02\tready\twaiting on T-042-99\t", self.p.sdlc("status")[1])
+        code, out = self.p.sdlc("run", "build", "T-042-02", "--agent", "fake", "--dry-run")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("pending: T-042-99", out)
+
     def test_delivery_statuses_are_not_stored(self) -> None:
         code, out = self.p.sdlc("status", "T-042-02", "in_progress", "--as", "build")
         self.assertNotEqual(code, 0)

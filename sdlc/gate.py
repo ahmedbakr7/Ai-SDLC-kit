@@ -426,8 +426,7 @@ class Gate:
             elif t.status not in ("in_progress", "in_review"):
                 c.status = "fail"
                 c.details.append(f"{t.id} status is {t.status}; run `sdlc status {t.id} in_progress --as build` first")
-            pending = [d for d in t.depends_on if self.repo.tickets.get(d)
-                       and self.repo.status_of(self.repo.tickets[d]) != "done"]
+            pending = self.repo.pending_deps(t)
             if pending:
                 c.status = "fail"
                 c.details.append(f"depends_on not done: {', '.join(pending)}")
