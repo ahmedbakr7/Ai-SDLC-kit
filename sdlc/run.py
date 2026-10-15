@@ -220,9 +220,14 @@ def _feedback(ev: dict) -> str:
 
 
 def _checkout(root: Path, branch: str, base: str, create: bool) -> None:
-    exists = gitutil.git(root, "rev-parse", "--verify", "--quiet", branch, check=False).strip()
-    if exists:
+    def exists(ref: str) -> bool:
+        return bool(gitutil.git(root, "rev-parse", "--verify", "--quiet", ref, check=False).strip())
+
+    if exists(branch):
         gitutil.git(root, "checkout", "-q", branch)
+    elif exists(f"refs/remotes/origin/{branch}"):
+        # Resume the ticket's fetched branch with its commits, not a fresh one from the base.
+        gitutil.git(root, "checkout", "-q", "-b", branch, f"origin/{branch}")
     elif create:
         gitutil.git(root, "checkout", "-q", "-b", branch, gitutil.merge_base(root, base))
     else:

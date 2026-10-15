@@ -362,9 +362,13 @@ class Repo:
             if bases:
                 root = self.cfg.root
                 # Refs already merged into a base cannot name an unmerged commit: skip them unread.
-                refs = gitutil.git(root, "for-each-ref", "--format=%(refname)%09%(refname:short)%09%(symref)",
-                                   *(f"--no-merged={b}" for b in bases), "refs/heads", "refs/remotes", check=False)
-                for line in refs.splitlines():
+                # One --no-merged per call: git before 2.29 rejects a second one, and check=False
+                # would turn that into "nothing in flight".
+                listed = [gitutil.git(root, "for-each-ref", "--format=%(refname)%09%(refname:short)%09%(symref)",
+                                      f"--no-merged={b}", "refs/heads", "refs/remotes", check=False).splitlines()
+                          for b in bases]
+                refs = [line for line in listed[0] if all(line in other for other in listed[1:])]
+                for line in refs:
                     full, short, sym = (line.split("\t") + ["", ""])[:3]
                     if sym or short in bases:
                         continue

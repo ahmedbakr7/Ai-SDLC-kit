@@ -17,8 +17,12 @@ PATCH: follow-ups from the v3.3.0 review.
 - `sdlc run build` and `sdlc status <id> in_progress` count a `depends_on` id that names no ticket
   as not done, as `sdlc next` and the board already did. Before, they skipped it. (`sdlc lint`
   and the gate already fail such a ticket.)
-- The branch scan reads only refs not yet merged into the base (`for-each-ref --no-merged`), so
-  stale remote-tracking refs no longer cost a `git log` each. The result is the same.
+- The branch scan reads only refs not yet merged into the base (one `for-each-ref --no-merged`
+  per base, as git before 2.29 takes only one), so stale remote-tracking refs no longer cost a
+  `git log` each. The result is the same.
+- A play whose ticket branch exists only as `origin/<branch>` (fetched, no local branch) now
+  checks it out from that ref. Before, `sdlc run build` started a new branch from the base and
+  dropped the fetched commits, so the resume ADR-0003 allows did not keep the earlier work.
 - Tests: the board tests run when `tests/test_gate.py` is run directly, and the runner's
   `origin/<branch>` exemption has a test.
 
