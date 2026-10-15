@@ -161,7 +161,11 @@ Set `[approval] mode = "forge"` (GitHub) or `"git"` (signed notes in `refs/notes
   naming the ticket, `done` once one is merged. `sdlc status` lists every ticket that way (run
   `git fetch` first to see other people's branches); `sdlc next` skips tickets in progress, and
   `sdlc run build` refuses one in progress on another branch. Delete an abandoned branch to free
-  its ticket. `reviews/` and `evidence/` stay as read-only history.
+  its ticket. A ticket waits on every `depends_on` id that is not done, including an id that
+  names no ticket. `sdlc run build` resumes the ticket's own branch, local or fetched as
+  `origin/<branch>`, with its commits. It refuses when `vcs.base` exists neither locally nor on
+  origin, because it cannot then check other branches: fetch it first. `reviews/` and
+  `evidence/` stay as read-only history.
 - Merge ticket PRs with a merge commit; turn off squash and rebase merging in the repository
   settings. A squash folds the trailers into the commit body, where derived status cannot read
   them, so the ticket never becomes `done`: it shows `in_progress` while its branch exists and
@@ -169,9 +173,15 @@ Set `[approval] mode = "forge"` (GitHub) or `"git"` (signed notes in `refs/notes
   commit until the PR's own commits are merged with a merge commit (no revert needed).
 - Weakening or removing an AC by amendment needs a lead approval; a strict ticket needs one too.
 
-Without `sdlc run` (agent in an IDE): `sdlc status T-001-03 in_progress --as build`,
+Without `sdlc run` (agent in an IDE), file mode: `sdlc status T-001-03 in_progress --as build`,
 give the agent `sdlc prompt build T-001-03`, have it iterate on `sdlc gate build
 T-001-03`, commit, then `sdlc status T-001-03 in_review --as build`.
+
+In records mode the status commands refuse `in_progress` and `in_review` (both are derived).
+Check out the ticket branch (`build/T-001-03` by default), give the agent `sdlc prompt build
+T-001-03`, have it iterate on `sdlc gate build T-001-03`, then commit with
+`sdlc commit T-001-03 --agent <name> --play build -m "..."`. The trailer makes the ticket
+`in_progress` for everyone who fetches the branch.
 
 ## 4. Upgrade the kit
 
