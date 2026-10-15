@@ -333,7 +333,7 @@ class Repo:
             self._delivered = set()
             if approval.records_mode(self.cfg):
                 # Both refs: a local base that lags the remote must not hide merged tickets.
-                for ref in self._bases():
+                for ref in self.bases():
                     self._delivered |= set(gitutil.trailer_values(self.cfg.root, ref, "Sdlc-Ticket"))
         return self._delivered
 
@@ -344,7 +344,7 @@ class Repo:
             return "done"
         return t.status
 
-    def _bases(self) -> list[str]:
+    def bases(self) -> list[str]:
         from . import gitutil
 
         base = str(self.cfg.section("vcs").get("base", "main"))
@@ -358,12 +358,18 @@ class Repo:
             from . import approval, gitutil
 
             self._in_flight = {}
-            bases = self._bases() if approval.records_mode(self.cfg) else []
+            bases = self.bases() if approval.records_mode(self.cfg) else []
             if bases:
                 root = self.cfg.root
-                refs = gitutil.git(root, "for-each-ref", "--format=%(refname)%09%(refname:short)%09%(symref)",
-                                   "refs/heads", "refs/remotes", check=False)
-                for line in refs.splitlines():
+                # Refs already merged into a base cannot name an unmerged commit: skip them unread.
+                # One --no-merged per call: git before 2.29 rejects a second one. A failed scan
+                # raises: read as "nothing in flight", it would let a second build take the ticket.
+                listed = [gitutil.git(root, "for-each-ref", "--format=%(refname)%09%(refname:short)%09%(symref)",
+                                      f"--no-merged={b}", "refs/heads", "refs/remotes").splitlines()
+                          for b in bases]
+                others = [set(lines) for lines in listed[1:]]
+                refs = [line for line in listed[0] if all(line in other for other in others)]
+                for line in refs:
                     full, short, sym = (line.split("\t") + ["", ""])[:3]
                     if sym or short in bases:
                         continue

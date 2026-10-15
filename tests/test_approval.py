@@ -685,6 +685,48 @@ class DerivedStatus(Base):
         self.assertIn("T-042-02\tin_progress\ton origin/build/T-042-02\t", self.p.sdlc("status")[1])
         self.assertNotIn("T-042-02", self.p.sdlc("next")[1])
 
+    def test_the_branch_scan_works_on_git_that_takes_one_no_merged(self) -> None:
+        from unittest import mock
+
+        from sdlc import config
+        from sdlc.artifacts import Repo
+
+        sha = self.build()
+        git(self.p.root, "checkout", "-q", "main")
+        git(self.p.root, "update-ref", "refs/remotes/origin/main", "main")  # two bases, as after a fetch
+        real = gitutil.git
+
+        def old_git(root, *args, check=True):  # git < 2.29 refuses a second --no-merged
+            if sum(a.startswith("--no-merged") for a in args) > 1:
+                if check:
+                    raise gitutil.GitError("only one --no-merged allowed")
+                return ""
+            return real(root, *args, check=check)
+
+        with mock.patch.object(gitutil, "git", old_git):
+            self.assertEqual(Repo(config.load(self.p.root)).in_flight(), {"T-042-02": ["build/T-042-02"]})
+        git(self.p.root, "update-ref", "refs/remotes/origin/main", sha)  # merged into one base only
+        self.assertEqual(Repo(config.load(self.p.root)).in_flight(), {})
+
+    def test_a_failed_branch_scan_raises_instead_of_freeing_every_ticket(self) -> None:
+        from unittest import mock
+
+        from sdlc import config
+        from sdlc.artifacts import Repo
+
+        self.build()
+        real = gitutil.git
+
+        def broken(root, *args, check=True):
+            if args[:1] == ("for-each-ref",):
+                if check:
+                    raise gitutil.GitError("for-each-ref failed")
+                return ""
+            return real(root, *args, check=check)
+
+        with mock.patch.object(gitutil, "git", broken), self.assertRaises(gitutil.GitError):
+            Repo(config.load(self.p.root)).in_flight()
+
     def test_a_branch_does_not_move_a_lead_decision(self) -> None:
         rel = "tickets/T-042-02-order-page.md"
         self.p.write(rel, self.p.read(rel).replace("status: ready", "status: blocked\nblocked_by: waiting on legal"))
@@ -706,6 +748,55 @@ class DerivedStatus(Base):
         code, out = self.p.sdlc("run", "build", "T-042-02", "--agent", "fake", "--dry-run")
         self.assertEqual(code, 0, out)
         self.assertIn("would checkout build/T-042-02", out)
+
+    def test_the_runner_resumes_its_own_fetched_branch(self) -> None:
+        # ADR-0003: the runner exempts <branch> and origin/<branch>, nothing else.
+        sha = self.build()
+        git(self.p.root, "checkout", "-q", "main")
+        git(self.p.root, "branch", "-q", "-D", "build/T-042-02")
+        run = lambda: self.p.sdlc("run", "build", "T-042-02", "--agent", "fake", "--dry-run")
+        git(self.p.root, "update-ref", "refs/remotes/origin/build/T-042-02", sha)
+        code, out = run()
+        self.assertEqual(code, 0, out)                          # the ticket's own branch, fetched
+        git(self.p.root, "update-ref", "-d", "refs/remotes/origin/build/T-042-02")
+        git(self.p.root, "update-ref", "refs/remotes/origin/x/build/T-042-02", sha)  # another remote branch
+        code, out = run()
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("T-042-02 is in progress on origin/x/build/T-042-02", out)
+        git(self.p.root, "update-ref", "-d", "refs/remotes/origin/x/build/T-042-02")
+        git(self.p.root, "branch", "-q", "someone/build/T-042-02", sha)  # a local branch, not a remote's
+        code, out = run()
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("T-042-02 is in progress on someone/build/T-042-02", out)
+
+    def test_a_real_build_resumes_the_fetched_branch_with_its_commits(self) -> None:
+        git(self.p.root, "checkout", "-q", "-b", "build/T-042-02")
+        copy_solution(self.p, "build-T-042-02")
+        sha = commit(self.p, "T-042-02: started on another machine")
+        git(self.p.root, "checkout", "-q", "main")
+        git(self.p.root, "branch", "-q", "-D", "build/T-042-02")
+        git(self.p.root, "update-ref", "refs/remotes/origin/build/T-042-02", sha)
+        code, out = self.p.sdlc("run", "build", "T-042-02", "--agent", "fake")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(git(self.p.root, "branch", "--show-current").strip(), "build/T-042-02")
+        # The fetched commit is under the new work, not dropped for a fresh branch off main.
+        git(self.p.root, "merge-base", "--is-ancestor", sha, "HEAD")  # raises if it is not
+
+    def test_the_runner_refuses_a_build_it_cannot_check_for_other_branches(self) -> None:
+        git(self.p.root, "checkout", "-q", "-b", "work")
+        git(self.p.root, "branch", "-q", "-D", "main")              # no base, local or fetched
+        code, out = self.p.sdlc("run", "build", "T-042-02", "--agent", "fake", "--dry-run")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("vcs.base 'main' is neither a local branch nor on origin", out)
+
+    def test_an_unknown_dependency_is_not_done(self) -> None:
+        rel = "tickets/T-042-02-order-page.md"
+        self.p.write(rel, self.p.read(rel).replace("depends_on:\n", "depends_on:\n  - T-042-99\n", 1))
+        self.p.commit("lead: a dependency that does not exist")
+        self.assertIn("T-042-02\tready\twaiting on T-042-99\t", self.p.sdlc("status")[1])
+        code, out = self.p.sdlc("run", "build", "T-042-02", "--agent", "fake", "--dry-run")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("pending: T-042-99", out)
 
     def test_delivery_statuses_are_not_stored(self) -> None:
         code, out = self.p.sdlc("status", "T-042-02", "in_progress", "--as", "build")

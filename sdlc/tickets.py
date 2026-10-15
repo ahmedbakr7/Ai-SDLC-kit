@@ -59,7 +59,7 @@ def check_transition(repo: Repo, t: Ticket, to: str, role: str, reason: str = ""
     if role not in allowed:
         raise TransitionError(f"{t.id}: {frm} -> {to} needs role {'/'.join(allowed)}, not {role}")
     if to == "in_progress" and frm == "ready":
-        pending = [d for d in t.depends_on if repo.tickets.get(d) and repo.status_of(repo.tickets[d]) != "done"]
+        pending = repo.pending_deps(t)
         if pending:
             raise TransitionError(f"{t.id}: depends_on not done: {', '.join(pending)}")
     if to == "done":

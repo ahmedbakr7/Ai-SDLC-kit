@@ -53,8 +53,8 @@ opened the PR nor wrote its commits. With one identity for everyone that cannot 
 `trust_unsigned = true`, write access is still required, and every result says it is trust-based.
 Evidence stays in CI (`.sdlc-run/`, uploaded as an artifact), `gate pr` re-proves the lane's checks
 on the head, and a ticket's delivery status is derived: `in_progress` while an unmerged branch has a
-commit that carries `Sdlc-Ticket: <id>`, `done` once a merged commit does. The default `mode = "file"` keeps `reviews/<id>.md`, committed evidence and
-stored status.
+commit that carries `Sdlc-Ticket: <id>`, `done` once a merged commit does. The default
+`mode = "file"` keeps `reviews/<id>.md`, committed evidence and stored status.
 
 Every full gate run writes JSON evidence (`--only` runs are partial and never count).
 Ticket plays are judged by the base branch's `sdlc.toml`, so an agent cannot reconfigure

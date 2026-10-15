@@ -2249,10 +2249,6 @@ class NestedRevert(unittest.TestCase):
             self.assertEqual(got[0][1], bad)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class StatusBoard(unittest.TestCase):
     """`sdlc status` lists every ticket with what it waits on; file mode keeps stored status."""
 
@@ -2277,6 +2273,14 @@ class StatusBoard(unittest.TestCase):
         self.assertEqual(self.p.sdlc("next", "--all")[1].split("\t")[0], "T-042-01")
         self.assertNotIn("T-042-02", self.p.sdlc("next", "--all")[1])
 
+    def test_starting_a_ticket_with_an_unknown_dependency_is_refused(self) -> None:
+        rel = "tickets/T-042-01-returns-api.md"
+        self.p.write(rel, self.p.read(rel).replace("depends_on: []", "depends_on: [T-042-99]"))
+        self.p.commit("lead: a dependency that does not exist")
+        code, out = self.p.sdlc("status", "T-042-01", "in_progress", "--as", "build")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("depends_on not done: T-042-99", out)
+
     def test_file_mode_does_not_derive_in_progress_from_branches(self) -> None:
         git(self.p.root, "checkout", "-q", "-b", "build/T-042-01")
         self.p.write("notes.txt", "x\n")
@@ -2285,3 +2289,7 @@ class StatusBoard(unittest.TestCase):
         git(self.p.root, "checkout", "-q", "main")
         self.assertEqual(self.p.sdlc("status", "T-042-01")[1].strip(), "ready")
         self.assertEqual(self.p.sdlc("next")[1].strip(), "T-042-01")
+
+
+if __name__ == "__main__":
+    unittest.main()

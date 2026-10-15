@@ -81,10 +81,13 @@ def run(cfg: Config, play: str, tid: str, agent: str, attempts: int | None, base
         if repo.status_of(t) == "done":
             raise SystemExit(f"{tid} is done (a merged commit names it)")
         if play == "build":
-            pending = [d for d in t.depends_on if repo.tickets.get(d) and repo.status_of(repo.tickets[d]) != "done"]
+            pending = repo.pending_deps(t)
             if t.status != "ready" or pending:
                 raise SystemExit(f"refused: {tid} must be ready with its dependencies done"
                                  + (f" (pending: {', '.join(pending)})" if pending else f" (it is {t.status})"))
+            if not repo.bases():
+                raise SystemExit(f"refused: vcs.base {vcs.get('base', 'main')!r} is neither a local branch nor "
+                                 f"on origin, so no branch can be checked for {tid}; fetch it first")
             # Resuming this ticket's own branch is fine; another branch already building it is not.
             elsewhere = [b for b in repo.in_flight().get(tid, []) if b not in (branch, f"origin/{branch}")]
             if elsewhere:
@@ -220,9 +223,14 @@ def _feedback(ev: dict) -> str:
 
 
 def _checkout(root: Path, branch: str, base: str, create: bool) -> None:
-    exists = gitutil.git(root, "rev-parse", "--verify", "--quiet", branch, check=False).strip()
-    if exists:
+    def exists(ref: str) -> bool:
+        return bool(gitutil.git(root, "rev-parse", "--verify", "--quiet", ref, check=False).strip())
+
+    if exists(branch):
         gitutil.git(root, "checkout", "-q", branch)
+    elif exists(f"refs/remotes/origin/{branch}"):
+        # Resume the ticket's fetched branch with its commits, not a fresh one from the base.
+        gitutil.git(root, "checkout", "-q", "-b", branch, f"origin/{branch}")
     elif create:
         gitutil.git(root, "checkout", "-q", "-b", branch, gitutil.merge_base(root, base))
     else:
