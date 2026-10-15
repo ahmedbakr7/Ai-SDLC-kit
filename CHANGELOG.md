@@ -7,9 +7,20 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 
 ## Unreleased
 
+## v3.3.1 (2026-10-15)
+
+PATCH: follow-ups from the v3.3.0 review.
+
 - ADR-0003 records v3.3.0's status derivation: `in_progress` comes from unmerged branches in both
   records modes, replacing the `in_progress` / `in_review` bullet of ADR-0001 section 5 (which
   named open PRs in `forge` mode). No code change.
+- `sdlc run build` and `sdlc status <id> in_progress` count a `depends_on` id that names no ticket
+  as not done, as `sdlc next` and the board already did. Before, they skipped it. (`sdlc lint`
+  and the gate already fail such a ticket.)
+- The branch scan reads only refs not yet merged into the base (`for-each-ref --no-merged`), so
+  stale remote-tracking refs no longer cost a `git log` each. The result is the same.
+- Tests: the board tests run when `tests/test_gate.py` is run directly, and the runner's
+  `origin/<branch>` exemption has a test.
 
 ## v3.3.0 (2026-10-14)
 
