@@ -19,7 +19,9 @@ PATCH: follow-ups from the v3.3.0 review.
   and the gate already fail such a ticket.)
 - The branch scan reads only refs not yet merged into the base (one `for-each-ref --no-merged`
   per base, as git before 2.29 takes only one), so stale remote-tracking refs no longer cost a
-  `git log` each. The result is the same.
+  `git log` each. The result is the same. A scan that fails now raises instead of reading as
+  "nothing in flight", and in records mode `sdlc run build` refuses when `vcs.base` exists neither
+  locally nor on origin, since it cannot check other branches for the ticket.
 - A play whose ticket branch exists only as `origin/<branch>` (fetched, no local branch) now
   checks it out from that ref. Before, `sdlc run build` started a new branch from the base and
   dropped the fetched commits, so the resume ADR-0003 allows did not keep the earlier work.

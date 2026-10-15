@@ -85,6 +85,9 @@ def run(cfg: Config, play: str, tid: str, agent: str, attempts: int | None, base
             if t.status != "ready" or pending:
                 raise SystemExit(f"refused: {tid} must be ready with its dependencies done"
                                  + (f" (pending: {', '.join(pending)})" if pending else f" (it is {t.status})"))
+            if not repo.bases():
+                raise SystemExit(f"refused: vcs.base {vcs.get('base', 'main')!r} is neither a local branch nor "
+                                 f"on origin, so no branch can be checked for {tid}; fetch it first")
             # Resuming this ticket's own branch is fine; another branch already building it is not.
             elsewhere = [b for b in repo.in_flight().get(tid, []) if b not in (branch, f"origin/{branch}")]
             if elsewhere:

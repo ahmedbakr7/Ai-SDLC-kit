@@ -708,6 +708,25 @@ class DerivedStatus(Base):
         git(self.p.root, "update-ref", "refs/remotes/origin/main", sha)  # merged into one base only
         self.assertEqual(Repo(config.load(self.p.root)).in_flight(), {})
 
+    def test_a_failed_branch_scan_raises_instead_of_freeing_every_ticket(self) -> None:
+        from unittest import mock
+
+        from sdlc import config
+        from sdlc.artifacts import Repo
+
+        self.build()
+        real = gitutil.git
+
+        def broken(root, *args, check=True):
+            if args[:1] == ("for-each-ref",):
+                if check:
+                    raise gitutil.GitError("for-each-ref failed")
+                return ""
+            return real(root, *args, check=check)
+
+        with mock.patch.object(gitutil, "git", broken), self.assertRaises(gitutil.GitError):
+            Repo(config.load(self.p.root)).in_flight()
+
     def test_a_branch_does_not_move_a_lead_decision(self) -> None:
         rel = "tickets/T-042-02-order-page.md"
         self.p.write(rel, self.p.read(rel).replace("status: ready", "status: blocked\nblocked_by: waiting on legal"))
@@ -762,6 +781,13 @@ class DerivedStatus(Base):
         self.assertEqual(git(self.p.root, "branch", "--show-current").strip(), "build/T-042-02")
         # The fetched commit is under the new work, not dropped for a fresh branch off main.
         git(self.p.root, "merge-base", "--is-ancestor", sha, "HEAD")  # raises if it is not
+
+    def test_the_runner_refuses_a_build_it_cannot_check_for_other_branches(self) -> None:
+        git(self.p.root, "checkout", "-q", "-b", "work")
+        git(self.p.root, "branch", "-q", "-D", "main")              # no base, local or fetched
+        code, out = self.p.sdlc("run", "build", "T-042-02", "--agent", "fake", "--dry-run")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("vcs.base 'main' is neither a local branch nor on origin", out)
 
     def test_an_unknown_dependency_is_not_done(self) -> None:
         rel = "tickets/T-042-02-order-page.md"
