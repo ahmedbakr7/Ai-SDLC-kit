@@ -15,8 +15,8 @@ PATCH: wording only, no behaviour change.
   review reads `in_progress`. `sdlc status <id> in_review`, `sdlc lint` and CONSUME.md now say
   so. `in_progress` keeps the v3.3.2 message.
 - CONSUME.md: a records-mode build commit makes the ticket `in_progress` for others once pushed.
-- `artifacts.py`: the branch-scan comment gives the real reason for one scan per base (a ref
-  counts only if no base has merged it) instead of the git 2.29 note.
+- `artifacts.py`: the branch-scan comment also says the per-base scans are intersected (a ref
+  counts only if no base has merged it). One `--no-merged` per call stays, for git before 2.29.
 
 ## v3.3.2 (2026-10-15)
 

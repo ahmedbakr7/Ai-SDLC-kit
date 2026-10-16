@@ -362,8 +362,9 @@ class Repo:
             if bases:
                 root = self.cfg.root
                 # Refs already merged into a base cannot name an unmerged commit: skip them unread.
-                # One scan per base, intersected: a ref counts only if no base has merged it. A failed scan
-                # raises: read as "nothing in flight", it would let a second build take the ticket.
+                # One --no-merged per call (git before 2.29 rejects a second), intersected: a ref counts
+                # only if no base has merged it. A failed scan raises: read as "nothing in flight", it
+                # would let a second build take the ticket.
                 listed = [gitutil.git(root, "for-each-ref", "--format=%(refname)%09%(refname:short)%09%(symref)",
                                       f"--no-merged={b}", "refs/heads", "refs/remotes").splitlines()
                           for b in bases]
