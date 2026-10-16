@@ -7,6 +7,26 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 
 ## Unreleased
 
+## v3.4.0 (2026-10-16)
+
+MINOR: a new lane that existing tickets do not use; nothing an existing product passes fails.
+
+- **Refactor lane** ([ADR-0004](decisions/ADR-0004-refactor-lane.md)). A lead marks a ticket that
+  keeps behaviour `lane: refactor`. The lane order is now `mechanical < refactor < standard <
+  strict`, so a ticket PR cannot lower a standard ticket to refactor. Its build runs
+  `[gate] refactor`: the standard build with a new `refactor` check in place of `ac-red`, plus
+  every configured test suite. It has no test play, like the mechanical lane.
+- The `refactor` check fails unless production code changed, every test file the base has keeps
+  its lines (only new tests or AC tags may be added), and each AC's tagged tests run and pass
+  with the production files put back to the base. It is never waived or baselined.
+- An approval of a refactor needs a non-empty `## Equivalence` section (`review-file` and
+  `sdlc approval`). The review skill and template say what to argue there.
+- `doctor` holds `gate.refactor` to a floor. `sdlc gate --lane` accepts `refactor`. Presets
+  apply to the new list. The build prompt, the build, review and ticketize skills, the ticket
+  template and CONSUME.md describe the lane.
+- `ac-red` and `refactor` share one helper that runs the unit command with the production files
+  at the base; `ac-red`'s behaviour is unchanged.
+
 ## v3.3.3 (2026-10-16)
 
 PATCH: wording only, no behaviour change.
