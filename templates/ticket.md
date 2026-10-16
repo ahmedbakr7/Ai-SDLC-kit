@@ -5,10 +5,11 @@ type: backend             # backend | frontend | fullstack | contract | test | o
 status: draft             # draft -> ready (lead) -> in_progress -> in_review -> done; or blocked
                           # With [approval] mode set, only draft | ready | blocked are stored: `sdlc status` shows the rest.
 risk: low                 # low | medium | high (high = strict lane: needs accepted_by, set by the lead)
-# lane: standard          # mechanical | standard | strict. Default: strict for risk high or type contract,
+# lane: standard          # mechanical | refactor | standard | strict. Default: strict for risk high or type contract,
                           # else standard. The gate may raise it from the diff, never lower it.
 # transforms: []          # lane: mechanical only. Each: 'literal "old" -> "new"', 'rename oldName -> newName'
                           # or 'move old/path -> new/path'. They must produce the whole diff.
+                          # lane: refactor (ADR-0004): behaviour does not change; AC pin the behaviour kept.
 test: required            # required | none (lead only: no route/page in contracts; skips the test play)
 depends_on: []
 areas:                    # globs or paths this ticket expects to change. Tests beside them are implied.

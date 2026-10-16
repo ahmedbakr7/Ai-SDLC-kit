@@ -18,6 +18,12 @@ play requires = request_changes.>
 |---|---|---|
 | AC-1 | `path/to/test::name` (passed) | <the observable behaviour checked; "asserts on source text" or "mocks the unit under test" is not proof> |
 
+## Equivalence
+
+<Refactor lane only (ADR-0004): why the change keeps behaviour, path by path: what the old code did, what
+the new code does, and why they agree on every input, including the ones no test covers. An approval of a
+refactor without this section is invalid. Delete this section in other lanes.>
+
 ## Findings
 
 - `path:line` <rule violated: CONTRACTS / pattern skill / ADR / AC / duplication> <what to change> [blocking|minor]

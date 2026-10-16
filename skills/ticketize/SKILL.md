@@ -23,6 +23,10 @@ lists the wrong files, the build will be wrong no matter how good the agent is.
    - A rename or move that preserves behaviour is `lane: mechanical` with `transforms:`
      (`'literal "/v1/" -> "/api/v1/"'`, `rename oldName -> newName`, `move a -> b`) and
      no acceptance criteria. Anything that changes behaviour is not mechanical.
+   - Any other change that keeps behaviour (extract or merge functions, simplify) is
+     `lane: refactor` (ADR-0004). Its AC pin the behaviour kept, through interfaces the base
+     already has, so their tests pass before and after. A refactor stays off CONTRACTS and
+     `lanes.strict_paths`; a test file move is a separate mechanical ticket.
    - An unknown that blocks planning is `type: spike` with `questions:` (`Q-1: ...`).
 4. **acceptance_criteria:** `AC-n: <observable behaviour>`. One behaviour each, <= 8.
    Each must be checkable by a test without asking anyone:
