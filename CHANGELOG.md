@@ -7,6 +7,17 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 
 ## Unreleased
 
+## v3.3.3 (2026-10-16)
+
+PATCH: wording only, no behaviour change.
+
+- Records mode no longer calls `in_review` derived. ADR-0003 does not derive it: a ticket under
+  review reads `in_progress`. `sdlc status <id> in_review`, `sdlc lint` and CONSUME.md now say
+  so. `in_progress` keeps the v3.3.2 message.
+- CONSUME.md: a records-mode build commit makes the ticket `in_progress` for others once pushed.
+- `artifacts.py`: the branch-scan comment gives the real reason for one scan per base (a ref
+  counts only if no base has merged it) instead of the git 2.29 note.
+
 ## v3.3.2 (2026-10-15)
 
 PATCH: documentation and one message, no behaviour change.
