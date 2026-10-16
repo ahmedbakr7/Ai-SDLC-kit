@@ -45,7 +45,7 @@ def check_transition(repo: Repo, t: Ticket, to: str, role: str, reason: str = ""
     frm = t.status
     if approval.records_mode(repo.cfg) and to == "in_review":
         raise TransitionError(f"{t.id}: in_review is not stored, and records mode does not derive it (ADR-0003): "
-                              "a ticket under review reads in_progress until its PR is merged")
+                              "a ticket under review reads in_progress while an unmerged branch names it")
     if approval.records_mode(repo.cfg) and to in DERIVED:
         raise TransitionError(f"{t.id}: {to} is derived, not stored: a ready ticket is in progress while an "
                               f"unmerged branch has a commit carrying `Sdlc-Ticket: {t.id}`, and done once one "

@@ -177,7 +177,7 @@ def lint_ticket(repo: Repo, t: Ticket, reqs: dict) -> list[Issue]:
 
     records = approval.records_mode(repo.cfg)
     if records and t.status in ("in_progress", "in_review"):
-        what = "derived, not stored" if t.status == "in_progress" else "not stored (under review reads in_progress)"
+        what = "derived, not stored" if t.status == "in_progress" else "not stored (ADR-0003: under review reads in_progress)"
         err(f"status {t.status} is {what} ([approval] mode = {approval.mode(repo.cfg)}): "
             "store draft, ready or blocked; `sdlc migrate` rewrites old tickets")
     if t.status == "done" and not shipped_v0 and not records:
