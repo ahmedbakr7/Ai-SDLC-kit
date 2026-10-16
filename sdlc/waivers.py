@@ -34,7 +34,7 @@ DEFAULT_MAX_DAYS = 90
 WARN_DAYS = 14
 # They judge the change, not the code it starts from (the baseline excludes them too).
 NEVER = ("scope", "immutable", "review-file", "approval", "mechanical", "spike", "contract-diff", "ac-red",
-         "skills")
+         "refactor", "skills")
 REQUIRED = ("id", "check", "key", "count", "owner", "reason", "expires")
 OPTIONAL = ("ticket", "renews")
 

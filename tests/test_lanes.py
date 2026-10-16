@@ -538,6 +538,214 @@ class ReviewFindings(unittest.TestCase):
         self.assertIn("gate.spike drops scope, immutable, spike", out)
 
 
+REFAC = "tickets/T-042-04-returns-loader.md"
+REFAC_TICKET = """---
+id: T-042-04
+title: Simplify the returns loader
+type: chore
+status: ready
+risk: low
+lane: refactor
+depends_on: []
+areas:
+  - app/returns.py
+  - app/test_returns.py
+skills:
+  - build
+acceptance_criteria:
+  - "AC-1: returns_for lists an order's returns, each with its id and state"
+  - "AC-2: returns_for answers None for an order that does not exist"
+requirements: []
+source_spec: design/spec-042-return-status.md
+source_plan: arch/plan-042-return-status.md
+---
+
+Collapse the loader. Behaviour stays exactly as it is.
+"""
+
+OLD_LOADER = """    rows = _ORDERS.get(order_id)
+    return None if rows is None else [dict(r) for r in rows]"""
+NEW_LOADER = """    if order_id not in _ORDERS:
+        return None
+    return [{"id": r["id"], "state": r["state"]} for r in _ORDERS[order_id]]"""
+CHARACTERISATION = (
+    "\n\nclass ReturnsLoader(unittest.TestCase):\n"
+    "    def test_lists_returns_with_id_and_state(self) -> None:\n"
+    '        """T-042-04/AC-1"""\n'
+    '        self.assertEqual(returns.returns_for("ord_1"),\n'
+    '                         [{"id": "ret_1", "state": "requested"}, {"id": "ret_2", "state": "refunded"}])\n'
+    "\n"
+    "    def test_unknown_order_is_none(self) -> None:\n"
+    '        """T-042-04/AC-2"""\n'
+    '        self.assertIsNone(returns.returns_for("nope"))\n'
+)
+REVIEW = """---
+ticket: T-042-04
+verdict: approve
+reviewer: fake-reviewer
+commit: {commit}
+---
+
+# Review T-042-04: Simplify the returns loader
+
+## Gate
+
+Build evidence: pass in the refactor lane at `{commit}`.
+
+## Acceptance criteria
+
+| AC | Test | Verdict |
+|---|---|---|
+| AC-1 | app/test_returns.py ReturnsLoader.test_lists_returns_with_id_and_state | met |
+| AC-2 | app/test_returns.py ReturnsLoader.test_unknown_order_is_none | met |
+{equivalence}
+## Findings
+
+None.
+"""
+
+
+class RefactorLane(unittest.TestCase):
+    """ADR-0004: a refactor proves its AC tests pass on the base and the head, keeps existing
+    tests, changes production code, and its approval argues equivalence."""
+    TESTS = "app/test_returns.py"
+
+    def setUp(self) -> None:
+        self.p = ProductRepo()
+        self.p.write(REFAC, REFAC_TICKET)
+        self.p.commit("lead: T-042-04 refactor ticket")
+        git(self.p.root, "checkout", "-q", "-b", "build/T-042-04")
+        self.assertEqual(self.p.sdlc("status", "T-042-04", "in_progress", "--as", "build")[0], 0)
+        self.p.commit("start T-042-04")
+
+    def tearDown(self) -> None:
+        self.p.close()
+
+    def refactor(self, loader: str = NEW_LOADER, tests: str = CHARACTERISATION) -> None:
+        self.p.write("app/returns.py", self.p.read("app/returns.py").replace(OLD_LOADER, loader))
+        body = self.p.read(self.TESTS)
+        self.p.write(self.TESTS, body.replace("\n\nif __name__", tests + "\n\nif __name__"))
+
+    def gate(self, *checks: str, play: str = "build") -> dict:
+        args = ["gate", play, "T-042-04"] + (["--only", ",".join(checks)] if checks else [])
+        self.code, self.out = self.p.sdlc(*args)
+        name = f"T-042-04.{play}.json"
+        f = self.p.root / ".sdlc-run" / name
+        if not checks and (self.p.root / "evidence" / name).is_file():
+            f = self.p.root / "evidence" / name
+        self.ev = json.loads(f.read_text(encoding="utf-8"))
+        return {c["name"]: c for c in self.ev["checks"]}
+
+    def test_a_behaviour_neutral_refactor_passes_without_ac_red(self) -> None:
+        self.refactor()
+        checks = self.gate()
+        self.assertEqual(self.code, 0, self.out)
+        self.assertEqual(self.ev["lane"], "refactor")
+        self.assertNotIn("ac-red", checks)
+        self.assertEqual(checks["refactor"]["status"], "pass", checks["refactor"])
+        self.assertIn("pass on main and on the head", checks["refactor"]["summary"])
+
+    def test_a_test_that_pins_new_behaviour_fails(self) -> None:
+        # The "refactor" makes an unknown order an empty list, and its AC test asserts that.
+        self.refactor(loader="    return [dict(r) for r in _ORDERS.get(order_id, [])]",
+                      tests=CHARACTERISATION.replace('self.assertIsNone(returns.returns_for("nope"))',
+                                                     'self.assertEqual(returns.returns_for("nope"), [])'))
+        c = self.gate("refactor")["refactor"]
+        self.assertEqual(c["status"], "fail", c)
+        self.assertTrue(any(d.startswith("T-042-04/AC-2: ") and "behaviour it pins is new" in d
+                            for d in c["details"]), c["details"])
+
+    def test_an_ac_without_a_test_that_runs_on_the_base_fails(self) -> None:
+        self.refactor(tests=CHARACTERISATION.split("\n    def test_unknown_order_is_none")[0])
+        c = self.gate("refactor")["refactor"]
+        self.assertEqual(c["status"], "fail", c)
+        self.assertTrue(any(d.startswith("T-042-04/AC-2: no tagged test ran") for d in c["details"]), c["details"])
+
+    def test_a_refactor_must_change_production_code(self) -> None:
+        self.refactor(loader=OLD_LOADER)
+        c = self.gate("refactor")["refactor"]
+        self.assertEqual(c["status"], "fail", c)
+        self.assertIn("no production file of T-042-04 differs from main: a refactor changes code", c["details"])
+
+    def test_existing_tests_may_gain_tags_but_not_lose_assertions(self) -> None:
+        self.refactor()
+        tagged = self.p.read(self.TESTS).replace('"""T-042-01/AC-4"""', '"""T-042-01/AC-4, T-042-04/AC-2"""')
+        self.p.write(self.TESTS, tagged)
+        c = self.gate("refactor")["refactor"]
+        self.assertEqual(c["status"], "pass", c)
+        self.p.write(self.TESTS, tagged.replace("        self.assertEqual(status, 404)\n", "", 1))
+        c = self.gate("refactor")["refactor"]
+        self.assertEqual(c["status"], "fail", c)
+        self.assertIn("app/test_returns.py: removed or rewrote 'self.assertEqual(status, 404)'; existing tests may "
+                      "only gain AC tags", c["details"])
+
+    def test_deleting_a_test_file_the_base_has_fails(self) -> None:
+        self.refactor()
+        self.p.write("app/test_loader.py", "import unittest\n\nfrom app import returns\n" + CHARACTERISATION)
+        (self.p.root / self.TESTS).unlink()
+        c = self.gate("refactor")["refactor"]
+        self.assertEqual(c["status"], "fail", c)
+        self.assertIn("app/test_returns.py: a test the base has was deleted", c["details"])
+
+    def test_the_build_prompt_states_the_refactor_rules(self) -> None:
+        code, out = self.p.sdlc("prompt", "build", "T-042-04")
+        self.assertEqual(code, 0, out)
+        out = self.p.read(out.strip())
+        self.assertIn("Behaviour does not change (ADR-0004)", out)
+        self.assertIn("never remove or rewrite a line of an existing test", out)
+
+    def test_the_refactor_lane_has_no_test_play(self) -> None:
+        self.refactor()
+        c = self.gate("lane", play="test")["lane"]
+        self.assertEqual(c["status"], "fail", c)
+        self.assertIn("the refactor lane has no test play: the build gate's full suite is its proof", c["details"])
+
+    def test_a_builder_cannot_lower_a_ticket_to_refactor(self) -> None:
+        git(self.p.root, "checkout", "-q", "main")
+        self.p.write(REFAC, REFAC_TICKET.replace("lane: refactor\n", ""))
+        self.p.commit("lead: T-042-04 is standard")
+        git(self.p.root, "checkout", "-q", "-B", "build/T-042-04")
+        self.p.write(REFAC, REFAC_TICKET.replace("status: ready", "status: in_progress"))
+        self.refactor()
+        c = self.gate("scope")["scope"]
+        self.assertEqual(c["status"], "fail", c)
+        self.assertTrue(any(": lane changed" in d for d in c["details"]), c["details"])
+
+    def test_the_approval_must_argue_equivalence(self) -> None:
+        self.refactor()
+        self.p.commit("T-042-04 refactor")
+        self.gate()
+        self.assertEqual(self.code, 0, self.out)
+        self.assertEqual(self.p.sdlc("status", "T-042-04", "in_review", "--as", "build")[0], 0)
+        self.p.commit("evidence T-042-04: build gate pass")
+        proven = self.ev["commit"]
+        self.p.write("reviews/T-042-04.md", REVIEW.format(commit=proven, equivalence=""))
+        c = self.gate("review-file", play="review")["review-file"]
+        self.assertEqual(c["status"], "fail", c)
+        self.assertTrue(any("under ## Equivalence" in d for d in c["details"]), c["details"])
+        self.p.write("reviews/T-042-04.md", REVIEW.format(commit=proven, equivalence=(
+            "\n## Equivalence\n\nThe membership test and the copy return what `.get` did.\n")))
+        c = self.gate("review-file", play="review")["review-file"]
+        self.assertEqual(c["status"], "pass", c)
+
+    def test_a_refactor_failure_is_never_waived_or_baselined(self) -> None:
+        from sdlc import baseline, waivers
+        self.assertIn("refactor", waivers.NEVER)
+        self.assertNotIn("refactor", baseline.BASELINE_CHECKS)
+
+    def test_records_mode_approval_needs_equivalence(self) -> None:
+        from sdlc import approval
+        rec = approval.Record(sha="x", who="r", role="review", verdict="approve",
+                              body="| AC-1 | t | met |\n| AC-2 | t | met |\n")
+        ticket = type("T", (), {"acs": [("AC-1", ""), ("AC-2", "")]})()
+        rest = ([], [], lambda body, heading: [], lambda f, g: False)
+        self.assertIn("no ## Equivalence section: a refactor's approval argues why behaviour is unchanged (ADR-0004)",
+                      approval._content_problems(rec, "review", ticket, "refactor", *rest))
+        self.assertEqual(approval._content_problems(rec, "review", ticket, "standard", *rest), [])
+        rec.body += "\n## Equivalence\n\nSame rows, same None.\n"
+        self.assertEqual(approval._content_problems(rec, "review", ticket, "refactor", *rest), [])
+
+
 class Amendments(unittest.TestCase):
     REL = "tickets/T-042-02-order-page.md"
 
@@ -762,9 +970,11 @@ class Doctor(unittest.TestCase):
             code, out = p.sdlc("doctor")
             self.assertNotIn("gate.mechanical drops", out)
             self.assertNotIn("gate.build drops", out)
+            self.assertNotIn("gate.refactor drops", out)
             for over, want in (('mechanical = ["artifacts", "unit"]', "gate.mechanical drops"),
                                ('build = ["artifacts", "unit"]', "gate.build drops ac-red"),
-                               ("strict = []", "gate.strict drops contract-diff")):
+                               ("strict = []", "gate.strict drops contract-diff"),
+                               ('refactor = ["artifacts", "unit"]', "gate.refactor drops")):
                 with self.subTest(over=over):
                     p.write("sdlc.toml", base + f"\n[gate]\n{over}\n")
                     code, out = p.sdlc("doctor")

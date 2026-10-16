@@ -5,6 +5,7 @@ and the evidence file it writes is what review, CI and merge look at.
 """
 from __future__ import annotations
 
+import difflib
 import json
 import os
 import re
@@ -190,7 +191,7 @@ class Gate:
             # the ticket has a test play, the test play's checks, on its own head. Approval is
             # the separate `sdlc approval` check, re-run as reviews arrive.
             names = self._build_list(list(g["build"]))
-            if self.ticket.test_play and not (self.lane and self.lane.name == "mechanical"):
+            if self.ticket.test_play and not (self.lane and self.lane.name in lanes.NO_TEST_PLAY):
                 # The test play's order (its suites run before ac-coverage reads them), then the
                 # build's own checks (ac-red, duplication) after.
                 names = list(g["test"]) + [n for n in names if n not in g["test"]]
@@ -211,6 +212,8 @@ class Gate:
             return list(g.get("spike", default))
         if self.lane and self.lane.name == "mechanical":
             return list(g.get("mechanical", default))
+        if self.lane and self.lane.name == "refactor":
+            return list(g.get("refactor", default))
         if self.ticket.type == "test":
             # A test ticket changes tests only: its AC may be provable by a real-stack suite alone,
             # so its build runs those suites before ac-coverage reads the results. It has no test
@@ -808,8 +811,8 @@ class Gate:
         if old is None and ln.name != "mechanical":
             problems.append(f"{t.id} was created on this branch; only a mechanical ticket whose transforms produce the "
                             "whole diff may be. Otherwise the lead makes the ticket ready on the base branch first")
-        if ln.name == "mechanical" and self.play == "test":
-            problems.append("the mechanical lane has no test play: the build gate's full suite is its proof")
+        if ln.name in lanes.NO_TEST_PLAY and self.play == "test":
+            problems.append(f"the {ln.name} lane has no test play: the build gate's full suite is its proof")
         if ln.name == "strict" and not self.records and not str((old or {}).get("accepted_by", "") or "").strip():
             problems.append(f"the strict lane needs lead sign-off: accepted_by on {self.base}'s version of {t.id} "
                             "(set in a lead PR)")
@@ -1091,29 +1094,26 @@ class Gate:
         suites = real_stack_suites(self.cfg)
         return any(tc.source in suites and tc.status == "passed" and tag.search(tc.name) for tc in self.testcases)
 
-    def check_ac_red(self, c: Check) -> None:
-        """Each AC needs a tagged test that fails without the ticket's code. The unit command
-        runs again with the ticket's production files put back to the base branch; an AC
-        whose tagged tests all still pass is proven by tests that do not depend on the work
-        (`expect(true)`, asserting on a fixture, re-testing old behaviour)."""
+    def _production_changes(self) -> list[str]:
+        """Production source the branch changed: [tests] source_globs, else the ticket's areas and
+        shared globs, minus tests, keeping only files whose content differs from the merge base.
+        Manifests, lockfiles and config are not counted (reverting them breaks the install or build
+        for the wrong reason); review judges them."""
         t = self.ticket
-        cmd = self.cfg.commands.get("unit", "")
-        if not t or not cmd or "{junit}" not in cmd:
-            c.status, c.summary = "skip", "needs a ticket and a unit command with {junit} (ac-coverage reports that)"
-            return
         tests = self.cfg.section("tests")
         test_globs = tests.get("globs", [])
-        # Production source the branch changed: [tests] source_globs, else the ticket's areas and
-        # shared globs. Manifests, lockfiles and config are not reverted (they break the install
-        # or build and fail ac-red for the wrong reason); review judges them.
         scope = tests.get("source_globs", []) or (t.areas + t.shared)
         prod = sorted(f for f in set(self.changed()) | set(t.files)
                       if any(_glob(f, g) for g in scope) and not any(_glob(f, g) for g in test_globs))
         mb = gitutil.merge_base(self.cfg.root, self.base)
-        prod = [f for f in prod if _norm(gitutil.show_bytes(self.cfg.root, mb, "./" + f)) != _read_or_none(self.cfg.root / f)]
-        if not prod:
-            c.status, c.summary = "skip", f"no production file of {t.id} differs from {self.base}; nothing to revert"
-            return
+        return [f for f in prod if _norm(gitutil.show_bytes(self.cfg.root, mb, "./" + f)) != _read_or_none(self.cfg.root / f)]
+
+    def _run_on_base(self, name: str, prod: list[str]) -> tuple[list[TestCase], str]:
+        """Run the unit command with `prod` put back to the merge base, then restore them. A file
+        the branch created is emptied, not deleted: a test file importing it would otherwise fail
+        at import as a whole, and each test should pass or fail on its own assertions."""
+        cmd = self.cfg.commands.get("unit", "")
+        mb = gitutil.merge_base(self.cfg.root, self.base)
         backup = self.run_dir / RED_BACKUP
         cases: list[TestCase] = []
         backup.mkdir(parents=True)
@@ -1129,22 +1129,34 @@ class Gate:
                 (backup / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
                 old = gitutil.show_bytes(self.cfg.root, mb, "./" + f)
                 if old is None and p.is_file():
-                    # Empty, not deleted: a test file importing a module the ticket created
-                    # would otherwise fail at import as a whole, and a tautology in it would
-                    # count as red. Imports of an empty module resolve (to undefined/attribute
-                    # errors), so each test passes or fails on its own assertions.
                     p.write_bytes(b"")
                 elif old is not None:
                     p.parent.mkdir(parents=True, exist_ok=True)
                     p.write_bytes(old)
-            junit = self.run_dir / "junit-ac-red.xml"
+            junit = self.run_dir / f"junit-{name}.xml"
             junit.unlink(missing_ok=True)
-            code, log = self._shell("ac-red", cmd.replace("{junit}", self.cfg.rel(junit))
+            code, log = self._shell(name, cmd.replace("{junit}", self.cfg.rel(junit))
                                     .replace("{port}", str(self.cfg.section("app")["port"])))
-            c.log = self.cfg.rel(log)
-            self._read_junit("ac-red", junit, into=cases)
+            self._read_junit(name, junit, into=cases)
         finally:
             _restore_red_backup(self.cfg.root, backup)
+        return cases, self.cfg.rel(log)
+
+    def check_ac_red(self, c: Check) -> None:
+        """Each AC needs a tagged test that fails without the ticket's code. The unit command
+        runs again with the ticket's production files put back to the base branch; an AC
+        whose tagged tests all still pass is proven by tests that do not depend on the work
+        (`expect(true)`, asserting on a fixture, re-testing old behaviour)."""
+        t = self.ticket
+        cmd = self.cfg.commands.get("unit", "")
+        if not t or not cmd or "{junit}" not in cmd:
+            c.status, c.summary = "skip", "needs a ticket and a unit command with {junit} (ac-coverage reports that)"
+            return
+        prod = self._production_changes()
+        if not prod:
+            c.status, c.summary = "skip", f"no production file of {t.id} differs from {self.base}; nothing to revert"
+            return
+        cases, c.log = self._run_on_base("ac-red", prod)
         green, unknown = [], []
         for tag in t.ac_tags():
             pat = re.compile(re.escape(tag) + r"(?!\d)")
@@ -1164,6 +1176,82 @@ class Gate:
                          f"({len(prod)} file(s) reverted)")
         else:
             c.summary = f"every AC has a test that fails without the ticket's code ({len(prod)} file(s) reverted)"
+
+    def check_refactor(self, c: Check) -> None:
+        """Refactor lane (ADR-0004): the lead declared that behaviour does not change, so no AC
+        can be proven red. Instead: the production diff is not empty; every test file that
+        exists on the base keeps its lines (it may only gain lines and AC tags); and each AC's
+        tagged tests run and pass with the production files put back to the base. ac-coverage
+        proves they pass on the head."""
+        t, ln = self.ticket, self.lane
+        if not t or not ln or ln.name != "refactor":
+            c.status, c.summary = "skip", "not in the refactor lane"
+            return
+        cmd = self.cfg.commands.get("unit", "")
+        if not cmd or "{junit}" not in cmd:
+            c.status, c.summary = "fail", "the refactor lane needs a unit command with {junit}: it runs the AC tests on the base"
+            return
+        prod = self._production_changes()
+        problems = [] if prod else [f"no production file of {t.id} differs from {self.base}: a refactor changes code"]
+        problems += self._edited_tests()
+        if prod:
+            cases, c.log = self._run_on_base("refactor", prod)
+            for tag in t.ac_tags():
+                pat = re.compile(re.escape(tag) + r"(?!\d)")
+                hits = [tc for tc in cases if pat.search(tc.name)]
+                if not hits:
+                    problems.append(f"{tag}: no tagged test ran with the production files at {self.base} (a test "
+                                    "that needs the new code proves new behaviour, not the old)")
+                for h in hits:
+                    if h.status != "passed":
+                        problems.append(f"{tag}: {h.name} {h.status} with the production files at {self.base}: the "
+                                        "behaviour it pins is new, so this is not a refactor")
+        c.details = problems
+        if problems:
+            c.status = "fail"
+            c.summary = f"{len(problems)} problem(s): a refactor keeps the base's behaviour and its tests"
+        else:
+            c.summary = (f"every AC's tests pass on {self.base} and on the head; existing tests kept "
+                         f"({len(prod)} production file(s) changed)")
+
+    def _edited_tests(self) -> list[str]:
+        """Test files on the base may only gain lines: a removed line must come back with only AC
+        tags added (`T-1/AC-2` in a title or docstring). Deleting or rewriting an assertion would
+        let a refactor change behaviour and its proof together."""
+        mb = gitutil.merge_base(self.cfg.root, self.base)
+        globs = self.cfg.section("tests").get("globs", [])
+        tag = re.compile(r"[A-Za-z0-9_.-]+/AC-\d+")
+
+        def bare(line: str) -> str:
+            return re.sub(r"[\s,;|()\[\]]", "", tag.sub("", line))
+
+        out = []
+        for f in sorted(self.changed()):
+            if not any(_glob(f, g) for g in globs):
+                continue
+            old = gitutil.show_bytes(self.cfg.root, mb, "./" + f)
+            if old is None:
+                continue  # a new test file: free to add
+            p = self.cfg.root / f
+            if not p.is_file():
+                out.append(f"{f}: a test the base has was deleted")
+                continue
+            before = old.decode("utf-8", errors="replace").splitlines()
+            after = p.read_text(encoding="utf-8", errors="replace").splitlines()
+            removed, added = [], []
+            for op in difflib.SequenceMatcher(a=before, b=after, autojunk=False).get_opcodes():
+                tag_, i1, i2, j1, j2 = op
+                if tag_ in ("replace", "delete"):
+                    removed += before[i1:i2]
+                if tag_ in ("replace", "insert"):
+                    added += after[j1:j2]
+            pool = Counter(bare(a) for a in added)
+            for r in removed:
+                if pool[bare(r)] > 0:
+                    pool[bare(r)] -= 1
+                else:
+                    out.append(f"{f}: removed or rewrote {r.strip()[:80]!r}; existing tests may only gain AC tags")
+        return out
 
     def check_test_quality(self, c: Check) -> None:
         tests = self.cfg.section("tests")
@@ -1431,6 +1519,9 @@ class Gate:
                 if kind in ("strengthen", "split", "widen") and key not in judged:
                     ev_problems.append(f"amendment `{kind} {target}` is not named under ## Amendments in "
                                        f"{self.cfg.rel(p)}; the reviewer judges each one")
+            if self.lane and self.lane.name == "refactor" and not review_section(body, "## Equivalence"):
+                ev_problems.append(f"a refactor's approval argues under ## Equivalence in {self.cfg.rel(p)} why "
+                                   "behaviour is unchanged (ADR-0004)")
         c.details += ev_problems
         if data.get("verdict") == "approve" and ev_problems:
             c.status, c.summary = "fail", "approve without passing evidence for the reviewed commit"
@@ -1611,8 +1702,10 @@ def _evidence_problems(cfg: Config, t: Ticket, commit: str) -> list[str]:
     # product that has one cannot skip it (gate test fails without a tagged integration test).
     # A lead may mark a ticket `test: none` (lint refuses it for tickets serving routes/pages).
     build_ev = cfg.path("evidence") / f"{t.id}.build.json"
-    mechanical = build_ev.is_file() and json.loads(build_ev.read_text(encoding="utf-8")).get("lane") == "mechanical"
-    # A mechanical build has no test play: its full suite is the proof (gate pr re-checks the lane).
+    mechanical = (build_ev.is_file()
+                  and json.loads(build_ev.read_text(encoding="utf-8")).get("lane") in lanes.NO_TEST_PLAY)
+    # A mechanical or refactor build has no test play: its full suite is the proof (gate pr
+    # re-checks the lane).
     # A test ticket has no test play, but its build needs a real-stack suite just the same.
     suites = real_stack_suites(cfg) if t.real_stack_proof and not mechanical else []
     real_stack = [k for k in suites if cfg.commands.get(k)]
@@ -1689,6 +1782,12 @@ def _changed_after_review(cfg: Config, t: Ticket, commit: str, base: str | None 
 
 def _as_list(v) -> list[str]:
     return [str(x) for x in (v if isinstance(v, list) else [v] if v not in (None, "") else [])]
+
+
+def review_section(body: str, heading: str) -> str:
+    """The text under `heading` up to the next `## ` heading, stripped ("" when absent)."""
+    m = re.search(rf"^{re.escape(heading)}[ \t]*$(.*?)(?=^## |\Z)", body.replace("\r\n", "\n"), re.M | re.S)
+    return m.group(1).strip() if m else ""
 
 
 def _review_entries(body: str, heading: str) -> list[str]:

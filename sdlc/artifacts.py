@@ -25,7 +25,7 @@ V0_TABLE_ROW_RE = re.compile(r"^\|\s*`([A-Za-z0-9_]+)`\s*\|")
 STATUSES = ("draft", "ready", "in_progress", "in_review", "done", "blocked")
 TYPES = ("backend", "frontend", "fullstack", "contract", "test", "ops", "chore", "spike")
 # Risk lanes, loosest first. The engine may raise a ticket's lane, never lower it (ADR-0001).
-LANES = ("mechanical", "standard", "strict")
+LANES = ("mechanical", "refactor", "standard", "strict")
 RISKS = ("low", "medium", "high")
 VERDICTS = ("approve", "request_changes")
 

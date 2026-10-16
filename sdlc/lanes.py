@@ -48,6 +48,11 @@ class Lane:
     residue: list[str] = field(default_factory=list)   # mechanical: lines the transforms do not produce
 
 
+# Lanes whose build runs the whole suite as their proof, with no test play: mechanical (the diff
+# is the declared transforms) and refactor (ADR-0004: behaviour does not change).
+NO_TEST_PLAY = ("mechanical", "refactor")
+
+
 def rank(lane: str) -> int:
     return LANES.index(lane) if lane in LANES else LANES.index("standard")
 

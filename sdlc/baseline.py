@@ -3,7 +3,7 @@ does not block every ticket. A gate fails only on failures the baseline does not
 baseline may only shrink (`immutable`), and `gate ci` asks for entries that stopped failing
 to be pruned. `sdlc trace` reads it too: shipped tickets adopted without proof are known
 trace problems, not a red CI forever. Process checks (scope, immutable, review-file, skills,
-ac-red) are never baselined: they judge the change itself, not the code it starts from.
+ac-red, refactor) are never baselined: they judge the change itself, not the code it starts from.
 
 Version 2 (ADR-0002) stores a count per key. Paths inside keys follow the renames git detects
 since the baseline was written, so moving a file keeps its known failures known."""

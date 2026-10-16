@@ -676,6 +676,12 @@ MECHANICAL_FLOOR = ("artifacts", "scope", "immutable", "mechanical", "contracts"
                     "ac-coverage", "test-quality", "build")
 
 
+# A refactor ticket's build (ADR-0004): the standard build with `refactor` in place of ac-red,
+# plus every configured test suite (it has no test play).
+REFACTOR_FLOOR = ("artifacts", "scope", "immutable", "contracts", "lint", "typecheck", "unit", "ac-coverage", "refactor",
+                  "test-quality", "build")
+
+
 # What `gate ci` itself may never drop: it proves every shipped AC on main, and the mechanical
 # lane's floor is defined by it.
 CI_FLOOR = ("artifacts", "immutable", "contracts", "lint", "typecheck", "unit", "ac-coverage", "test-quality", "build")
@@ -695,6 +701,10 @@ def lane_floor_problems(cfg: config.Config) -> list[str]:
                    "runs (every configured test suite included) plus `mechanical`")
     if "ac-red" not in g.get("build", []):
         out.append("gate.build drops ac-red: the standard lane proves each AC red")
+    missing = [n for n in (*REFACTOR_FLOOR, *suites) if n not in g.get("refactor", [])]
+    if missing:
+        out.append(f"gate.refactor drops {', '.join(missing)}: the refactor lane has no test play, so its build runs "
+                   "every configured test suite and `refactor` (its AC tests hold on the base and the head)")
     missing = [n for n in ("artifacts", "scope", "immutable", "spike") if n not in g.get("spike", [])]
     if missing:
         out.append(f"gate.spike drops {', '.join(missing)}: a spike's build must prove it changed documents only")
@@ -777,7 +787,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--since", help="judge scope on changes after this commit (default: base branch "
                    "for build, the proven build commit for test/review)")
     p.add_argument("--only", help="comma-separated subset of checks (local iteration only)")
-    p.add_argument("--lane", default="", choices=["", "mechanical", "standard", "strict"],
+    p.add_argument("--lane", default="", choices=["", "mechanical", "refactor", "standard", "strict"],
                    help="raise the ticket's lane (never lowers it)")
     p.add_argument("-v", "--verbose", action="store_true")
     p.set_defaults(fn=cmd_gate)
