@@ -177,11 +177,12 @@ Without `sdlc run` (agent in an IDE), file mode: `sdlc status T-001-03 in_progre
 give the agent `sdlc prompt build T-001-03`, have it iterate on `sdlc gate build
 T-001-03`, commit, then `sdlc status T-001-03 in_review --as build`.
 
-In records mode the status commands refuse `in_progress` and `in_review` (both are derived).
+In records mode the status commands refuse `in_progress` (derived) and `in_review` (records mode
+has none: a ticket under review reads `in_progress`, ADR-0003).
 Check out the ticket branch (`build/T-001-03` by default), give the agent `sdlc prompt build
 T-001-03`, have it iterate on `sdlc gate build T-001-03`, then commit with
 `sdlc commit T-001-03 --agent <name> --play build -m "..."`. The trailer makes the ticket
-`in_progress` for everyone who fetches the branch.
+`in_progress` for everyone who fetches the branch once you push it.
 
 ## 4. Upgrade the kit
 
