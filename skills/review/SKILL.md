@@ -20,9 +20,9 @@ every check, AC -> test mapping) in your prompt. Read the diff yourself:
 1. **Gate.** If the build or test evidence is not `pass`, is from a dirty tree, or the
    test evidence predates the latest build: `request_changes`. Stop reviewing. Missing test
    evidence counts too when the gate requires it: the ticket has a test play, its build was
-   not in the mechanical lane, and `tests.real_stack` is not empty. Then the test play has
+   not in the mechanical or refactor lane, and `tests.real_stack` is not empty. Then the test play has
    not run, and the gate rejects an approval without it. Otherwise (a ticket marked
-   `test: none`, a `type: test` ticket, a spike, a mechanical build, or
+   `test: none`, a `type: test` ticket, a spike, a mechanical or refactor build, or
    `tests.real_stack = []`) the prompt says "No test evidence needed"; the build evidence
    is the proof, so never ask for test evidence.
 2. **AC by AC.** For each AC, open the test the evidence names and answer: would this
@@ -53,7 +53,12 @@ every check, AC -> test mapping) in your prompt. Read the diff yourself:
    target under `## Amendments` in the review: a `strengthen` that is really weaker,
    or a `split` that drops behaviour, is blocking. In the mechanical lane, judge the transform list:
    a literal applied to a value and its test alike (`"404" -> "200"`) passes the suite
-   while changing behaviour.
+   while changing behaviour. In the refactor lane (ADR-0004), the gate proved the AC tests pass
+   on the base and the head; you prove the rest. Read old and new code side by side and write
+   under `## Equivalence` why they agree on every input, including inputs no test covers
+   (errors, empty values, ordering, side effects, timing). A difference is blocking: the
+   ticket is not a refactor. Read every line added inside an existing test: an early
+   `return` or a new guard weakens it while the gate sees only added lines.
 8. **Write** the review: `reviews/<id>.md`, or, when the prompt names `.sdlc-run/review-<id>.md`,
    that file with front matter `sdlc: approval`, `ticket`, `commit` (the HEAD you reviewed),
    `verdict`, `role: review`, `reviewer`, then the same template. Use the template at the end of

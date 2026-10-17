@@ -20,7 +20,7 @@ import copy
 from typing import Any
 
 PRESETS = ("default", "hardened", "floor")
-LANE_LISTS = ("build", "test", "review", "ci", "pr", "mechanical", "strict", "spike")
+LANE_LISTS = ("build", "test", "review", "ci", "pr", "mechanical", "refactor", "strict", "spike")
 FLOOR_DROPS = ("duplication", "smoke")
 HARDENED_MAX_DAYS = 30
 # Changes that decide what CI runs and what ships: strict, so they need a lead (ADR-0002).

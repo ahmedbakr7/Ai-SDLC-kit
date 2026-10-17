@@ -463,9 +463,18 @@ def _build_agents(cfg: Config, base: str, head: str) -> set[str]:
     return gitutil.build_agents(cfg.root, f"{mb}..{head}")
 
 
+def argues_equivalence(body: str) -> bool:
+    """A refactor's approval argues under `## Equivalence` (ADR-0004): the section has text, and
+    that text is not the template's `<...>` placeholder left in place."""
+    m = re.search(r"^## Equivalence[ \t]*$(.*?)(?=^## |\Z)", body.replace("\r\n", "\n"), re.M | re.S)
+    text = m.group(1).strip() if m else ""
+    return bool(text) and not re.fullmatch(r"<[^>]*>", text)
+
+
 def _content_problems(rec: Record, role: str, t, lane: str, flagged: list[str], amendments, review_entries, glob) -> list[str]:
     """An approving record names what the reviewer judged: one AC row per AC (above the
-    mechanical lane), each out-of-area file, each strengthen/split/widen amendment."""
+    mechanical lane), each out-of-area file, each strengthen/split/widen amendment, and in the
+    refactor lane why behaviour is unchanged."""
     if rec.verdict != "approve" or role != "review":
         return []  # a lead's sign-off or a bot's review is not the independent review
     body = rec.body or ""
@@ -478,4 +487,6 @@ def _content_problems(rec: Record, role: str, t, lane: str, flagged: list[str], 
     judged = set(review_entries(body, "## Amendments"))
     out += [f"amendment `{k} {target}` not named under ## Amendments" for k, target, _ in amendments
             if k in ("strengthen", "split", "widen", "weaken", "remove") and target.split()[0] not in judged]
+    if lane == "refactor" and not argues_equivalence(body):
+        out.append("no ## Equivalence section: a refactor's approval argues why behaviour is unchanged (ADR-0004)")
     return out

@@ -1,7 +1,8 @@
 """Risk lanes (ADR-0001): which check list a ticket PR runs, chosen from the ticket and the diff.
 
-The lanes are ordered mechanical < standard < strict. A ticket declares one (or gets the
-default its risk and type imply); the diff and an override can only raise it.
+The lanes are ordered mechanical < refactor < standard < strict (ADR-0004). A ticket declares
+one (or gets the default its risk and type imply); the diff and an override can only raise it.
+Only the lead's declaration on the ticket puts a PR in refactor.
 
 A mechanical ticket declares `transforms:`. The mechanical lane holds only when replaying
 them on the base version of every changed file gives the head byte for byte: then the diff
@@ -46,6 +47,11 @@ class Lane:
     declared: str
     reasons: list[str] = field(default_factory=list)  # each raise, with its trigger
     residue: list[str] = field(default_factory=list)   # mechanical: lines the transforms do not produce
+
+
+# Lanes whose build runs the whole suite as their proof, with no test play: mechanical (the diff
+# is the declared transforms) and refactor (ADR-0004: behaviour does not change).
+NO_TEST_PLAY = ("mechanical", "refactor")
 
 
 def rank(lane: str) -> int:
@@ -198,7 +204,11 @@ def resolve(cfg: Config, t: Ticket, changed: list[str], mb: str | None, override
             lane.reasons.append(f"{lane.name} -> {name}: {why}")
             lane.name = name
 
-    if override:
+    if override == "refactor" and declared != "refactor":
+        # Refactor is the lead's declaration on the ticket (ADR-0004); asking for it on a
+        # mechanical ticket gets the lane above it instead.
+        raise_to("standard", "override --lane refactor on a ticket the lead did not declare refactor (ADR-0004)")
+    elif override:
         raise_to(override, f"override --lane {override}")
     contracts = cfg.data["paths"]["contracts"]
     if contracts in changed:

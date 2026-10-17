@@ -111,6 +111,13 @@ The gate picks each ticket's lane ([ADR-0001](decisions/ADR-0001-lanes-areas-for
   explain the whole diff) writes `lane: mechanical` and `transforms:`; build runs `gate.mechanical`
   (every `gate ci` check plus `mechanical`), there is no test play, and one review approves.
   Any change the transforms do not produce makes the PR standard.
+- **refactor** ([ADR-0004](decisions/ADR-0004-refactor-lane.md)): the lead declares a change that
+  keeps behaviour (`lane: refactor`, with AC that pin the behaviour kept). Build runs
+  `gate.refactor`: the standard build with `refactor` in place of `ac-red`, plus every test suite;
+  there is no test play. `refactor` fails unless production code changed, existing tests only
+  gained AC tags or new tests, and each AC's tagged tests run and pass with the production files
+  put back to the base. The approving review argues why behaviour is unchanged under
+  `## Equivalence`.
 - **standard**: the flow above.
 - **strict**: `risk: high`, `type: contract`, a CONTRACTS change or a `lanes.strict_paths` file.
   The lead sets `accepted_by` on the ticket in a lead PR first; build, test and PR also run

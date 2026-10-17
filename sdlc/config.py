@@ -57,6 +57,12 @@ DEFAULTS: dict[str, Any] = {
         "mechanical": ["artifacts", "scope", "immutable", "mechanical", "contracts", "lint", "typecheck",
                        "unit", "integration", "e2e", "ac-coverage", "test-quality", "duplication", "build",
                        "smoke", "skills"],
+        # A refactor ticket (ADR-0004: the lead declares that behaviour does not change) runs the
+        # build list with `refactor` in place of ac-red: its AC tests pass on the base and on the
+        # head, existing tests only gain tags, and the production diff is not empty.
+        # Like the mechanical lane it has no test play: the whole suite runs in its build.
+        "refactor": ["artifacts", "scope", "immutable", "contracts", "lint", "typecheck", "unit", "integration",
+                     "e2e", "ac-coverage", "refactor", "test-quality", "duplication", "build", "smoke", "skills"],
         # A strict ticket runs the standard lists plus these (build, test and pr plays). Its
         # real-stack suites may not be skipped.
         "strict": ["contract-diff"],
@@ -237,6 +243,12 @@ def load(root: Path | None = None, text: str | None = None) -> Config:
     preset = presets.name(user)
     before = presets.apply(data, preset)
     data, forbidden = presets.enforce(deep_merge(before, user), before, user, preset)
+    ug = user.get("gate") if isinstance(user.get("gate"), dict) else {}
+    if "build" in ug and "refactor" not in ug:
+        # ADR-0004: the refactor build is the standard build with `refactor` in place of ac-red. A
+        # check the product added to its build runs in the refactor build too, after the default list.
+        g = data["gate"]
+        g["refactor"] = g["refactor"] + [n for n in g.get("build", []) if n != "ac-red" and n not in g["refactor"]]
     cfg = Config(root=root, data=data, source=src if src.is_file() else None, profile_name=profile,
                  preset_problems=forbidden)
     unknown = set(user) - set(DEFAULTS)

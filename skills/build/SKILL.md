@@ -61,10 +61,11 @@ several things at once, and never edit a test's expectation to match wrong outpu
 | Gate check | Usual cause |
 |---|---|
 | scope | you edited a lead artifact, another ticket, the test play's files, or your ticket beyond an amendment; revert it or stop and ask (files outside `areas:` are only flagged: say why in your final message) |
-| lane | your mechanical diff has changes the transforms do not produce (now standard: it needs AC), or a strict ticket lacks the lead's `accepted_by` |
+| lane | your mechanical diff has changes the transforms do not produce (now standard: it needs AC), a strict ticket lacks the lead's `accepted_by`, or you ran a test play in a lane that has none (mechanical, refactor) |
 | contracts | route path or method differs from CONTRACTS; a client call uses an undeclared path |
 | ac-coverage | a test is missing its `T-.../AC-n` tag, or that test fails |
 | ac-red | the AC's tests also pass with your files reverted: assert on what you built |
+| refactor | refactor lane: a tagged test fails or does not run with your production files at the base (it pins new behaviour, or calls a function you created: test through the old interface), you removed or rewrote a line of an existing test (only add tests, or add tags), or no production file changed |
 | smoke | the app does not start, or the route is not mounted where the contract says |
 | build | framework build rules (e.g. Next.js route files may only export handlers) |
 | test-quality | skipped/focused tests, tests reading source text |

@@ -296,6 +296,14 @@ def _dod(cfg: Config, t: Ticket, play: str) -> str:
                 f"2. `sdlc gate build {t.id}` passes. Checks: {', '.join(cfg.section('gate').get('mechanical', []))}.\n"
                 "3. Read the gate output, not your memory of it. A check you did not see pass has not passed.\n"
                 "4. Stop. Do not change ticket status, open PRs or start another ticket: the runner does that.")
+    if play == "build" and t.lane == "refactor":
+        return (f"1. Behaviour does not change (ADR-0004). Every acceptance criterion has a test whose name contains "
+                f"its tag: {tags}. Each must pass on the base branch too: test through interfaces the base already "
+                "has, never a function you created.\n"
+                "2. Change production code. Add tests or AC tags to existing tests; never remove or rewrite a line of "
+                "an existing test.\n"
+                f"3. `sdlc gate build {t.id}` passes. Checks: {', '.join(cfg.section('gate').get('refactor', []))}.\n"
+                "4. Stop. Do not change ticket status, open PRs or start another ticket: the runner does that.")
     return (f"1. Every acceptance criterion has at least one test whose name contains its tag: {tags}.\n"
             f"2. `sdlc gate {play} {t.id}` passes. Checks: {checks}.\n"
             "3. Read the gate output, not your memory of it. A check you did not see pass has not passed.\n"
@@ -317,8 +325,9 @@ def _no_test_evidence_needed(cfg: Config, t: Ticket, build: Path) -> str:
 
     if not t.test_play:
         return t.no_test_play_reason
-    if build.is_file() and json.loads(build.read_text(encoding="utf-8")).get("lane") == "mechanical":
-        return "a mechanical build: its full suite is the proof"
+    ran = json.loads(build.read_text(encoding="utf-8")).get("lane") if build.is_file() else ""
+    if ran in ("mechanical", "refactor"):
+        return f"a {ran} build: its full suite is the proof"
     if not real_stack_suites(cfg):
         return "tests.real_stack = []: the lead accepted unit-only proof"
     return ""
