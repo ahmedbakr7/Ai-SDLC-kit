@@ -13,21 +13,24 @@ MINOR: a new lane that existing tickets do not use; nothing an existing product 
 
 - **Refactor lane** ([ADR-0004](decisions/ADR-0004-refactor-lane.md)). A lead marks a ticket that
   keeps behaviour `lane: refactor`. The lane order is now `mechanical < refactor < standard <
-  strict`, so a ticket PR cannot lower a standard ticket to refactor. Its build runs
-  `[gate] refactor`: the standard build with a new `refactor` check in place of `ac-red`, plus
-  every configured test suite. It has no test play, like the mechanical lane.
+  strict`. Only the lead declares it: a ticket PR may neither lower a standard ticket to refactor
+  nor raise a mechanical one to it, and `--lane refactor` on a mechanical ticket gives standard.
+  Its build runs `[gate] refactor`: the standard build with a new `refactor` check in place of
+  `ac-red`, plus every configured test suite. It has no test play, like the mechanical lane.
 - The `refactor` check fails unless production code changed, every test file the base has keeps
-  its lines (only new tests or AC tags may be added), and each AC's tagged tests run and pass
-  with every changed file but tests put back to the base (in the ticket's areas or not). An added
-  tag may bring its own separator or brackets; every other character of an existing line,
-  punctuation included, must stay, and in the same diff hunk (a line may not move to another
-  test). When the unit command reports no test on the base, the check names its exit code. It is never waived or
+  its lines, and each AC's tagged tests run and pass with every changed file but tests put back
+  to the base (in the ticket's areas or not). A kept line may only gain AC tags, with their own
+  separator or brackets: indentation, punctuation, the spaces inside the line and the tags it
+  already had all stay, in the same diff hunk (a line may not move to another test). When the
+  unit command reports no test on the base, the check names its exit code. It is never waived or
   baselined.
-- An approval of a refactor needs a `## Equivalence` section with an argument in it, not empty and
-  not the template's `<...>` placeholder (`review-file` and `sdlc approval` share one rule). The review skill and template say what to argue there.
-- `doctor` holds `gate.refactor` to a floor. `sdlc gate --lane` accepts `refactor`. Presets
-  apply to the new list. The build prompt, the build, review and ticketize skills, the ticket
-  template and CONSUME.md describe the lane.
+- An approval of a refactor needs a `## Equivalence` section with an argument in it, not empty
+  and not the template's `<...>` placeholder (`review-file` and `sdlc approval` share one rule).
+  The review skill and template say what to argue there.
+- `doctor` holds `gate.refactor` to a floor, refuses `ac-red` in it, and notes a check the
+  product added to `gate.build` that `gate.refactor` lacks. `sdlc gate --lane` accepts
+  `refactor`. Presets apply to the new list. The build prompt, the build, review and ticketize
+  skills, the ticket template, README and CONSUME.md describe the lane.
 - `ac-red` and `refactor` share one helper that runs the unit command with the production files
   at the base; `ac-red`'s behaviour is unchanged.
 

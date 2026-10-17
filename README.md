@@ -21,7 +21,7 @@ the model and into one command:
 | `sdlc gate` check | Fails when |
 |---|---|
 | `artifacts` | a spec/plan/ticket/review is malformed, a reference does not resolve, deps form a cycle |
-| `lane` | the ticket's lane does not hold: a standard or strict ticket has no AC, a strict ticket has no lead sign-off on the base branch, a non-mechanical ticket was created in its own PR, or (on a PR) evidence ran in a looser lane than the branch needs |
+| `lane` | the ticket's lane does not hold: a refactor, standard or strict ticket has no AC, a strict ticket has no lead sign-off on the base branch, a non-mechanical ticket was created in its own PR, or (on a PR) evidence ran in a looser lane than the branch needs |
 | `scope` | a lead artifact, another ticket or another play's file changed, the ticket was edited beyond amendments, or its status moved in a way the play's role may not; a file outside the ticket's areas is a flag the review must accept, not a failure |
 | `immutable` | an accepted ADR was edited, or an acceptance criterion was weakened, removed or added without its spec or an amendment line |
 | `mechanical` | the diff is not exactly the ticket's declared transforms, byte for byte (modes, line endings and binaries included; a move must move, never copy or overwrite); such a PR runs in the standard lane instead |
@@ -31,6 +31,7 @@ the model and into one command:
 | `lint` `typecheck` `unit` `integration` `e2e` `build` | the product's real command exits non-zero, **is not configured**, or **ran zero tests** |
 | `ac-coverage` | an acceptance criterion has no passing test tagged `T-001-03/AC-2` in the JUnit output; in `gate ci`, for every ticket in review or done; in `gate test`, no test from a `tests.real_stack` suite (nextjs: e2e) proves any of the ticket's AC |
 | `ac-red` | with the ticket's production files reverted to the base branch, every tagged test of some AC still passes: the test does not depend on the work (`expect(true)`, re-testing old behaviour) |
+| `refactor` | refactor lane: no production file changed; a test file the base has lost a line, or a line changed beyond added AC tags; or, with every changed file but tests put back to the base, some AC has no tagged test that runs and passes (the test pins new behaviour). Never waived or baselined |
 | `test-quality` | tests are skipped/focused or assert on source text instead of behaviour |
 | `smoke` | the started app does not serve every contract route and page (`app.mutating_probe = "options"` checks writes via the `Allow` header instead of sending them; the `nextjs` profile sets it) |
 | `skills` | a vendored third-party skill drifted from its pinned commit and hash |
@@ -42,6 +43,7 @@ the engine from the ticket and the diff; it may raise a lane, never lower it:
 | Lane | When | Runs |
 |---|---|---|
 | mechanical | the ticket declares `lane: mechanical` and `transforms:` (literal, identifier rename, file move), and replaying them on the base gives the whole diff | every `gate ci` check plus `mechanical`; no `ac-red`, no test play; one review |
+| refactor | the lead declares `lane: refactor` on the base branch for a change that keeps behaviour ([ADR-0004](decisions/ADR-0004-refactor-lane.md)); a ticket PR cannot set it | the standard build with `refactor` in place of `ac-red`, plus every configured test suite; no test play; independent review that argues `## Equivalence` |
 | standard | the default | build with `ac-red`, test play through the real stack, independent review |
 | strict | `risk: high`, `type: contract`, a CONTRACTS change, or a file in `lanes.strict_paths` | standard plus `contract-diff`, real-stack suites that cannot be skipped, and `accepted_by` set by the lead on the base branch |
 

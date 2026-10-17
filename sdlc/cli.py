@@ -640,6 +640,7 @@ def cmd_doctor(args) -> int:
         notes.append("no .github/workflows: nothing enforces the gate on PRs unless your CI runs `sdlc gate ci`")
     probs += [f"skills: {p}" for p in skills.verify(cfg)]
     notes += _waiver_notes(cfg)
+    notes += lane_coverage_notes(cfg)
     if not cfg.section("agents"):
         notes.append("no [agents.*] in sdlc.toml: `sdlc run` is unavailable (see adapters/AGENTS-RUNNER.md)")
     try:
@@ -705,12 +706,23 @@ def lane_floor_problems(cfg: config.Config) -> list[str]:
     if missing:
         out.append(f"gate.refactor drops {', '.join(missing)}: the refactor lane has no test play, so its build runs "
                    "every configured test suite and `refactor` (its AC tests hold on the base and the head)")
+    if "ac-red" in g.get("refactor", []):
+        out.append("gate.refactor runs ac-red: a refactor keeps behaviour, so no AC of it can be proven red (ADR-0004)")
     missing = [n for n in ("artifacts", "scope", "immutable", "spike") if n not in g.get("spike", [])]
     if missing:
         out.append(f"gate.spike drops {', '.join(missing)}: a spike's build must prove it changed documents only")
     if "contract-diff" not in g.get("strict", []):
         out.append("gate.strict drops contract-diff: the strict lane publishes the contract diff")
     return out
+
+
+def lane_coverage_notes(cfg: config.Config) -> list[str]:
+    """A check the product added to its standard build that the refactor build lacks: the
+    refactor lane would quietly run less than the lane it sits below."""
+    g = cfg.section("gate")
+    extra = [n for n in g.get("build", []) if n != "ac-red" and n not in g.get("refactor", [])]
+    return [f"gate.build runs {', '.join(extra)} and gate.refactor does not: a refactor ticket skips them "
+            "(add them to [gate] refactor)"] if extra else []
 
 
 def approval_problems(cfg: config.Config) -> list[str]:
