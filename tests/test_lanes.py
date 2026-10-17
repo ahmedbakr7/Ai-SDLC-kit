@@ -1,6 +1,7 @@
 """ADR-0001 step 1: risk lanes, soft areas, ticket amendments and spikes. Each new check has a
 test that catches the defect it exists for and a test that shows the reference passes."""
 import json
+import time
 import unittest
 
 from helpers import ProductRepo, git
@@ -749,6 +750,17 @@ class RefactorLane(unittest.TestCase):
                 c = self.gate("refactor")["refactor"]
                 self.assertEqual(c["status"], "fail", c)
                 self.assertTrue(any("existing tests may only gain AC tags" in d for d in c["details"]), c["details"])
+
+    def test_a_long_rewritten_line_does_not_stall_the_check(self) -> None:
+        # A tag pattern with overlapping whitespace runs took minutes on a line like this one.
+        self.refactor()
+        body = self.p.read(self.TESTS)
+        self.p.write(self.TESTS, body.replace("        self.assertEqual(status, 404)\n",
+                                              "        self.assertEqual(status, 404)" + " " * 20000 + "x\n", 1))
+        started = time.monotonic()
+        c = self.gate("refactor")["refactor"]
+        self.assertLess(time.monotonic() - started, 60)
+        self.assertEqual(c["status"], "fail", c)
 
     def test_deleting_a_test_file_the_base_has_fails(self) -> None:
         self.refactor()

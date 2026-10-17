@@ -1229,20 +1229,46 @@ class Gate:
         let a refactor change behaviour and its proof together."""
         mb = gitutil.merge_base(self.cfg.root, self.base)
         globs = self.cfg.section("tests").get("globs", [])
-        tag = re.compile(r"[A-Za-z0-9_.-]+/AC-\d+")
-        # A run of AC tags with the separators and brackets that join it: `, T-1/AC-2` or `[T-1/AC-2]`.
-        run = re.compile(r"(?:[\s,;|]*[\[(]?\s*" + tag.pattern + r"\s*[\])]?)+")
+
+        def tags_in(line: str) -> list[tuple[int, int]]:
+            """Spans of AC tags (`T-1/AC-2`), found from each `/AC-<n>` leftwards over the id's
+            characters: linear in the line, so no line can stall the gate."""
+            spans = []
+            for m in re.finditer(r"/AC-\d+", line):
+                a = m.start()
+                while a > 0 and (line[a - 1].isalnum() or line[a - 1] in "_.-"):
+                    a -= 1
+                if a < m.start():
+                    spans.append((a, m.end()))
+            return spans
 
         def bare(line: str) -> str:
-            """The line without its tag runs and trailing space. Indentation and every other
-            character stay: in Python indentation is meaning, and a space in a string is data."""
+            """The line without its tags, their joining separators and brackets, and trailing
+            space. Indentation and every other character stay: in Python indentation is meaning,
+            and a space in a string is data."""
             body = line.lstrip()
-            return line[:len(line) - len(body)] + run.sub("", body).rstrip()
+            out, i = [], 0
+            for a, b in tags_in(body):
+                if a > i and body[a - 1] in "[(":
+                    a -= 1
+                left = a
+                while a > i and body[a - 1] in " \t,;|":
+                    a -= 1
+                if b < len(body) and body[b] in "])":
+                    b += 1
+                if a == left:  # a tag that opens the text takes the separator after it
+                    while b < len(body) and body[b] in " \t,;|":
+                        b += 1
+                out.append(body[i:a])
+                i = b
+            out.append(body[i:])
+            return line[:len(line) - len(body)] + "".join(out).rstrip()
 
         def keeps(old: str, new: str) -> bool:
             """`new` is `old` with AC tags added: same bare line, and every tag of `old` still on it."""
-            have = Counter(tag.findall(new))
-            return bare(old) == bare(new) and all(have[t] >= n for t, n in Counter(tag.findall(old)).items())
+            have = Counter(new[a:b] for a, b in tags_in(new))
+            had = Counter(old[a:b] for a, b in tags_in(old))
+            return bare(old) == bare(new) and all(have[t] >= n for t, n in had.items())
 
         out = []
         for f in sorted(self.changed()):
