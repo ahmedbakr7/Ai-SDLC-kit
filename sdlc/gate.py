@@ -1108,7 +1108,7 @@ class Gate:
         mb = gitutil.merge_base(self.cfg.root, self.base)
         return [f for f in prod if _norm(gitutil.show_bytes(self.cfg.root, mb, "./" + f)) != _read_or_none(self.cfg.root / f)]
 
-    def _run_on_base(self, name: str, prod: list[str]) -> tuple[list[TestCase], str]:
+    def _run_on_base(self, name: str, prod: list[str]) -> tuple[list[TestCase], str, int]:
         """Run the unit command with `prod` put back to the merge base, then restore them. A file
         the branch created is emptied, not deleted: a test file importing it would otherwise fail
         at import as a whole, and each test should pass or fail on its own assertions."""
@@ -1140,7 +1140,7 @@ class Gate:
             self._read_junit(name, junit, into=cases)
         finally:
             _restore_red_backup(self.cfg.root, backup)
-        return cases, self.cfg.rel(log)
+        return cases, self.cfg.rel(log), code
 
     def check_ac_red(self, c: Check) -> None:
         """Each AC needs a tagged test that fails without the ticket's code. The unit command
@@ -1156,7 +1156,7 @@ class Gate:
         if not prod:
             c.status, c.summary = "skip", f"no production file of {t.id} differs from {self.base}; nothing to revert"
             return
-        cases, c.log = self._run_on_base("ac-red", prod)
+        cases, c.log, _ = self._run_on_base("ac-red", prod)
         green, unknown = [], []
         for tag in t.ac_tags():
             pat = re.compile(re.escape(tag) + r"(?!\d)")
@@ -1195,8 +1195,11 @@ class Gate:
         problems = [] if prod else [f"no production file of {t.id} differs from {self.base}: a refactor changes code"]
         problems += self._edited_tests()
         if prod:
-            cases, c.log = self._run_on_base("refactor", prod)
-            for tag in t.ac_tags():
+            cases, c.log, code = self._run_on_base("refactor", prod)
+            if not cases:
+                problems.append(f"the unit command exited {code} and reported no test with the production files "
+                                f"at {self.base}; see {c.log}")
+            for tag in t.ac_tags() if cases else ():
                 pat = re.compile(re.escape(tag) + r"(?!\d)")
                 hits = [tc for tc in cases if pat.search(tc.name)]
                 if not hits:
@@ -1220,10 +1223,12 @@ class Gate:
         let a refactor change behaviour and its proof together."""
         mb = gitutil.merge_base(self.cfg.root, self.base)
         globs = self.cfg.section("tests").get("globs", [])
-        tag = re.compile(r"[A-Za-z0-9_.-]+/AC-\d+")
+        # A run of AC tags with the separators and brackets that join it: `, T-1/AC-2` or `[T-1/AC-2]`.
+        # Only those go; every other character of the line must come back unchanged.
+        tags = re.compile(r"(?:[\s,;|]*[\[(]?\s*[A-Za-z0-9_.-]+/AC-\d+\s*[\])]?)+")
 
         def bare(line: str) -> str:
-            return re.sub(r"[\s,;|()\[\]]", "", tag.sub("", line))
+            return re.sub(r"\s", "", tags.sub("", line))
 
         out = []
         for f in sorted(self.changed()):
@@ -1519,7 +1524,7 @@ class Gate:
                 if kind in ("strengthen", "split", "widen") and key not in judged:
                     ev_problems.append(f"amendment `{kind} {target}` is not named under ## Amendments in "
                                        f"{self.cfg.rel(p)}; the reviewer judges each one")
-            if self.lane and self.lane.name == "refactor" and not review_section(body, "## Equivalence"):
+            if self.lane and self.lane.name == "refactor" and not approval.argues_equivalence(body):
                 ev_problems.append(f"a refactor's approval argues under ## Equivalence in {self.cfg.rel(p)} why "
                                    "behaviour is unchanged (ADR-0004)")
         c.details += ev_problems
@@ -1782,12 +1787,6 @@ def _changed_after_review(cfg: Config, t: Ticket, commit: str, base: str | None 
 
 def _as_list(v) -> list[str]:
     return [str(x) for x in (v if isinstance(v, list) else [v] if v not in (None, "") else [])]
-
-
-def review_section(body: str, heading: str) -> str:
-    """The text under `heading` up to the next `## ` heading, stripped ("" when absent)."""
-    m = re.search(rf"^{re.escape(heading)}[ \t]*$(.*?)(?=^## |\Z)", body.replace("\r\n", "\n"), re.M | re.S)
-    return m.group(1).strip() if m else ""
 
 
 def _review_entries(body: str, heading: str) -> list[str]:

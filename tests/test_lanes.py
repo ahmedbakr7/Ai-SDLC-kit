@@ -679,6 +679,35 @@ class RefactorLane(unittest.TestCase):
         self.assertIn("app/test_returns.py: removed or rewrote 'self.assertEqual(status, 404)'; existing tests may "
                       "only gain AC tags", c["details"])
 
+    def test_a_tag_may_come_in_brackets_but_punctuation_is_kept(self) -> None:
+        # New docstrings carry text, so none of them can stand in for the edited tag-only docstring.
+        self.refactor(tests=CHARACTERISATION.replace('AC-1"""', 'AC-1 lists"""').replace('AC-2"""', 'AC-2 none"""'))
+        body = self.p.read(self.TESTS)
+        tagged = body.replace('"""T-042-01/AC-4"""', '"""T-042-01/AC-4 [T-042-04/AC-2]"""')
+        self.p.write(self.TESTS, tagged)
+        self.assertEqual(self.gate("refactor")["refactor"]["status"], "pass")
+        # Dropping a comma joins the two strings: the list now holds one item, and the test is weaker.
+        self.p.write(self.TESTS, tagged.replace('["ret_1", "ret_2"]', '["ret_1" "ret_2"]'))
+        c = self.gate("refactor")["refactor"]
+        self.assertEqual(c["status"], "fail", c)
+        self.assertTrue(any(d.startswith("app/test_returns.py: removed or rewrote 'self.assertEqual([r[") for d in c["details"]),
+                        c["details"])
+
+    def test_a_unit_command_that_reports_nothing_on_the_base_names_its_exit_code(self) -> None:
+        # The gate reads its config from the base: the lead sets a unit command that needs the new code.
+        git(self.p.root, "checkout", "-q", "main")
+        cfg = self.p.read("sdlc.toml")
+        self.p.write("sdlc.toml", cfg.replace('unit = "python', 'unit = "python -c \'from app import returns; returns.NEW\' && python', 1))
+        self.p.commit("lead: unit command")
+        git(self.p.root, "checkout", "-q", "-B", "build/T-042-04")
+        self.refactor()
+        self.p.write("app/returns.py", self.p.read("app/returns.py") + "\n\nNEW = 1\n")
+        c = self.gate("refactor")["refactor"]
+        self.assertEqual(c["status"], "fail", c)
+        self.assertTrue(any(d.startswith("the unit command exited 1 and reported no test with the production files at main")
+                            for d in c["details"]), c["details"])
+        self.assertFalse(any("no tagged test ran" in d for d in c["details"]), c["details"])
+
     def test_deleting_a_test_file_the_base_has_fails(self) -> None:
         self.refactor()
         self.p.write("app/test_loader.py", "import unittest\n\nfrom app import returns\n" + CHARACTERISATION)
@@ -724,6 +753,11 @@ class RefactorLane(unittest.TestCase):
         self.assertEqual(c["status"], "fail", c)
         self.assertTrue(any("under ## Equivalence" in d for d in c["details"]), c["details"])
         self.p.write("reviews/T-042-04.md", REVIEW.format(commit=proven, equivalence=(
+            "\n## Equivalence\n\n<Refactor lane only (ADR-0004): why the change keeps behaviour.>\n")))
+        c = self.gate("review-file", play="review")["review-file"]
+        self.assertEqual(c["status"], "fail", c)
+        self.assertTrue(any("under ## Equivalence" in d for d in c["details"]), c["details"])
+        self.p.write("reviews/T-042-04.md", REVIEW.format(commit=proven, equivalence=(
             "\n## Equivalence\n\nThe membership test and the copy return what `.get` did.\n")))
         c = self.gate("review-file", play="review")["review-file"]
         self.assertEqual(c["status"], "pass", c)
@@ -742,7 +776,11 @@ class RefactorLane(unittest.TestCase):
         self.assertIn("no ## Equivalence section: a refactor's approval argues why behaviour is unchanged (ADR-0004)",
                       approval._content_problems(rec, "review", ticket, "refactor", *rest))
         self.assertEqual(approval._content_problems(rec, "review", ticket, "standard", *rest), [])
-        rec.body += "\n## Equivalence\n\nSame rows, same None.\n"
+        body = rec.body
+        rec.body = body + "\n## Equivalence\n\n<Refactor lane only (ADR-0004): why\nbehaviour is kept.>\n"
+        self.assertIn("no ## Equivalence section: a refactor's approval argues why behaviour is unchanged (ADR-0004)",
+                      approval._content_problems(rec, "review", ticket, "refactor", *rest))
+        rec.body = body + "\n## Equivalence\n\nSame rows, same None.\n"
         self.assertEqual(approval._content_problems(rec, "review", ticket, "refactor", *rest), [])
 
 

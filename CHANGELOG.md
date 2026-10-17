@@ -18,9 +18,12 @@ MINOR: a new lane that existing tickets do not use; nothing an existing product 
   every configured test suite. It has no test play, like the mechanical lane.
 - The `refactor` check fails unless production code changed, every test file the base has keeps
   its lines (only new tests or AC tags may be added), and each AC's tagged tests run and pass
-  with the production files put back to the base. It is never waived or baselined.
-- An approval of a refactor needs a non-empty `## Equivalence` section (`review-file` and
-  `sdlc approval`). The review skill and template say what to argue there.
+  with the production files put back to the base. An added tag may bring its own separator or
+  brackets; every other character of an existing line, punctuation included, must stay. When the
+  unit command reports no test on the base, the check names its exit code. It is never waived or
+  baselined.
+- An approval of a refactor needs a `## Equivalence` section with an argument in it, not empty and
+  not the template's `<...>` placeholder (`review-file` and `sdlc approval` share one rule). The review skill and template say what to argue there.
 - `doctor` holds `gate.refactor` to a floor. `sdlc gate --lane` accepts `refactor`. Presets
   apply to the new list. The build prompt, the build, review and ticketize skills, the ticket
   template and CONSUME.md describe the lane.
