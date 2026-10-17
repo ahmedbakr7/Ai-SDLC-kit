@@ -803,10 +803,16 @@ class DerivedStatus(Base):
         self.assertNotEqual(code, 0)
         self.assertIn("in_progress is derived, not stored", out)
         self.assertIn("unmerged branch", out)                   # ADR-0003, not open PRs
+        code, out = self.p.sdlc("status", "T-042-02", "in_review", "--as", "build")
+        self.assertNotEqual(code, 0)
+        self.assertIn("in_review is not stored, and records mode does not derive it", out)
         rel = "tickets/T-042-02-order-page.md"
         self.p.write(rel, self.p.read(rel).replace("status: ready", "status: in_progress"))
         code, out = self.p.sdlc("lint")
         self.assertIn("status in_progress is derived, not stored", out)
+        self.p.write(rel, self.p.read(rel).replace("status: in_progress", "status: in_review"))
+        code, out = self.p.sdlc("lint")
+        self.assertIn("status in_review is not stored (ADR-0003: under review reads in_progress)", out)
 
     def test_build_gate_needs_no_status_move_and_commits_no_evidence(self) -> None:
         git(self.p.root, "checkout", "-q", "-b", "build/T-042-02")
