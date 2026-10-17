@@ -708,6 +708,34 @@ class RefactorLane(unittest.TestCase):
                             for d in c["details"]), c["details"])
         self.assertFalse(any("no tagged test ran" in d for d in c["details"]), c["details"])
 
+    def test_an_assertion_may_not_move_to_another_test(self) -> None:
+        self.refactor()
+        body = self.p.read(self.TESTS)
+        line = '        self.assertEqual(json.loads(body)["error"]["code"], "not_found")\n'
+        # From the 404 test up into the first test, across lines the diff leaves alone.
+        first = '        self.assertEqual(status, 200)\n'
+        moved = body.replace(line, "", 1).replace(first, first + line, 1)
+        self.assertNotEqual(moved, body)
+        self.p.write(self.TESTS, moved)
+        c = self.gate("refactor")["refactor"]
+        self.assertEqual(c["status"], "fail", c)
+        self.assertTrue(any("removed or rewrote 'self.assertEqual(json.loads(body)" in d for d in c["details"]), c["details"])
+
+    def test_a_file_outside_the_areas_is_put_back_too(self) -> None:
+        # server.py is outside the ticket's areas. Its new message would pass the new test if the
+        # base run left it at the head.
+        self.refactor(tests=CHARACTERISATION + (
+            "\n    def test_unknown_order_message(self) -> None:\n"
+            '        """T-042-04/AC-2"""\n'
+            '        _, _, body = server.dispatch("GET", "/api/orders/nope/returns")\n'
+            '        self.assertEqual(json.loads(body)["error"]["message"], "no order nope")\n'))
+        srv = self.p.read("app/server.py")
+        self.p.write("app/server.py", srv.replace('f"order {order_id} not found"', 'f"no order {order_id}"'))
+        c = self.gate("refactor")["refactor"]
+        self.assertEqual(c["status"], "fail", c)
+        self.assertTrue(any(d.startswith("T-042-04/AC-2: ") and "test_unknown_order_message" in d
+                            and "behaviour it pins is new" in d for d in c["details"]), c["details"])
+
     def test_deleting_a_test_file_the_base_has_fails(self) -> None:
         self.refactor()
         self.p.write("app/test_loader.py", "import unittest\n\nfrom app import returns\n" + CHARACTERISATION)

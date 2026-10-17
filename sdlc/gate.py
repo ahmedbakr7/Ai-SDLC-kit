@@ -1094,17 +1094,19 @@ class Gate:
         suites = real_stack_suites(self.cfg)
         return any(tc.source in suites and tc.status == "passed" and tag.search(tc.name) for tc in self.testcases)
 
-    def _production_changes(self) -> list[str]:
+    def _production_changes(self, every: bool = False) -> list[str]:
         """Production source the branch changed: [tests] source_globs, else the ticket's areas and
         shared globs, minus tests, keeping only files whose content differs from the merge base.
         Manifests, lockfiles and config are not counted (reverting them breaks the install or build
-        for the wrong reason); review judges them."""
+        for the wrong reason); review judges them. `every` takes every changed file but tests,
+        in or out of scope: the refactor lane's base run, where a file left at the head could
+        lend new behaviour to a test that is meant to prove the old."""
         t = self.ticket
         tests = self.cfg.section("tests")
         test_globs = tests.get("globs", [])
         scope = tests.get("source_globs", []) or (t.areas + t.shared)
         prod = sorted(f for f in set(self.changed()) | set(t.files)
-                      if any(_glob(f, g) for g in scope) and not any(_glob(f, g) for g in test_globs))
+                      if (every or any(_glob(f, g) for g in scope)) and not any(_glob(f, g) for g in test_globs))
         mb = gitutil.merge_base(self.cfg.root, self.base)
         return [f for f in prod if _norm(gitutil.show_bytes(self.cfg.root, mb, "./" + f)) != _read_or_none(self.cfg.root / f)]
 
@@ -1195,7 +1197,7 @@ class Gate:
         problems = [] if prod else [f"no production file of {t.id} differs from {self.base}: a refactor changes code"]
         problems += self._edited_tests()
         if prod:
-            cases, c.log, code = self._run_on_base("refactor", prod)
+            cases, c.log, code = self._run_on_base("refactor", self._production_changes(every=True))
             if not cases:
                 problems.append(f"the unit command exited {code} and reported no test with the production files "
                                 f"at {self.base}; see {c.log}")
@@ -1243,19 +1245,17 @@ class Gate:
                 continue
             before = old.decode("utf-8", errors="replace").splitlines()
             after = p.read_text(encoding="utf-8", errors="replace").splitlines()
-            removed, added = [], []
-            for op in difflib.SequenceMatcher(a=before, b=after, autojunk=False).get_opcodes():
-                tag_, i1, i2, j1, j2 = op
-                if tag_ in ("replace", "delete"):
-                    removed += before[i1:i2]
-                if tag_ in ("replace", "insert"):
-                    added += after[j1:j2]
-            pool = Counter(bare(a) for a in added)
-            for r in removed:
-                if pool[bare(r)] > 0:
-                    pool[bare(r)] -= 1
-                else:
-                    out.append(f"{f}: removed or rewrote {r.strip()[:80]!r}; existing tests may only gain AC tags")
+            # A removed line must come back in the same hunk: a match elsewhere in the file would
+            # let an assertion move to another test, or below a new early return.
+            for tag_, i1, i2, j1, j2 in difflib.SequenceMatcher(a=before, b=after, autojunk=False).get_opcodes():
+                if tag_ not in ("replace", "delete"):
+                    continue
+                pool = Counter(bare(a) for a in after[j1:j2])
+                for r in before[i1:i2]:
+                    if pool[bare(r)] > 0:
+                        pool[bare(r)] -= 1
+                    else:
+                        out.append(f"{f}: removed or rewrote {r.strip()[:80]!r}; existing tests may only gain AC tags")
         return out
 
     def check_test_quality(self, c: Check) -> None:
