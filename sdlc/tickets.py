@@ -36,7 +36,9 @@ def reachable(frm: str, to: str, roles: tuple[str, ...]) -> bool:
     return False
 
 
-DERIVED = ("in_progress", "in_review", "done")
+# Statuses records mode derives from Sdlc-Ticket trailers (ADR-0003). in_review is not one of
+# them: records mode neither stores nor derives it, and check_transition refuses it on its own.
+DERIVED = ("in_progress", "done")
 
 
 def check_transition(repo: Repo, t: Ticket, to: str, role: str, reason: str = "") -> None:

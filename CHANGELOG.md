@@ -7,6 +7,9 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 
 ## Unreleased
 
+- `tickets.DERIVED` no longer lists `in_review`, which records mode does not derive (ADR-0003).
+  No behaviour change: `sdlc status <id> in_review` was already refused first, with its own message.
+
 ## v3.4.0 (2026-10-16)
 
 MINOR: a new lane that existing tickets do not use; nothing an existing product passes fails.
