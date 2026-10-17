@@ -736,6 +736,20 @@ class RefactorLane(unittest.TestCase):
         self.assertTrue(any(d.startswith("T-042-04/AC-2: ") and "test_unknown_order_message" in d
                             and "behaviour it pins is new" in d for d in c["details"]), c["details"])
 
+    def test_tags_may_not_be_retargeted_nor_whitespace_or_indentation_changed(self) -> None:
+        self.refactor()
+        body = self.p.read(self.TESTS)
+        for old, new in [('"""T-042-01/AC-4"""', '"""T-042-01/AC-3"""'),
+                         ('"not_found"', '"not _found"'),
+                         ("        self.assertEqual(status, 404)\n",
+                          "        if False:\n            self.assertEqual(status, 404)\n")]:
+            with self.subTest(old=old):
+                self.assertIn(old, body)
+                self.p.write(self.TESTS, body.replace(old, new, 1))
+                c = self.gate("refactor")["refactor"]
+                self.assertEqual(c["status"], "fail", c)
+                self.assertTrue(any("existing tests may only gain AC tags" in d for d in c["details"]), c["details"])
+
     def test_deleting_a_test_file_the_base_has_fails(self) -> None:
         self.refactor()
         self.p.write("app/test_loader.py", "import unittest\n\nfrom app import returns\n" + CHARACTERISATION)
@@ -767,6 +781,23 @@ class RefactorLane(unittest.TestCase):
         c = self.gate("scope")["scope"]
         self.assertEqual(c["status"], "fail", c)
         self.assertTrue(any(": lane changed" in d for d in c["details"]), c["details"])
+
+    def test_a_builder_cannot_raise_a_mechanical_ticket_to_refactor(self) -> None:
+        git(self.p.root, "checkout", "-q", "main")
+        self.p.write(REFAC, REFAC_TICKET.replace("lane: refactor\n", "lane: mechanical\n"))
+        self.p.commit("lead: T-042-04 is mechanical")
+        git(self.p.root, "checkout", "-q", "-B", "build/T-042-04")
+        self.refactor()
+        self.p.write(REFAC, REFAC_TICKET)
+        c = self.gate("scope")["scope"]
+        self.assertEqual(c["status"], "fail", c)
+        self.assertTrue(any("lane changed to refactor; only the lead declares a refactor" in d for d in c["details"]),
+                        c["details"])
+        # Asking for refactor with --lane on the mechanical ticket gets standard, not refactor.
+        self.p.write(REFAC, REFAC_TICKET.replace("lane: refactor\n", "lane: mechanical\n"))
+        self.code, self.out = self.p.sdlc("gate", "build", "T-042-04", "--only", "lane", "--lane", "refactor")
+        ev = json.loads((self.p.root / ".sdlc-run" / "T-042-04.build.json").read_text(encoding="utf-8"))
+        self.assertEqual(ev["lane"], "standard", ev)
 
     def test_the_approval_must_argue_equivalence(self) -> None:
         self.refactor()
@@ -1030,6 +1061,7 @@ class SourceGlobs(unittest.TestCase):
 
 class Doctor(unittest.TestCase):
     def test_lanes_cannot_drop_their_floor(self) -> None:
+        from sdlc import config
         p = ProductRepo()
         try:
             base = p.read("sdlc.toml")
@@ -1040,14 +1072,25 @@ class Doctor(unittest.TestCase):
             for over, want in (('mechanical = ["artifacts", "unit"]', "gate.mechanical drops"),
                                ('build = ["artifacts", "unit"]', "gate.build drops ac-red"),
                                ("strict = []", "gate.strict drops contract-diff"),
-                               ('refactor = ["artifacts", "unit"]', "gate.refactor drops")):
+                               ('refactor = ["artifacts", "unit"]', "gate.refactor drops"),
+                               ('refactor = ' + str(list(config.DEFAULTS["gate"]["refactor"]) + ["ac-red"]).replace("'", '"'),
+                                "gate.refactor runs ac-red")):
                 with self.subTest(over=over):
                     p.write("sdlc.toml", base + f"\n[gate]\n{over}\n")
                     code, out = p.sdlc("doctor")
                     self.assertNotEqual(code, 0)
                     self.assertIn(want, out)
+            self.assertNotIn("gate.refactor does not", self.p_out(p, base))
+            build = str(list(config.DEFAULTS["gate"]["build"]) + ["security"]).replace("'", '"')
+            note = self.p_out(p, base + f'\n[gate]\nbuild = {build}\n')
+            self.assertIn("note  gate.build runs security and gate.refactor does not: a refactor ticket skips them", note)
         finally:
             p.close()
+
+    @staticmethod
+    def p_out(p, toml: str) -> str:
+        p.write("sdlc.toml", toml)
+        return p.sdlc("doctor")[1]
 
 
 if __name__ == "__main__":

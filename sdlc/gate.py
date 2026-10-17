@@ -733,6 +733,10 @@ class Gate:
                 continue
             if k == "contracts" and set(_as_list(od.get(k))) <= set(_as_list(nd.get(k))):
                 continue
+            if k == "lane" and _declared_lane(nd) == "refactor" != _declared_lane(od):
+                out.append(f"{f}: lane changed to refactor; only the lead declares a refactor, on the base "
+                           "branch (ADR-0004)")
+                continue
             if k == "lane" and lanes.rank(_declared_lane(nd)) >= lanes.rank(_declared_lane(od)):
                 continue
             if k == "risk" and _risk_rank(nd) >= _risk_rank(od):
@@ -1225,12 +1229,20 @@ class Gate:
         let a refactor change behaviour and its proof together."""
         mb = gitutil.merge_base(self.cfg.root, self.base)
         globs = self.cfg.section("tests").get("globs", [])
+        tag = re.compile(r"[A-Za-z0-9_.-]+/AC-\d+")
         # A run of AC tags with the separators and brackets that join it: `, T-1/AC-2` or `[T-1/AC-2]`.
-        # Only those go; every other character of the line must come back unchanged.
-        tags = re.compile(r"(?:[\s,;|]*[\[(]?\s*[A-Za-z0-9_.-]+/AC-\d+\s*[\])]?)+")
+        run = re.compile(r"(?:[\s,;|]*[\[(]?\s*" + tag.pattern + r"\s*[\])]?)+")
 
         def bare(line: str) -> str:
-            return re.sub(r"\s", "", tags.sub("", line))
+            """The line without its tag runs and trailing space. Indentation and every other
+            character stay: in Python indentation is meaning, and a space in a string is data."""
+            body = line.lstrip()
+            return line[:len(line) - len(body)] + run.sub("", body).rstrip()
+
+        def keeps(old: str, new: str) -> bool:
+            """`new` is `old` with AC tags added: same bare line, and every tag of `old` still on it."""
+            have = Counter(tag.findall(new))
+            return bare(old) == bare(new) and all(have[t] >= n for t, n in Counter(tag.findall(old)).items())
 
         out = []
         for f in sorted(self.changed()):
@@ -1250,12 +1262,13 @@ class Gate:
             for tag_, i1, i2, j1, j2 in difflib.SequenceMatcher(a=before, b=after, autojunk=False).get_opcodes():
                 if tag_ not in ("replace", "delete"):
                     continue
-                pool = Counter(bare(a) for a in after[j1:j2])
+                pool = list(after[j1:j2])
                 for r in before[i1:i2]:
-                    if pool[bare(r)] > 0:
-                        pool[bare(r)] -= 1
-                    else:
+                    hit = next((i for i, a in enumerate(pool) if keeps(r, a)), None)
+                    if hit is None:
                         out.append(f"{f}: removed or rewrote {r.strip()[:80]!r}; existing tests may only gain AC tags")
+                    else:
+                        del pool[hit]
         return out
 
     def check_test_quality(self, c: Check) -> None:
