@@ -1082,8 +1082,11 @@ class Doctor(unittest.TestCase):
                     self.assertIn(want, out)
             self.assertNotIn("gate.refactor does not", self.p_out(p, base))
             build = str(list(config.DEFAULTS["gate"]["build"]) + ["security"]).replace("'", '"')
-            note = self.p_out(p, base + f'\n[gate]\nbuild = {build}\n')
+            refactor = str(list(config.DEFAULTS["gate"]["refactor"])).replace("'", '"')
+            note = self.p_out(p, base + f'\n[gate]\nbuild = {build}\nrefactor = {refactor}\n')
             self.assertIn("note  gate.build runs security and gate.refactor does not: a refactor ticket skips them", note)
+            # Without its own [gate] refactor, the product's refactor build follows its build.
+            self.assertNotIn("gate.refactor does not", self.p_out(p, base + f'\n[gate]\nbuild = {build}\n'))
         finally:
             p.close()
 
@@ -1091,6 +1094,14 @@ class Doctor(unittest.TestCase):
     def p_out(p, toml: str) -> str:
         p.write("sdlc.toml", toml)
         return p.sdlc("doctor")[1]
+
+    def test_the_refactor_list_follows_a_custom_build(self) -> None:
+        from sdlc import config
+        default = list(config.DEFAULTS["gate"]["refactor"])
+        cfg = config.load(text='[gate]\nbuild = ["artifacts", "unit", "ac-red", "security"]\n')
+        self.assertEqual(cfg.section("gate")["refactor"], default + ["security"])
+        cfg = config.load(text='[gate]\nbuild = ["artifacts", "unit", "ac-red"]\nrefactor = ["artifacts", "unit", "refactor"]\n')
+        self.assertEqual(cfg.section("gate")["refactor"], ["artifacts", "unit", "refactor"])
 
 
 if __name__ == "__main__":

@@ -243,6 +243,12 @@ def load(root: Path | None = None, text: str | None = None) -> Config:
     preset = presets.name(user)
     before = presets.apply(data, preset)
     data, forbidden = presets.enforce(deep_merge(before, user), before, user, preset)
+    ug = user.get("gate") if isinstance(user.get("gate"), dict) else {}
+    if "build" in ug and "refactor" not in ug:
+        # ADR-0004: the refactor build is the standard build with `refactor` in place of ac-red. A
+        # check the product added to its build runs in the refactor build too, after the default list.
+        g = data["gate"]
+        g["refactor"] = g["refactor"] + [n for n in g.get("build", []) if n != "ac-red" and n not in g["refactor"]]
     cfg = Config(root=root, data=data, source=src if src.is_file() else None, profile_name=profile,
                  preset_problems=forbidden)
     unknown = set(user) - set(DEFAULTS)

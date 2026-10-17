@@ -27,8 +27,9 @@ MINOR: a new lane that existing tickets do not use; nothing an existing product 
 - An approval of a refactor needs a `## Equivalence` section with an argument in it, not empty
   and not the template's `<...>` placeholder (`review-file` and `sdlc approval` share one rule).
   The review skill and template say what to argue there.
-- `doctor` holds `gate.refactor` to a floor, refuses `ac-red` in it, and notes a check the
-  product added to `gate.build` that `gate.refactor` lacks. `sdlc gate --lane` accepts
+- A product that sets `[gate] build` but not `[gate] refactor` gets the checks it added to its
+  build in the refactor build too. `doctor` holds `gate.refactor` to a floor, refuses `ac-red` in
+  it, and notes a check in `gate.build` that an explicit `gate.refactor` lacks. `sdlc gate --lane` accepts
   `refactor`. Presets apply to the new list. The build prompt, the build, review and ticketize
   skills, the ticket template, README and CONSUME.md describe the lane.
 - `ac-red` and `refactor` share one helper that runs the unit command with the production files
