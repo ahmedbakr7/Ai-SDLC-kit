@@ -394,16 +394,20 @@ class BaselineKeys(unittest.TestCase):
         legacy = "T-001-01: done, but no passing integration test carries its tag"
         now = "T-001-01: done, but no passing integration/e2e test carries its tag"
         key = "T-001-01: done, but no passing real-stack test carries its tag"
-        self.assertEqual(baseline.detail_findings([now]), [key])
+        self.assertEqual(baseline.canonical("ac-coverage", now), key)
         self.assertEqual(baseline.parse(json.dumps({"version": 2, "checks": {"ac-coverage": {legacy: 1}}})),
                          {"ac-coverage": [key]})
         self.assertEqual(baseline.parse(json.dumps({"version": 1, "checks": {"ac-coverage": [legacy]}})),
                          {"ac-coverage": [key]})
-        self.assertEqual(baseline.canonical("T-001-02: done, but no passing e2e test carries its tag"),
+        self.assertEqual(baseline.canonical("ac-coverage", "T-001-02: done, but no passing e2e test carries its tag"),
                          "T-001-02: done, but no passing real-stack test carries its tag")
-        # Other keys, and other tickets, stay as they are.
-        self.assertEqual(baseline.canonical("T-001-01/AC-2: missing"), "T-001-01/AC-2: missing")
-        self.assertNotEqual(baseline.canonical(legacy), baseline.canonical(legacy.replace("T-001-01", "T-001-02")))
+        # Other keys, other tickets and other checks' keys stay as they are.
+        self.assertEqual(baseline.canonical("ac-coverage", "T-001-01/AC-2: missing"), "T-001-01/AC-2: missing")
+        self.assertNotEqual(baseline.canonical("ac-coverage", legacy),
+                            baseline.canonical("ac-coverage", legacy.replace("T-001-01", "T-001-02")))
+        for check in ("unit", "test-quality", "trace"):
+            self.assertEqual(baseline.canonical(check, legacy), legacy)
+        self.assertEqual(baseline.parse(json.dumps({"checks": {"unit": [legacy]}})), {"unit": [legacy]})
         # A baseline rewritten in the new form is not growth over one still in the old form.
         self.assertEqual(baseline.grown(baseline.parse(json.dumps({"checks": {"ac-coverage": [legacy]}})),
                                         {"ac-coverage": [key]}), [])

@@ -128,7 +128,9 @@ def parse(text: str | None) -> tuple[list[dict], list[str]]:
 
 
 def _waiver(w: dict) -> Waiver:
-    return Waiver(w["id"], w["check"], w["key"], w["count"], w["owner"], w["reason"], w["expires"],
+    # The key as a run would produce it, so a waiver an older kit's wording names still matches.
+    key = baseline.canonical(w["check"], w["key"])
+    return Waiver(w["id"], w["check"], key, w["count"], w["owner"], w["reason"], w["expires"],
                   w.get("ticket", ""), w.get("renews", ""))
 
 
@@ -215,8 +217,8 @@ def state(root: Path, rel: str, base_ref: str | None, days: int, today: dt.date 
         old = by_base.get(e.get("renews", ""))
         # A renewal keeps the renewed waiver's coverage in its own PR, never more of it, and only
         # while the renewal itself has not run out.
-        if (renewals and old and old["id"] not in by_branch and (old["check"], old["key"]) == (e["check"], e["key"])
-                and e["expires"] >= today):
+        if (renewals and old and old["id"] not in by_branch and old["check"] == e["check"]
+                and _waiver(old).key == _waiver(e).key and e["expires"] >= today):
             kept = dated(_waiver(old))
             kept.count, kept.renewed_by = min(kept.count, e["count"]), wid
             s.active.append(kept)

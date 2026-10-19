@@ -42,10 +42,11 @@ _UNPROVEN = re.compile(r"^(?P<tid>\S+): done, but no passing .+? test carries it
 UNPROVEN_KEY = "{tid}: done, but no passing real-stack test carries its tag"
 
 
-def canonical(key: str) -> str:
-    """The key a failure is matched by: config-derived text replaced by a fixed word. Applied to
-    keys read from a file and to keys a run produces, so older baselines keep matching."""
-    m = _UNPROVEN.match(key)
+def canonical(check: str, key: str) -> str:
+    """The key an ac-coverage failure is matched by: config-derived text replaced by a fixed word.
+    Applied to baseline and waiver keys as read and to keys a run produces, so entries an older
+    kit wrote keep matching. Other checks' keys stay as they are."""
+    m = _UNPROVEN.match(key) if check == "ac-coverage" else None
     return UNPROVEN_KEY.format(tid=m.group("tid")) if m else key
 
 
@@ -73,7 +74,7 @@ def parse(text: str | None) -> dict[str, list[str]]:
         for k, n in v.items():
             # A count that is not an integer from 1 to MAX_COUNT carries nothing.
             if isinstance(n, int) and not isinstance(n, bool) and 0 < n <= MAX_COUNT and total + n <= MAX_TOTAL:
-                keys += [canonical(str(k))] * n
+                keys += [canonical(name, str(k))] * n
                 total += n
         out[name] = keys
     return out
@@ -169,7 +170,7 @@ def detail_findings(details: list[str]) -> list[str]:
         d = d.strip()
         if not d or d.startswith(("WARN", "note", "$")):
             continue
-        out.append(canonical(_LINE_NO.sub("", d)))
+        out.append(_LINE_NO.sub("", d))
     return out
 
 

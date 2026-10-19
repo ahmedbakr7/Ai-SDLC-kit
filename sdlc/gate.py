@@ -309,7 +309,7 @@ class Gate:
         elif c.name in COMMAND_CHECKS:
             keys = []
         else:
-            keys = baseline.detail_findings(c.details)
+            keys = [baseline.canonical(c.name, k) for k in baseline.detail_findings(c.details)]
         return keys or [baseline.whole(c.name)]
 
     def _apply_baseline(self, c: Check) -> None:
