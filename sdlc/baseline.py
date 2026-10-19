@@ -36,6 +36,18 @@ MAX_COUNT = 10_000
 MAX_TOTAL = 1_000_000
 # Characters a path is made of: a renamed path is replaced only where it stands whole.
 _PATH_CHAR = r"[\w./@+~-]"
+# ac-coverage names the configured real-stack suites in this detail ("integration/e2e"). The key
+# leaves them out, so changing tests.real_stack does not turn every known entry into a new one.
+_UNPROVEN = re.compile(r"^(?P<tid>\S+): done, but no passing .+? test carries its tag$")
+UNPROVEN_KEY = "{tid}: done, but no passing real-stack test carries its tag"
+
+
+def canonical(check: str, key: str) -> str:
+    """The key an ac-coverage failure is matched by: config-derived text replaced by a fixed word.
+    Applied to baseline and waiver keys as read and to keys a run produces, so entries an older
+    kit wrote keep matching. Other checks' keys stay as they are."""
+    m = _UNPROVEN.match(key) if check == "ac-coverage" else None
+    return UNPROVEN_KEY.format(tid=m.group("tid")) if m else key
 
 
 def path(root: Path, cfg_paths: dict) -> Path:
@@ -62,7 +74,7 @@ def parse(text: str | None) -> dict[str, list[str]]:
         for k, n in v.items():
             # A count that is not an integer from 1 to MAX_COUNT carries nothing.
             if isinstance(n, int) and not isinstance(n, bool) and 0 < n <= MAX_COUNT and total + n <= MAX_TOTAL:
-                keys += [str(k)] * n
+                keys += [canonical(name, str(k))] * n
                 total += n
         out[name] = keys
     return out

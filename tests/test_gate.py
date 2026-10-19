@@ -1456,6 +1456,81 @@ class Baseline(unittest.TestCase):
         self.assertIn("sdlc-baseline.json: may only shrink, but adds contracts: route in code but not in "
                       "CONTRACTS: PUT /api/orders/{} (routes.command)", out)
 
+    def test_changing_real_stack_keeps_unproven_tickets_known(self) -> None:
+        # Hangout pilot: the baseline was written while tests.real_stack was ["integration"];
+        # the lead then set it to integration and e2e (this product's default). Every known
+        # "done without real-stack proof" entry turned into a new failure no PR could fix.
+        from helpers import git
+
+        self.p.write("tests/test_http_returns.py", self.p.read("tests/test_http_returns.py")
+                     .replace('"""T-042-01/AC-1"""', '"""mounted"""').replace('"""T-042-01/AC-4"""', '"""404"""'))
+        self.p.commit("main: T-042-01 lost its real-stack tags")
+        legacy = "T-042-01: done, but no passing integration test carries its tag"
+        self.p.write("sdlc-baseline.json", json.dumps({"version": 2, "checks": {"ac-coverage": {legacy: 1}}}))
+        self.p.commit("lead: baseline written by an older kit")
+        code, out = self.p.sdlc("gate", "ci", "--only", "unit,integration,ac-coverage")
+        self.assertEqual(code, 0, out)
+        self.assertIn("BASELINED: 1 known failure(s)", out)
+        # Rewriting the file in the new form is not growth.
+        git(self.p.root, "checkout", "-q", "-b", "lead/rewrite")
+        self.p.write("sdlc-baseline.json", json.dumps({"version": 2, "checks": {"ac-coverage": {
+            "T-042-01: done, but no passing real-stack test carries its tag": 1}}}))
+        self.p.commit("lead: baseline in the new form")
+        code, out = self.p.sdlc("gate", "ci", "--only", "immutable", "--base", "main")
+        self.assertEqual(code, 0, out)
+        # An entry for another ticket does not cover this one.
+        self.p.write("sdlc-baseline.json", json.dumps({"version": 2, "checks": {"ac-coverage": {
+            legacy.replace("T-042-01", "T-042-09"): 1}}}))
+        code, out = self.p.sdlc("gate", "ci", "--only", "unit,integration,ac-coverage")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("1 new failure(s) not in sdlc-baseline.json", out)
+
+    UNPROVEN = "T-042-01: done, but no passing integration test carries its tag"
+
+    def unproven_t1(self) -> None:
+        self.p.write("tests/test_http_returns.py", self.p.read("tests/test_http_returns.py")
+                     .replace('"""T-042-01/AC-1"""', '"""mounted"""').replace('"""T-042-01/AC-4"""', '"""404"""'))
+        self.p.commit("main: T-042-01 lost its real-stack tags")
+
+    def ac_waiver(self, wid: str, key: str, renews: str = "") -> str:
+        import datetime as dt
+
+        exp = (dt.date.today() + dt.timedelta(days=20)).isoformat()
+        return (f'[[waiver]]\nid = "{wid}"\ncheck = "ac-coverage"\nkey = {json.dumps(key)}\ncount = 1\n'
+                f'owner = "lead"\nreason = "test play next sprint"\nexpires = {exp}\n'
+                + (f'renews = "{renews}"\n' if renews else ""))
+
+    def test_a_waiver_in_an_older_kits_wording_still_covers(self) -> None:
+        # A waiver written for the old key (suite names in it) must keep covering after the
+        # upgrade; a PR could not fix it, since a changed waiver covers nothing in its own PR.
+        from helpers import git
+
+        self.unproven_t1()
+        self.p.write("sdlc-waivers.toml", self.ac_waiver("W-1", self.UNPROVEN))
+        self.p.commit("lead: waive T-042-01's real-stack proof, in an older kit's wording")
+        code, out = self.p.sdlc("gate", "ci", "--only", "unit,integration,ac-coverage")
+        self.assertEqual(code, 0, out)
+        self.assertIn("WAIVED: 1 failure(s)", out)
+        # Renewing it in the new wording keeps its coverage in the renewal's own PR.
+        git(self.p.root, "checkout", "-q", "-b", "lead/renew")
+        self.p.write("sdlc-waivers.toml", self.ac_waiver(
+            "W-2", "T-042-01: done, but no passing real-stack test carries its tag", renews="W-1"))
+        self.p.commit("lead: renew W-1 in the new wording")
+        code, out = self.p.sdlc("gate", "ci", "--only", "unit,integration,ac-coverage", "--base", "main")
+        self.assertEqual(code, 0, out)
+
+    def test_prune_reads_an_older_kits_wording(self) -> None:
+        # Two old keys for one ticket (written under two suite lists) are one failure that
+        # occurred twice: one stays known, one is pruned, and the file is written in the new form.
+        self.unproven_t1()
+        self.p.write("sdlc-baseline.json", json.dumps({"version": 2, "checks": {"ac-coverage": {
+            self.UNPROVEN: 1, self.UNPROVEN.replace("integration", "integration/e2e"): 1}}}))
+        self.p.commit("lead: baseline written by an older kit")
+        code, out = self.p.sdlc("baseline", "--prune")
+        self.assertIn("pruned 1 failure(s)", out)
+        self.assertEqual(json.loads(self.p.read("sdlc-baseline.json"))["checks"], {"ac-coverage": {
+            "T-042-01: done, but no passing real-stack test carries its tag": 1}})
+
     def test_a_ticket_cannot_create_the_baseline(self) -> None:
         from helpers import git
 

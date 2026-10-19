@@ -7,6 +7,21 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 
 ## Unreleased
 
+## v3.4.1 (2026-10-19)
+
+PATCH: a fix; nothing an existing product passes fails.
+
+- **Changing `tests.real_stack` no longer invalidates the baseline.** ac-coverage's
+  "done, but no passing <suites> test carries its tag" entry was keyed by the suite names, so
+  changing `real_stack` turned every known entry into a new failure that no PR could clear (the
+  baseline only shrinks, and CI reads the base branch's config). The ac-coverage key now reads
+  "no passing real-stack test". Baseline entries and `sdlc-waivers.toml` keys an older kit wrote
+  are matched as that form, so they keep working without a rewrite; rewriting a baseline in the
+  new form is not growth, and a renewal may restate its waiver's key in the new form. A failing
+  ac-coverage check still names the suites; baselined and waived entries show the new key.
+- `tickets.DERIVED` no longer lists `in_review`, which records mode does not derive (ADR-0003).
+  No behaviour change: `sdlc status <id> in_review` was already refused first, with its own message.
+
 ## v3.4.0 (2026-10-16)
 
 MINOR: a new lane that existing tickets do not use; nothing an existing product passes fails.
