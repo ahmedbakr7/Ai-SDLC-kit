@@ -1456,6 +1456,35 @@ class Baseline(unittest.TestCase):
         self.assertIn("sdlc-baseline.json: may only shrink, but adds contracts: route in code but not in "
                       "CONTRACTS: PUT /api/orders/{} (routes.command)", out)
 
+    def test_changing_real_stack_keeps_unproven_tickets_known(self) -> None:
+        # Hangout pilot: the baseline was written while tests.real_stack was ["integration"];
+        # the lead then set it to integration and e2e (this product's default). Every known
+        # "done without real-stack proof" entry turned into a new failure no PR could fix.
+        from helpers import git
+
+        self.p.write("tests/test_http_returns.py", self.p.read("tests/test_http_returns.py")
+                     .replace('"""T-042-01/AC-1"""', '"""mounted"""').replace('"""T-042-01/AC-4"""', '"""404"""'))
+        self.p.commit("main: T-042-01 lost its real-stack tags")
+        legacy = "T-042-01: done, but no passing integration test carries its tag"
+        self.p.write("sdlc-baseline.json", json.dumps({"version": 2, "checks": {"ac-coverage": {legacy: 1}}}))
+        self.p.commit("lead: baseline written by an older kit")
+        code, out = self.p.sdlc("gate", "ci", "--only", "unit,integration,ac-coverage")
+        self.assertEqual(code, 0, out)
+        self.assertIn("BASELINED: 1 known failure(s)", out)
+        # Rewriting the file in the new form is not growth.
+        git(self.p.root, "checkout", "-q", "-b", "lead/rewrite")
+        self.p.write("sdlc-baseline.json", json.dumps({"version": 2, "checks": {"ac-coverage": {
+            "T-042-01: done, but no passing real-stack test carries its tag": 1}}}))
+        self.p.commit("lead: baseline in the new form")
+        code, out = self.p.sdlc("gate", "ci", "--only", "immutable", "--base", "main")
+        self.assertEqual(code, 0, out)
+        # An entry for another ticket does not cover this one.
+        self.p.write("sdlc-baseline.json", json.dumps({"version": 2, "checks": {"ac-coverage": {
+            legacy.replace("T-042-01", "T-042-09"): 1}}}))
+        code, out = self.p.sdlc("gate", "ci", "--only", "unit,integration,ac-coverage")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("1 new failure(s) not in sdlc-baseline.json", out)
+
     def test_a_ticket_cannot_create_the_baseline(self) -> None:
         from helpers import git
 
