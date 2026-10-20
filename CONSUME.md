@@ -179,6 +179,13 @@ Set `[approval] mode = "forge"` (GitHub) or `"git"` (signed notes in `refs/notes
   `ready` (offered again by `sdlc next`) once the branch is deleted. `gate ci` fails on such a
   commit until the PR's own commits are merged with a merge commit (no revert needed).
 - Weakening or removing an AC by amendment needs a lead approval; a strict ticket needs one too.
+- Derived status needs the whole history. Check out with `fetch-depth: 0` (the installed
+  workflow does), and keep tools from fetching into the repository with `--depth`: past a shallow
+  boundary (`.git/shallow`) merged tickets read `ready` and a PR seems to move every ticket
+  merged since it branched. Playwright does this on GitHub PRs (its `captureGitInfo` fetches
+  the PR base with `--depth=1`); set `captureGitInfo: { commit: false, diff: false }` in
+  `playwright.config`. `gate`, `gate pr` and `trace` fail on a shallow repository, and `gate`
+  checks again after its other checks, so a tool that cuts history mid-run fails the run.
 
 Without `sdlc run` (agent in an IDE), file mode: `sdlc status T-001-03 in_progress --as build`,
 give the agent `sdlc prompt build T-001-03`, have it iterate on `sdlc gate build

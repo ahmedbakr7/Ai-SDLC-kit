@@ -264,7 +264,7 @@ class Gate:
             self.checks.append(c)
             if on_check:
                 on_check(c)
-        for extra in (self._check_waivers(), self._check_trailers()):
+        for extra in (self._check_waivers(), self._check_trailers(), self._check_history()):
             if extra is not None:
                 self.checks.append(extra)
                 if on_check:
@@ -387,6 +387,17 @@ class Gate:
         c.details = [f"{sha[:12]} names {', '.join(ids)} in its body, not as a trailer" for sha, ids in buried]
         c.details.append("fix: merge the PR's own commits with a merge commit; no revert is needed "
                          "(never squash or rebase a ticket PR)")
+        return c
+
+    def _check_history(self) -> Check | None:
+        """Records mode fails on a shallow repository, checked after the other checks: a tool
+        the gate ran may have made it shallow mid-run (Playwright's captureGitInfo fetches the
+        PR base with --depth=1), and every derived status read since then was wrong."""
+        problem = shallow_problem(self.cfg)
+        if problem is None:
+            return None
+        c = Check("history")
+        c.status, c.summary = "fail", problem
         return c
 
     def _shipped_matrix(self) -> dict:
@@ -1976,6 +1987,18 @@ def _norm(b: bytes | None) -> bytes | None:
 
 def _read_or_none(p: Path) -> bytes | None:
     return _norm(p.read_bytes()) if p.is_file() else None
+
+
+def shallow_problem(cfg: Config) -> str | None:
+    """Why records mode cannot judge this repository, or None. Derived status and the tickets
+    a branch moves are walks of the base branch's history: past a shallow boundary they read
+    nothing, silently (a merged ticket reads ready, a branch "moves" every ticket since)."""
+    if not approval.records_mode(cfg) or not gitutil.is_shallow(cfg.root):
+        return None
+    return ("the repository is shallow (.git/shallow): history past it reads as absent, so derived "
+            "ticket status and the tickets a branch moves cannot be read. Check out with fetch-depth: 0, "
+            "and keep tools from fetching into it with --depth (Playwright's captureGitInfo does on "
+            "GitHub PRs: set captureGitInfo: { commit: false, diff: false }; CONSUME.md)")
 
 
 def recover(root: Path) -> list[str]:

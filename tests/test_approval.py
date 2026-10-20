@@ -933,6 +933,54 @@ class DerivedStatus(Base):
         self.assertEqual(code, 0, out)
         self.assertNotIn("T-042-02: done, but", out)
 
+    def make_shallow(self, at: str = "main") -> None:
+        """What Playwright's captureGitInfo leaves: a shallow boundary at the PR base, every
+        commit still present."""
+        sha = git(self.p.root, "rev-parse", at).strip()
+        (self.p.root / ".git" / "shallow").write_text(sha + "\n", encoding="utf-8")
+
+    def test_a_shallow_repository_fails_gate_pr_before_it_reads_trailers(self) -> None:
+        # Hangout pilot: past the boundary, merge-base..HEAD leaked every ticket merged since
+        # the branch's fork point, and gate pr reported "this branch moves 31 tickets".
+        self.build()
+        self.make_shallow()
+        code, out = self.p.sdlc("gate", "pr", "--base", "main")
+        self.assertNotEqual(code, 0)
+        self.assertIn("gate pr: the repository is shallow (.git/shallow)", out)
+        self.assertNotIn("this branch moves", out)
+
+    def test_a_shallow_repository_fails_trace(self) -> None:
+        self.build()
+        git(self.p.root, "checkout", "-q", "main")
+        git(self.p.root, "merge", "-q", "--no-ff", "--no-edit", "build/T-042-02")
+        self.assertEqual(self.p.sdlc("gate", "ci")[0], 0)
+        self.assertEqual(self.p.sdlc("trace")[0], 0)
+        self.make_shallow("HEAD")  # T-042-02's trailer is past the boundary: it would read ready
+        code, out = self.p.sdlc("trace")
+        self.assertNotEqual(code, 0)
+        self.assertIn("ERROR the repository is shallow (.git/shallow)", out)
+
+    def test_gate_fails_when_a_check_makes_the_repository_shallow(self) -> None:
+        # The history check runs after the others: a tool run by a check may cut history mid-run.
+        main = git(self.p.root, "rev-parse", "main").strip()
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace(
+            'unit = "python tools/junit.py --start app --out {junit}"',
+            f'unit = "python -c \\"open(\'.git/shallow\', \'w\').write(\'{main}\\\\n\')\\" '
+            '&& python tools/junit.py --start app --out {junit}"', 1))
+        self.p.commit("lead: a unit command that cuts history, as a test tool might")
+        code, out = self.p.sdlc("gate", "ci")
+        self.assertTrue((self.p.root / ".git" / "shallow").is_file())
+        self.assertNotEqual(code, 0, out)
+        ev = json.loads(self.p.read(".sdlc-run/ci.json"))
+        c = {x["name"]: x for x in ev["checks"]}["history"]
+        self.assertEqual(c["status"], "fail")
+        self.assertIn("is shallow", c["summary"])
+
+    def test_a_full_repository_adds_no_history_check(self) -> None:
+        self.assertEqual(self.p.sdlc("gate", "ci")[0], 0)
+        ev = json.loads(self.p.read(".sdlc-run/ci.json"))
+        self.assertNotIn("history", [x["name"] for x in ev["checks"]])
+
     def test_trace_reads_ci_evidence_for_a_ticket_merged_without_committed_evidence(self) -> None:
         self.build()
         git(self.p.root, "checkout", "-q", "main")

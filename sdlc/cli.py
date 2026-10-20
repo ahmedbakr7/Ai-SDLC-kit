@@ -35,7 +35,13 @@ def cmd_lint(args) -> int:
 def cmd_trace(args) -> int:
     from . import baseline, waivers
 
+    from .gate import shallow_problem
+
     cfg = _cfg(args)
+    problem = shallow_problem(cfg)
+    if problem:
+        print(f"ERROR {problem}")
+        return EXIT_FAIL
     m = trace.matrix(Repo(cfg))
     probs = trace.problems(m)
     # Problems sdlc-baseline.json lists are known debt; new ones fail, and so do entries that
@@ -148,12 +154,16 @@ def cmd_prompt(args) -> int:
 
 
 def cmd_gate(args) -> int:
-    from .gate import Gate, pr_tickets, recover
+    from .gate import Gate, pr_tickets, recover, shallow_problem
 
     cfg = _cfg(args)
     if args.play == "pr" and not args.ticket:
         # CI does not know which ticket a PR carries; the branch's changes say so.
         recover(cfg.root)
+        problem = shallow_problem(cfg)
+        if problem:  # the trailers below would be read past a cut-off history
+            print(f"gate pr: {problem}", file=sys.stderr)
+            return EXIT_FAIL
         # Which tickets a PR serves is read the way the base branch's config says (trailers when
         # status is derived), so a PR cannot change how it is found.
         found = pr_tickets(Gate(cfg, "pr", None, args.base).cfg, args.base or cfg.section("vcs").get("base", "main"))
