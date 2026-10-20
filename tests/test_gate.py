@@ -101,9 +101,11 @@ class GateCatches(unittest.TestCase):
         import socket
         from unittest import mock
 
-        busy = socket.socket()
-        busy.bind(("127.0.0.1", 3123))
+        busy = socket.socket()  # the committed app.port, taken by the other worktree's gate
+        busy.bind(("127.0.0.1", 0))
         busy.listen()
+        taken = busy.getsockname()[1]
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace("[app]\n", f"[app]\nport = {taken}\n", 1))
         free = socket.socket()
         free.bind(("127.0.0.1", 0))
         port = free.getsockname()[1]
@@ -111,7 +113,7 @@ class GateCatches(unittest.TestCase):
         try:
             c = self.gate("ci", "smoke", ticket=None)["smoke"]
             self.assertEqual(c["status"], "fail")
-            self.assertIn("port 3123 (app.port) is already in use", c["summary"])
+            self.assertIn(f"port {taken} (app.port) is already in use", c["summary"])
             with mock.patch.dict("os.environ", {"SDLC_APP_PORT": str(port)}):
                 c = self.gate("ci", "smoke", ticket=None)["smoke"]
             # The app came up on the free port and answered probes (T-042-02's page is not built
