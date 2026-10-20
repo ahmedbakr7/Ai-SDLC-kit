@@ -661,6 +661,11 @@ def cmd_doctor(args) -> int:
         print(f"note  {n}")
     for line in presets.resolved(cfg.data):  # what the preset and overrides add up to
         print(f"      {line}")
+    try:
+        port, source = cfg.app_port()
+        print(f"      app port {port} (from {source})")
+    except SystemExit as e:
+        probs.append(str(e))
     for p in probs:
         print(f"ERROR {p}")
     print("doctor: " + ("OK" if not probs else f"{len(probs)} problem(s)"))

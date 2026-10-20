@@ -79,6 +79,12 @@ exactly reverts code already on the base branch), or `"floor"` (ADR-0001 section
 smoke checks, for adopting the kit). Your own `[gate]`, `[lanes]` and `[waivers]` keys still
 override it, except where `hardened` forbids loosening; `doctor` prints what results.
 
+The app runs on `app.port` (3123) for smoke and the `{port}` / `{base_url}` placeholders. To run
+two gates at once on one machine (one worktree each), set `SDLC_APP_PORT` in each shell
+(kit v3.5.0 or later); it overrides `app.port` there only, nothing committed changes, and
+`doctor` prints the port in effect. Ports your own test configs hard-code (a Playwright
+`webServer`, a stub server) need the same treatment in the product.
+
 Commit, then mark the `gate` job required in branch protection.
 
 ## 3. Run the pipeline

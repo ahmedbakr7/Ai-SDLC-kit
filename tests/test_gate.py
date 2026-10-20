@@ -95,6 +95,53 @@ class GateCatches(unittest.TestCase):
         self.assertIn("DELETE /api/orders/{}/returns: OPTIONS answered 501 with Allow: - "
                       "-> the router does not serve DELETE here", c["details"])
 
+    def test_sdlc_app_port_moves_smoke_off_a_busy_app_port(self) -> None:
+        # Hangout pilot: two worktrees gating at once both took app.port; the override is per
+        # machine, so neither edits the committed sdlc.toml.
+        import socket
+        from unittest import mock
+
+        busy = socket.socket()
+        busy.bind(("127.0.0.1", 3123))
+        busy.listen()
+        free = socket.socket()
+        free.bind(("127.0.0.1", 0))
+        port = free.getsockname()[1]
+        free.close()
+        try:
+            c = self.gate("ci", "smoke", ticket=None)["smoke"]
+            self.assertEqual(c["status"], "fail")
+            self.assertIn("port 3123 (app.port) is already in use", c["summary"])
+            with mock.patch.dict("os.environ", {"SDLC_APP_PORT": str(port)}):
+                c = self.gate("ci", "smoke", ticket=None)["smoke"]
+            # The app came up on the free port and answered probes (T-042-02's page is not built
+            # yet, which smoke reports on its own).
+            self.assertNotIn("already in use", c["summary"])
+            self.assertIn("probe(s)", c["summary"], c)
+        finally:
+            busy.close()
+
+    def test_sdlc_app_port_fills_the_port_placeholder(self) -> None:
+        from unittest import mock
+
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace(
+            'lint = "python tools/lint.py"', 'lint = "python -c \\"import sys; sys.exit({port} != 4567)\\""', 1))
+        self.assertEqual(self.gate("ci", "lint", ticket=None)["lint"]["status"], "fail")
+        with mock.patch.dict("os.environ", {"SDLC_APP_PORT": "4567"}):
+            self.assertEqual(self.gate("ci", "lint", ticket=None)["lint"]["status"], "pass", self.out)
+
+    def test_doctor_shows_the_app_port_and_refuses_a_bad_override(self) -> None:
+        from unittest import mock
+
+        self.assertIn("app port 3123 (from app.port)", self.p.sdlc("doctor")[1])
+        with mock.patch.dict("os.environ", {"SDLC_APP_PORT": "4567"}):
+            self.assertIn("app port 4567 (from SDLC_APP_PORT)", self.p.sdlc("doctor")[1])
+        for bad in ("0", "70000", "port"):
+            with mock.patch.dict("os.environ", {"SDLC_APP_PORT": bad}):
+                code, out = self.p.sdlc("doctor")
+            self.assertNotEqual(code, 0)
+            self.assertIn(f"ERROR SDLC_APP_PORT={bad!r}: must be a port number from 1 to 65535", out)
+
     def test_client_calls_a_path_no_contract_serves(self) -> None:
         self.p.write("app/static/app.js", 'export const load = (id) => fetch(`/v1/orders/${id}/returns`);\n')
         with open(self.p.root / "sdlc.toml", "a", encoding="utf-8") as f:

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -15,6 +16,9 @@ from . import presets  # noqa: E402 (after the version check)
 
 KIT_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_NAME = "sdlc.toml"
+# Overrides app.port for this machine only: two worktrees can each run a gate (smoke, {port},
+# {base_url}) on its own port without editing the committed sdlc.toml.
+PORT_ENV = "SDLC_APP_PORT"
 
 DEFAULTS: dict[str, Any] = {
     "version": 1,
@@ -73,7 +77,7 @@ DEFAULTS: dict[str, Any] = {
         "max_attempts": 3,
     },
     "app": {
-        "port": 3123,
+        "port": 3123,  # SDLC_APP_PORT overrides it on one machine (PORT_ENV)
         "host": "127.0.0.1",
         "ready_path": "/",
         "ready_timeout": 120,
@@ -190,6 +194,15 @@ class Config:
 
     def section(self, name: str) -> dict[str, Any]:
         return self.data.get(name, {})
+
+    def app_port(self) -> tuple[int, str]:
+        """(port, where it came from): SDLC_APP_PORT when set, else app.port."""
+        raw = os.environ.get(PORT_ENV, "").strip()
+        if raw:
+            if not raw.isdigit() or not 1 <= int(raw) <= 65535:
+                raise SystemExit(f"{PORT_ENV}={raw!r}: must be a port number from 1 to 65535")
+            return int(raw), PORT_ENV
+        return int(self.section("app")["port"]), "app.port"
 
 
 def deep_merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:

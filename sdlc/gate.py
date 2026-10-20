@@ -993,7 +993,7 @@ class Gate:
             junit.unlink()
         # Commands run at the root: a root-relative path survives a root with spaces in it
         # (an unquoted absolute path splits into two arguments) and reads the same in evidence.
-        shown = cmd.replace("{junit}", self.cfg.rel(junit)).replace("{port}", str(self.cfg.section("app")["port"]))
+        shown = cmd.replace("{junit}", self.cfg.rel(junit)).replace("{port}", str(self.cfg.app_port()[0]))
         code, log = self._shell(c.name, shown)
         c.log = self.cfg.rel(log)
         tail = _tail(log, 40)
@@ -1162,7 +1162,7 @@ class Gate:
             junit = self.run_dir / f"junit-{name}.xml"
             junit.unlink(missing_ok=True)
             code, log = self._shell(name, cmd.replace("{junit}", self.cfg.rel(junit))
-                                    .replace("{port}", str(self.cfg.section("app")["port"])))
+                                    .replace("{port}", str(self.cfg.app_port()[0])))
             self._read_junit(name, junit, into=cases)
         finally:
             _restore_red_backup(self.cfg.root, backup)
@@ -1359,9 +1359,10 @@ class Gate:
             c.status, c.summary = "fail", "commands.start not configured; the app was never started"
             return
         app = self.cfg.section("app")
-        port, host = int(app["port"]), app["host"]
+        (port, source), host = self.cfg.app_port(), app["host"]
         if _port_open(host, port):
-            c.status, c.summary = "fail", f"port {port} is already in use; stop that process or set app.port"
+            c.status, c.summary = "fail", (f"port {port} ({source}) is already in use; stop that process, or "
+                                           f"set {config.PORT_ENV} (this machine) or app.port")
             return
         base_url = f"http://{host}:{port}"
         log = self.run_dir / "logs" / "smoke-server.log"
