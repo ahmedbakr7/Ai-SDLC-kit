@@ -836,6 +836,26 @@ Add the HTTP test.
         self.assertFalse([x for x in problems if "real-stack" in x])
         self.assertFalse([x for x in problems if x.startswith("no test evidence")], problems)  # it has no test play
 
+    def test_approval_asks_no_test_play_of_a_ticket_without_ac(self) -> None:
+        # A ticket with no AC has no tag a real-stack test could carry (Hangout pilot, T-001-69).
+        from sdlc import config
+        from sdlc.artifacts import Repo
+        from sdlc.gate import _evidence_problems
+
+        rel = "tickets/T-042-02-order-page.md"
+        text = self.p.read(rel)
+        self.p.write(rel, text[:text.index("acceptance_criteria:\n")] + "acceptance_criteria: []\n"
+                     + text[text.index("source_intent:"):])
+        ev = {"result": "pass", "dirty": False, "commit": "a" * 40, "checks": []}
+        self.p.write("evidence/T-042-02.build.json", json.dumps(ev))
+        cfg = config.load(self.p.root)
+        problems = _evidence_problems(cfg, Repo(cfg).ticket("T-042-02"), "a" * 40)
+        self.assertFalse([x for x in problems if x.startswith("no test evidence")], problems)
+        self.p.write(rel, text)  # with its AC back, the test play is owed again
+        problems = _evidence_problems(config.load(self.p.root), Repo(config.load(self.p.root)).ticket("T-042-02"),
+                                      "a" * 40)
+        self.assertTrue([x for x in problems if x.startswith("no test evidence")], problems)
+
     def test_approval_refuses_a_test_ticket_when_no_real_stack_suite_has_a_command(self) -> None:
         # As for any other ticket, only tests.real_stack = [] accepts unit-only proof.
         from sdlc import config

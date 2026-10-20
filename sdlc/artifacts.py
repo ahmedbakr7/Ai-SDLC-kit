@@ -71,6 +71,16 @@ class Ticket:
         `test: none`, and for spikes, which deliver findings, not behaviour."""
         return str(self.data.get("test", "required")) != "none" and self.type != "spike"
 
+    def owes_real_stack(self, lane: str = "") -> bool:
+        """Whether a passing real-stack test must carry one of the ticket's AC tags. Not when
+        `real_stack_proof` is off, not without AC (there is no tag to carry), and not in a lane
+        with no test play (mechanical, refactor): there the build's full suite is the proof
+        (ADR-0004), and AC still need a passing tagged test in some suite. `lane` is the lane
+        the gate resolved; without one the declared lane counts."""
+        from .lanes import NO_TEST_PLAY
+
+        return self.real_stack_proof and bool(self.ac_tags()) and (lane or self.lane) not in NO_TEST_PLAY
+
     @property
     def test_play(self) -> bool:
         """A separate test play gives that proof, except for test tickets: their build runs the

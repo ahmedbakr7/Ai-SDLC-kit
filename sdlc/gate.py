@@ -119,6 +119,7 @@ class Gate:
         self.lane: lanes.Lane | None = None
         self.mb: str | None = None
         self.base_ticket: dict | None = None  # the ticket as the base branch has it (None: new)
+        self._base_ref = wbase or ""  # where _shipped_lane reads a shipped ticket's lane
         if self.ticket and play in (*TICKET_PLAYS, "pr"):
             if lane and lane not in lanes.LANES:
                 raise SystemExit(f"--lane must be one of {', '.join(lanes.LANES)}, got {lane!r}")
@@ -1068,7 +1069,8 @@ class Gate:
         names = "/".join(suites)
         proving = self.play == "test" or (self.play == "pr" and self.records) or (
             self.play == "build" and self.ticket is not None and self.ticket.type == "test")
-        if proving and self.ticket and suites and self.ticket.real_stack_proof and not whole:
+        if proving and self.ticket and suites and not whole and self.ticket.owes_real_stack(
+                self.lane.name if self.lane else ""):
             # The test play exists to prove AC through the real stack; unit proof alone is the
             # build's. A test ticket's build is its test play, so it carries the same proof.
             if not self._real_stack_proof(self.ticket.id):
@@ -1080,12 +1082,19 @@ class Gate:
             # Approval needs test evidence, but evidence is a file the ticket PR wrote. CI
             # re-proves what it claims: every done ticket has a passing real-stack test.
             unproven = [t.id for t in targets
-                        if self.repo.status_of(t) == "done" and t.real_stack_proof and not self._real_stack_proof(t.id)]
+                        if self.repo.status_of(t) == "done" and not self._real_stack_proof(t.id)
+                        and t.owes_real_stack(self._shipped_lane(t))]
             if unproven:
                 c.status = "fail"
                 c.details += [f"{tid}: done, but no passing {names} test carries its tag" for tid in unproven]
                 c.summary = (f"{len(unproven)} done ticket(s) without real-stack proof: {', '.join(unproven)}; "
                              "run their test play")
+
+    def _shipped_lane(self, t: Ticket) -> str:
+        """The lane a shipped ticket declares, as the base branch has it too: the stricter of
+        the two, so a branch cannot lower a ticket's lane to drop its real-stack proof."""
+        old = lanes._ticket_at(self.cfg, self._base_ref, t) if self._base_ref else None
+        return lanes.stricter(t.lane, _declared_lane(old)) if old is not None else t.lane
 
     def _real_stack_proof(self, tid: str) -> bool:
         """A passing real-stack test carries one of the AC tags the ticket declares (an AC-99
@@ -1751,7 +1760,8 @@ def _evidence_problems(cfg: Config, t: Ticket, commit: str) -> list[str]:
     # A mechanical or refactor build has no test play: its full suite is the proof (gate pr
     # re-checks the lane).
     # A test ticket has no test play, but its build needs a real-stack suite just the same.
-    suites = real_stack_suites(cfg) if t.real_stack_proof and not mechanical else []
+    owes = t.owes_real_stack("mechanical" if mechanical else "")
+    suites = real_stack_suites(cfg) if owes else []
     real_stack = [k for k in suites if cfg.commands.get(k)]
     if suites and not real_stack:
         out.append(f"no real-stack suite is configured (tests.real_stack: {', '.join(suites)}): nothing can prove "
@@ -1769,7 +1779,7 @@ def _evidence_problems(cfg: Config, t: Ticket, commit: str) -> list[str]:
         ev = json.loads(p.read_text(encoding="utf-8"))
         if ev.get("result") != "pass" or ev.get("partial"):
             out.append(f"{play} evidence is not a full passing gate run")
-        if play == "build" and t.type == "test" and t.real_stack_proof and not mechanical:
+        if play == "build" and t.type == "test" and owes:
             # A test ticket's build is its real-stack proof. Evidence without that proof (or from
             # before v2.0.0, which did not record it) proves nothing through the real stack,
             # unless a passing test play gave it, as it did for a test ticket before v2.0.0.
