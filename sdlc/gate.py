@@ -119,6 +119,7 @@ class Gate:
         self.lane: lanes.Lane | None = None
         self.mb: str | None = None
         self.base_ticket: dict | None = None  # the ticket as the base branch has it (None: new)
+        self._base_ref = wbase or ""  # where _shipped_lane reads a shipped ticket's lane
         if self.ticket and play in (*TICKET_PLAYS, "pr"):
             if lane and lane not in lanes.LANES:
                 raise SystemExit(f"--lane must be one of {', '.join(lanes.LANES)}, got {lane!r}")
@@ -263,7 +264,7 @@ class Gate:
             self.checks.append(c)
             if on_check:
                 on_check(c)
-        for extra in (self._check_waivers(), self._check_trailers()):
+        for extra in (self._check_waivers(), self._check_trailers(), self._check_history()):
             if extra is not None:
                 self.checks.append(extra)
                 if on_check:
@@ -386,6 +387,17 @@ class Gate:
         c.details = [f"{sha[:12]} names {', '.join(ids)} in its body, not as a trailer" for sha, ids in buried]
         c.details.append("fix: merge the PR's own commits with a merge commit; no revert is needed "
                          "(never squash or rebase a ticket PR)")
+        return c
+
+    def _check_history(self) -> Check | None:
+        """Records mode fails on a shallow repository, checked after the other checks: a tool
+        the gate ran may have made it shallow mid-run (Playwright's captureGitInfo fetches the
+        PR base with --depth=1), and every derived status read since then was wrong."""
+        problem = shallow_problem(self.cfg)
+        if problem is None:
+            return None
+        c = Check("history")
+        c.status, c.summary = "fail", problem
         return c
 
     def _shipped_matrix(self) -> dict:
@@ -981,7 +993,7 @@ class Gate:
             junit.unlink()
         # Commands run at the root: a root-relative path survives a root with spaces in it
         # (an unquoted absolute path splits into two arguments) and reads the same in evidence.
-        shown = cmd.replace("{junit}", self.cfg.rel(junit)).replace("{port}", str(self.cfg.section("app")["port"]))
+        shown = cmd.replace("{junit}", self.cfg.rel(junit)).replace("{port}", str(self.cfg.app_port()[0]))
         code, log = self._shell(c.name, shown)
         c.log = self.cfg.rel(log)
         tail = _tail(log, 40)
@@ -1068,7 +1080,8 @@ class Gate:
         names = "/".join(suites)
         proving = self.play == "test" or (self.play == "pr" and self.records) or (
             self.play == "build" and self.ticket is not None and self.ticket.type == "test")
-        if proving and self.ticket and suites and self.ticket.real_stack_proof and not whole:
+        if proving and self.ticket and suites and not whole and self.ticket.owes_real_stack(
+                self.lane.name if self.lane else ""):
             # The test play exists to prove AC through the real stack; unit proof alone is the
             # build's. A test ticket's build is its test play, so it carries the same proof.
             if not self._real_stack_proof(self.ticket.id):
@@ -1080,12 +1093,19 @@ class Gate:
             # Approval needs test evidence, but evidence is a file the ticket PR wrote. CI
             # re-proves what it claims: every done ticket has a passing real-stack test.
             unproven = [t.id for t in targets
-                        if self.repo.status_of(t) == "done" and t.real_stack_proof and not self._real_stack_proof(t.id)]
+                        if self.repo.status_of(t) == "done" and not self._real_stack_proof(t.id)
+                        and t.owes_real_stack(self._shipped_lane(t))]
             if unproven:
                 c.status = "fail"
                 c.details += [f"{tid}: done, but no passing {names} test carries its tag" for tid in unproven]
                 c.summary = (f"{len(unproven)} done ticket(s) without real-stack proof: {', '.join(unproven)}; "
                              "run their test play")
+
+    def _shipped_lane(self, t: Ticket) -> str:
+        """The lane a shipped ticket declares, as the base branch has it too: the stricter of
+        the two, so a branch cannot lower a ticket's lane to drop its real-stack proof."""
+        old = lanes._ticket_at(self.cfg, self._base_ref, t) if self._base_ref else None
+        return lanes.stricter(t.lane, _declared_lane(old)) if old is not None else t.lane
 
     def _real_stack_proof(self, tid: str) -> bool:
         """A passing real-stack test carries one of the AC tags the ticket declares (an AC-99
@@ -1142,7 +1162,7 @@ class Gate:
             junit = self.run_dir / f"junit-{name}.xml"
             junit.unlink(missing_ok=True)
             code, log = self._shell(name, cmd.replace("{junit}", self.cfg.rel(junit))
-                                    .replace("{port}", str(self.cfg.section("app")["port"])))
+                                    .replace("{port}", str(self.cfg.app_port()[0])))
             self._read_junit(name, junit, into=cases)
         finally:
             _restore_red_backup(self.cfg.root, backup)
@@ -1339,9 +1359,10 @@ class Gate:
             c.status, c.summary = "fail", "commands.start not configured; the app was never started"
             return
         app = self.cfg.section("app")
-        port, host = int(app["port"]), app["host"]
+        (port, source), host = self.cfg.app_port(), app["host"]
         if _port_open(host, port):
-            c.status, c.summary = "fail", f"port {port} is already in use; stop that process or set app.port"
+            c.status, c.summary = "fail", (f"port {port} ({source}) is already in use; stop that process, or "
+                                           f"set {config.PORT_ENV} (this machine) or app.port")
             return
         base_url = f"http://{host}:{port}"
         log = self.run_dir / "logs" / "smoke-server.log"
@@ -1751,7 +1772,8 @@ def _evidence_problems(cfg: Config, t: Ticket, commit: str) -> list[str]:
     # A mechanical or refactor build has no test play: its full suite is the proof (gate pr
     # re-checks the lane).
     # A test ticket has no test play, but its build needs a real-stack suite just the same.
-    suites = real_stack_suites(cfg) if t.real_stack_proof and not mechanical else []
+    owes = t.owes_real_stack("mechanical" if mechanical else "")
+    suites = real_stack_suites(cfg) if owes else []
     real_stack = [k for k in suites if cfg.commands.get(k)]
     if suites and not real_stack:
         out.append(f"no real-stack suite is configured (tests.real_stack: {', '.join(suites)}): nothing can prove "
@@ -1769,7 +1791,7 @@ def _evidence_problems(cfg: Config, t: Ticket, commit: str) -> list[str]:
         ev = json.loads(p.read_text(encoding="utf-8"))
         if ev.get("result") != "pass" or ev.get("partial"):
             out.append(f"{play} evidence is not a full passing gate run")
-        if play == "build" and t.type == "test" and t.real_stack_proof and not mechanical:
+        if play == "build" and t.type == "test" and owes:
             # A test ticket's build is its real-stack proof. Evidence without that proof (or from
             # before v2.0.0, which did not record it) proves nothing through the real stack,
             # unless a passing test play gave it, as it did for a test ticket before v2.0.0.
@@ -1966,6 +1988,18 @@ def _norm(b: bytes | None) -> bytes | None:
 
 def _read_or_none(p: Path) -> bytes | None:
     return _norm(p.read_bytes()) if p.is_file() else None
+
+
+def shallow_problem(cfg: Config) -> str | None:
+    """Why records mode cannot judge this repository, or None. Derived status and the tickets
+    a branch moves are walks of the base branch's history: past a shallow boundary they read
+    nothing, silently (a merged ticket reads ready, a branch "moves" every ticket since)."""
+    if not approval.records_mode(cfg) or not gitutil.is_shallow(cfg.root):
+        return None
+    return ("the repository is shallow (.git/shallow): history past it reads as absent, so derived "
+            "ticket status and the tickets a branch moves cannot be read. Run `git fetch --unshallow` (CI: "
+            "check out with fetch-depth: 0), and keep tools from fetching into it with --depth (Playwright's captureGitInfo does on "
+            "GitHub PRs: set captureGitInfo: { commit: false, diff: false }; CONSUME.md)")
 
 
 def recover(root: Path) -> list[str]:

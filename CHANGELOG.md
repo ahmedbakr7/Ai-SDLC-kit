@@ -7,6 +7,45 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 
 ## Unreleased
 
+## v4.0.0 (2026-10-20)
+
+From the Hangout pilot. MAJOR for one item: a records-mode product whose CI reads a shallow
+repository now fails where it used to pass (on history it could not see). The other two only
+loosen a check or add a setting. Each item has its upgrade step.
+
+- **Records mode fails on a shallow repository.** Derived status and the tickets a PR moves
+  walk the base branch's history; past a shallow boundary (`.git/shallow`) they read nothing,
+  silently. On Hangout, Playwright's `captureGitInfo` ran `git fetch --depth=1 <PR base>` during
+  `gate ci`, after which every merged ticket read `ready`, `trace` was baselined on that view,
+  and a PR that had merged main "moved 31 tickets". Now `gate` (any play) adds a failing
+  `history` check when the repository is shallow, run after its other checks so a tool that
+  cuts history mid-run fails the run; `gate pr` refuses before it reads the PR's trailers;
+  `trace` refuses before it derives status (`status`, `next` and `run` do not check). Upgrade: check out with `fetch-depth: 0` (the
+  installed workflow does; a local clone made with `--depth` needs `git fetch --unshallow`)
+  and stop tools fetching into the repository with `--depth`
+  (Playwright: `captureGitInfo: { commit: false, diff: false }`). Then expect derived status to
+  change: tickets merged by trailer read `done`, and `gate ci`/`trace` judge them (CONSUME,
+  "Approvals outside the tree").
+- **One rule for when a ticket owes real-stack proof.** A passing real-stack test with one of
+  the ticket's AC tags is owed only when the ticket has AC and its lane has a test play.
+  - A ticket with `acceptance_criteria: []` has no tag to carry: CI no longer calls it unproven
+    once merged (a mechanical ticket turned main red).
+  - Mechanical and refactor tickets: the build's full suite is the proof and `gate test`
+    refuses the lane (ADR-0004), yet `gate pr` asked for a real-stack tag, so no refactor
+    ticket could pass. Their AC still need a passing tagged test in some suite.
+  - The test/PR check uses the lane the gate resolved (a ticket the diff raises out of
+    refactor owes the proof again); `gate ci` reads a shipped ticket's lane from the base
+    branch too and takes the stricter, so a branch cannot relabel a ticket to drop its proof.
+  Nothing to do; a `test: none` added as a workaround stays valid. Known gap: CI knows only
+  the declared lanes, not the lane a ticket shipped in, so a mechanical or refactor ticket that
+  its diff raised (and that gave real-stack proof at PR time) no longer owes that proof in
+  `gate ci`; deleting its real-stack test later goes unnoticed while its tagged tests still
+  pass. Recording the shipped lane is a follow-up.
+- **`SDLC_APP_PORT` overrides `app.port` on one machine**, for smoke, the `PORT` the app
+  gets and every `{port}`/`{base_url}`, so two worktrees can gate at once without editing the
+  committed `sdlc.toml`. `doctor` prints the port in effect and where it came from, and fails
+  on a value that is not a port. Unset, nothing changes.
+
 ## v3.4.1 (2026-10-19)
 
 PATCH: a fix; nothing an existing product passes fails.

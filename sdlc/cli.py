@@ -35,7 +35,13 @@ def cmd_lint(args) -> int:
 def cmd_trace(args) -> int:
     from . import baseline, waivers
 
+    from .gate import shallow_problem
+
     cfg = _cfg(args)
+    problem = shallow_problem(cfg)
+    if problem:
+        print(f"ERROR {problem}")
+        return EXIT_FAIL
     m = trace.matrix(Repo(cfg))
     probs = trace.problems(m)
     # Problems sdlc-baseline.json lists are known debt; new ones fail, and so do entries that
@@ -148,7 +154,7 @@ def cmd_prompt(args) -> int:
 
 
 def cmd_gate(args) -> int:
-    from .gate import Gate, pr_tickets, recover
+    from .gate import Gate, pr_tickets, recover, shallow_problem
 
     cfg = _cfg(args)
     if args.play == "pr" and not args.ticket:
@@ -156,7 +162,12 @@ def cmd_gate(args) -> int:
         recover(cfg.root)
         # Which tickets a PR serves is read the way the base branch's config says (trailers when
         # status is derived), so a PR cannot change how it is found.
-        found = pr_tickets(Gate(cfg, "pr", None, args.base).cfg, args.base or cfg.section("vcs").get("base", "main"))
+        trusted = Gate(cfg, "pr", None, args.base).cfg
+        problem = shallow_problem(trusted)
+        if problem:  # the trailers below would be read past a cut-off history
+            print(f"gate pr: {problem}", file=sys.stderr)
+            return EXIT_FAIL
+        found = pr_tickets(trusted, args.base or cfg.section("vcs").get("base", "main"))
         if len(found) > 1:
             print(f"gate pr: this branch moves {len(found)} tickets ({', '.join(found)}); "
                   "a ticket PR carries exactly one", file=sys.stderr)
@@ -651,6 +662,11 @@ def cmd_doctor(args) -> int:
         print(f"note  {n}")
     for line in presets.resolved(cfg.data):  # what the preset and overrides add up to
         print(f"      {line}")
+    try:
+        port, source = cfg.app_port()
+        print(f"      app port {port} (from {source})")
+    except SystemExit as e:
+        probs.append(str(e))
     for p in probs:
         print(f"ERROR {p}")
     print("doctor: " + ("OK" if not probs else f"{len(probs)} problem(s)"))

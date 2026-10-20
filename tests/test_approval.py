@@ -853,6 +853,134 @@ class DerivedStatus(Base):
         self.assertNotEqual(code, 0, out)
         self.assertIn("T-042-02: done, but no passing integration/e2e test carries its tag", out)
 
+    def lead_sets(self, old: str, new: str, ticket: str = "tickets/T-042-02-order-page.md") -> None:
+        """A lead decision on main: edit the ticket's front matter there."""
+        git(self.p.root, "checkout", "-q", "main")
+        self.p.write(ticket, self.p.read(ticket).replace(old, new, 1))
+        self.p.commit("lead: edit T-042-02")
+
+    def merge_build_only(self) -> None:
+        """T-042-02 merged with its AC proven by unit tests only."""
+        git(self.p.root, "checkout", "-q", "-b", "build/T-042-02")
+        copy_solution(self.p, "build-T-042-02")
+        commit(self.p, "build only")
+        git(self.p.root, "checkout", "-q", "main")
+        git(self.p.root, "merge", "-q", "--no-ff", "--no-edit", "build/T-042-02")
+
+    def test_pr_gate_takes_unit_proof_for_a_refactor_ticket(self) -> None:
+        # Hangout pilot (T-001-68): ADR-0004 makes the refactor build's full suite the proof and
+        # refuses the test play, so gate pr must not ask for a real-stack tag the lane cannot get.
+        self.lead_sets("risk: low\n", "risk: low\nlane: refactor\n")
+        git(self.p.root, "checkout", "-q", "-b", "build/T-042-02")
+        copy_solution(self.p, "build-T-042-02")
+        commit(self.p, "build only")
+        self.p.sdlc("gate", "pr", "--base", "main", "--only", "unit,ac-coverage")
+        ev = json.loads(self.p.read(".sdlc-run/T-042-02.pr.json"))
+        self.assertEqual(ev["lane"], "refactor")
+        c = {x["name"]: x for x in ev["checks"]}["ac-coverage"]
+        self.assertEqual(c["status"], "pass", c)
+
+    def test_a_refactor_ticket_the_diff_raises_owes_real_stack_proof(self) -> None:
+        # The exemption follows the lane the gate resolved: raised out of refactor, the ticket
+        # has a test play again, and that play owes the real-stack tag.
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml") + '\n[lanes]\nstrict_paths = ["app/pages.py"]\n')
+        self.lead_sets("risk: low\n", "risk: low\nlane: refactor\n")
+        git(self.p.root, "checkout", "-q", "-b", "build/T-042-02")
+        copy_solution(self.p, "build-T-042-02")
+        commit(self.p, "build only")
+        code, out = self.p.sdlc("gate", "pr", "--base", "main", "--only", "unit,ac-coverage")
+        ev = json.loads(self.p.read(".sdlc-run/T-042-02.pr.json"))
+        self.assertEqual(ev["lane"], "strict")
+        self.assertIn("the test play must prove AC through the real stack", out)
+
+    def test_ci_takes_unit_proof_for_a_merged_refactor_ticket(self) -> None:
+        self.lead_sets("risk: low\n", "risk: low\nlane: refactor\n")
+        self.merge_build_only()
+        code, out = self.p.sdlc("gate", "ci", "--only", "unit,integration,ac-coverage")
+        self.assertEqual(code, 0, out)
+
+    def test_a_refactor_ticket_still_needs_a_passing_tagged_test(self) -> None:
+        # Only the real-stack requirement goes: AC with no passing tagged test still fail.
+        self.lead_sets("risk: low\n", "risk: low\nlane: refactor\n")
+        self.merge_build_only()
+        test = self.p.root / "app" / "test_pages.py"
+        test.write_text(test.read_text(encoding="utf-8").replace("T-042-02/AC-", "T-042-02-AC-"), encoding="utf-8")
+        self.p.commit("main: T-042-02's tests lose their tags")
+        code, out = self.p.sdlc("gate", "ci", "--only", "unit,integration,ac-coverage")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("AC without a passing test", out)
+
+    def test_a_branch_cannot_declare_a_lane_to_drop_a_shipped_tickets_proof(self) -> None:
+        self.merge_build_only()
+        git(self.p.root, "checkout", "-q", "-b", "lead/relabel")
+        rel = "tickets/T-042-02-order-page.md"
+        self.p.write(rel, self.p.read(rel).replace("risk: low\n", "risk: low\nlane: refactor\n", 1))
+        self.p.commit("relabel T-042-02 as a refactor")
+        code, out = self.p.sdlc("gate", "ci", "--base", "main", "--only", "unit,integration,ac-coverage")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("T-042-02: done, but no passing integration/e2e test carries its tag", out)
+
+    def test_ci_owes_no_real_stack_proof_for_a_ticket_without_ac(self) -> None:
+        # Hangout pilot (T-001-69): a mechanical ticket with acceptance_criteria: [] has no tag to
+        # carry, so CI must not call it unproven after it merges.
+        rel = "tickets/T-042-02-order-page.md"
+        text = self.p.read(rel)
+        start = text.index("acceptance_criteria:\n")
+        end = text.index("source_intent:")
+        self.lead_sets(text[start:end], "acceptance_criteria: []\n")
+        self.merge_build_only()
+        code, out = self.p.sdlc("gate", "ci", "--only", "unit,integration,ac-coverage")
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("T-042-02: done, but", out)
+
+    def make_shallow(self, at: str = "main") -> None:
+        """What Playwright's captureGitInfo leaves: a shallow boundary at the PR base, every
+        commit still present."""
+        sha = git(self.p.root, "rev-parse", at).strip()
+        (self.p.root / ".git" / "shallow").write_text(sha + "\n", encoding="utf-8")
+
+    def test_a_shallow_repository_fails_gate_pr_before_it_reads_trailers(self) -> None:
+        # Hangout pilot: past the boundary, merge-base..HEAD leaked every ticket merged since
+        # the branch's fork point, and gate pr reported "this branch moves 31 tickets".
+        self.build()
+        self.make_shallow()
+        code, out = self.p.sdlc("gate", "pr", "--base", "main")
+        self.assertNotEqual(code, 0)
+        self.assertIn("gate pr: the repository is shallow (.git/shallow)", out)
+        self.assertNotIn("this branch moves", out)
+
+    def test_a_shallow_repository_fails_trace(self) -> None:
+        self.build()
+        git(self.p.root, "checkout", "-q", "main")
+        git(self.p.root, "merge", "-q", "--no-ff", "--no-edit", "build/T-042-02")
+        self.assertEqual(self.p.sdlc("gate", "ci")[0], 0)
+        self.assertEqual(self.p.sdlc("trace")[0], 0)
+        self.make_shallow("HEAD")  # T-042-02's trailer is past the boundary: it would read ready
+        code, out = self.p.sdlc("trace")
+        self.assertNotEqual(code, 0)
+        self.assertIn("ERROR the repository is shallow (.git/shallow)", out)
+
+    def test_gate_fails_when_a_check_makes_the_repository_shallow(self) -> None:
+        # The history check runs after the others: a tool run by a check may cut history mid-run.
+        main = git(self.p.root, "rev-parse", "main").strip()
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace(
+            'unit = "python tools/junit.py --start app --out {junit}"',
+            f'unit = "python -c \\"open(\'.git/shallow\', \'w\').write(\'{main}\\\\n\')\\" '
+            '&& python tools/junit.py --start app --out {junit}"', 1))
+        self.p.commit("lead: a unit command that cuts history, as a test tool might")
+        code, out = self.p.sdlc("gate", "ci")
+        self.assertTrue((self.p.root / ".git" / "shallow").is_file())
+        self.assertNotEqual(code, 0, out)
+        ev = json.loads(self.p.read(".sdlc-run/ci.json"))
+        c = {x["name"]: x for x in ev["checks"]}["history"]
+        self.assertEqual(c["status"], "fail")
+        self.assertIn("is shallow", c["summary"])
+
+    def test_a_full_repository_adds_no_history_check(self) -> None:
+        self.assertEqual(self.p.sdlc("gate", "ci")[0], 0)
+        ev = json.loads(self.p.read(".sdlc-run/ci.json"))
+        self.assertNotIn("history", [x["name"] for x in ev["checks"]])
+
     def test_trace_reads_ci_evidence_for_a_ticket_merged_without_committed_evidence(self) -> None:
         self.build()
         git(self.p.root, "checkout", "-q", "main")
