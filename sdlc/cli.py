@@ -160,13 +160,14 @@ def cmd_gate(args) -> int:
     if args.play == "pr" and not args.ticket:
         # CI does not know which ticket a PR carries; the branch's changes say so.
         recover(cfg.root)
-        problem = shallow_problem(cfg)
+        # Which tickets a PR serves is read the way the base branch's config says (trailers when
+        # status is derived), so a PR cannot change how it is found.
+        trusted = Gate(cfg, "pr", None, args.base).cfg
+        problem = shallow_problem(trusted)
         if problem:  # the trailers below would be read past a cut-off history
             print(f"gate pr: {problem}", file=sys.stderr)
             return EXIT_FAIL
-        # Which tickets a PR serves is read the way the base branch's config says (trailers when
-        # status is derived), so a PR cannot change how it is found.
-        found = pr_tickets(Gate(cfg, "pr", None, args.base).cfg, args.base or cfg.section("vcs").get("base", "main"))
+        found = pr_tickets(trusted, args.base or cfg.section("vcs").get("base", "main"))
         if len(found) > 1:
             print(f"gate pr: this branch moves {len(found)} tickets ({', '.join(found)}); "
                   "a ticket PR carries exactly one", file=sys.stderr)

@@ -21,7 +21,8 @@ loosen a check or add a setting. Each item has its upgrade step.
   `history` check when the repository is shallow, run after its other checks so a tool that
   cuts history mid-run fails the run; `gate pr` refuses before it reads the PR's trailers;
   `trace` refuses before it derives status. Upgrade: check out with `fetch-depth: 0` (the
-  installed workflow does) and stop tools fetching into the repository with `--depth`
+  installed workflow does; a local clone made with `--depth` needs `git fetch --unshallow`)
+  and stop tools fetching into the repository with `--depth`
   (Playwright: `captureGitInfo: { commit: false, diff: false }`). Then expect derived status to
   change: tickets merged by trailer read `done`, and `gate ci`/`trace` judge them (CONSUME,
   "Approvals outside the tree").

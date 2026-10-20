@@ -186,7 +186,8 @@ Set `[approval] mode = "forge"` (GitHub) or `"git"` (signed notes in `refs/notes
   commit until the PR's own commits are merged with a merge commit (no revert needed).
 - Weakening or removing an AC by amendment needs a lead approval; a strict ticket needs one too.
 - Derived status needs the whole history. Check out with `fetch-depth: 0` (the installed
-  workflow does), and keep tools from fetching into the repository with `--depth`: past a shallow
+  workflow does; a clone made with `--depth`, as some agent sandboxes make, needs
+  `git fetch --unshallow` once), and keep tools from fetching into the repository with `--depth`: past a shallow
   boundary (`.git/shallow`) merged tickets read `ready` and a PR seems to move every ticket
   merged since it branched. Playwright does this on GitHub PRs (its `captureGitInfo` fetches
   the PR base with `--depth=1`); set `captureGitInfo: { commit: false, diff: false }` in

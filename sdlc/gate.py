@@ -1997,8 +1997,8 @@ def shallow_problem(cfg: Config) -> str | None:
     if not approval.records_mode(cfg) or not gitutil.is_shallow(cfg.root):
         return None
     return ("the repository is shallow (.git/shallow): history past it reads as absent, so derived "
-            "ticket status and the tickets a branch moves cannot be read. Check out with fetch-depth: 0, "
-            "and keep tools from fetching into it with --depth (Playwright's captureGitInfo does on "
+            "ticket status and the tickets a branch moves cannot be read. Run `git fetch --unshallow` (CI: "
+            "check out with fetch-depth: 0), and keep tools from fetching into it with --depth (Playwright's captureGitInfo does on "
             "GitHub PRs: set captureGitInfo: { commit: false, diff: false }; CONSUME.md)")
 
 
