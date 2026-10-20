@@ -20,7 +20,7 @@ loosen a check or add a setting. Each item has its upgrade step.
   and a PR that had merged main "moved 31 tickets". Now `gate` (any play) adds a failing
   `history` check when the repository is shallow, run after its other checks so a tool that
   cuts history mid-run fails the run; `gate pr` refuses before it reads the PR's trailers;
-  `trace` refuses before it derives status. Upgrade: check out with `fetch-depth: 0` (the
+  `trace` refuses before it derives status (`status`, `next` and `run` do not check). Upgrade: check out with `fetch-depth: 0` (the
   installed workflow does; a local clone made with `--depth` needs `git fetch --unshallow`)
   and stop tools fetching into the repository with `--depth`
   (Playwright: `captureGitInfo: { commit: false, diff: false }`). Then expect derived status to
@@ -36,7 +36,11 @@ loosen a check or add a setting. Each item has its upgrade step.
   - The test/PR check uses the lane the gate resolved (a ticket the diff raises out of
     refactor owes the proof again); `gate ci` reads a shipped ticket's lane from the base
     branch too and takes the stricter, so a branch cannot relabel a ticket to drop its proof.
-  Nothing to do; a `test: none` added as a workaround stays valid.
+  Nothing to do; a `test: none` added as a workaround stays valid. Known gap: CI knows only
+  the declared lanes, not the lane a ticket shipped in, so a mechanical or refactor ticket that
+  its diff raised (and that gave real-stack proof at PR time) no longer owes that proof in
+  `gate ci`; deleting its real-stack test later goes unnoticed while its tagged tests still
+  pass. Recording the shipped lane is a follow-up.
 - **`SDLC_APP_PORT` overrides `app.port` on one machine**, for smoke, the `PORT` the app
   gets and every `{port}`/`{base_url}`, so two worktrees can gate at once without editing the
   committed `sdlc.toml`. `doctor` prints the port in effect and where it came from, and fails

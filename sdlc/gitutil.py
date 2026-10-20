@@ -33,7 +33,9 @@ def head(root: Path) -> str:
 def is_shallow(root: Path) -> bool:
     """The repository has a shallow boundary (.git/shallow): walks stop there, so history
     beyond it reads as absent, even if its commits are present."""
-    return git(root, "rev-parse", "--is-shallow-repository", check=False).strip() == "true"
+    # --git-path, not --is-shallow-repository: git before 2.15 does not know the latter.
+    rel = git(root, "rev-parse", "--git-path", "shallow", check=False).strip()
+    return bool(rel) and (root / rel).is_file()
 
 
 def is_dirty(root: Path) -> bool:

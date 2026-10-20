@@ -138,7 +138,7 @@ class GateCatches(unittest.TestCase):
         self.assertIn("app port 3123 (from app.port)", self.p.sdlc("doctor")[1])
         with mock.patch.dict("os.environ", {"SDLC_APP_PORT": "4567"}):
             self.assertIn("app port 4567 (from SDLC_APP_PORT)", self.p.sdlc("doctor")[1])
-        for bad in ("0", "70000", "port"):
+        for bad in ("0", "70000", "port", "\u00b2"):
             with mock.patch.dict("os.environ", {"SDLC_APP_PORT": bad}):
                 code, out = self.p.sdlc("doctor")
             self.assertNotEqual(code, 0)

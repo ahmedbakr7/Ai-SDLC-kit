@@ -199,7 +199,7 @@ class Config:
         """(port, where it came from): SDLC_APP_PORT when set, else app.port."""
         raw = os.environ.get(PORT_ENV, "").strip()
         if raw:
-            if not raw.isdigit() or not 1 <= int(raw) <= 65535:
+            if not (raw.isascii() and raw.isdecimal()) or not 1 <= int(raw) <= 65535:
                 raise SystemExit(f"{PORT_ENV}={raw!r}: must be a port number from 1 to 65535")
             return int(raw), PORT_ENV
         return int(self.section("app")["port"]), "app.port"

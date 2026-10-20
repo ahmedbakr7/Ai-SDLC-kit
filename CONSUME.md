@@ -193,6 +193,8 @@ Set `[approval] mode = "forge"` (GitHub) or `"git"` (signed notes in `refs/notes
   the PR base with `--depth=1`); set `captureGitInfo: { commit: false, diff: false }` in
   `playwright.config`. `gate`, `gate pr` and `trace` fail on a shallow repository, and `gate`
   checks again after its other checks, so a tool that cuts history mid-run fails the run.
+  `sdlc status`, `next` and `run` do not check: in a shallow clone they offer merged tickets
+  as ready, so unshallow first.
 
 Without `sdlc run` (agent in an IDE), file mode: `sdlc status T-001-03 in_progress --as build`,
 give the agent `sdlc prompt build T-001-03`, have it iterate on `sdlc gate build
