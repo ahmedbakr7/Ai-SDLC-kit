@@ -23,9 +23,8 @@ open from a v4 runner; add the record with `sdlc commit ... --lane` (below).
   `sdlc commit <id> --agent <name> --play build --lane <lane> --allow-empty -m "lane <id>: <lane>"`.
   A PR that keeps its declared lane, or whose ticket owes no real-stack proof (no AC), records
   nothing. `gate ci`'s `trailers` check also fails on a lane record a squash merge buried in a
-  commit body. MAJOR: such a PR built without the runner
-  fails `gate pr` until it records the lane. Already-merged tickets carry no record and keep
-  being judged by their declared lanes.
+  commit body. MAJOR: such a PR fails `gate pr` until it records the lane. Already-merged
+  tickets carry no record and keep being judged by their declared lanes.
 
 ## v4.1.0 (2026-10-21)
 

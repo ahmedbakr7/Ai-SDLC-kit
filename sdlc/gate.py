@@ -387,9 +387,18 @@ class Gate:
         lost = []
         for sha, lanes_ in gitutil.buried_trailers(root, "HEAD", "Sdlc-Lane"):
             body = gitutil.git(root, "log", "-1", "--format=%B", sha)
-            tids = set(re.findall(r"(?m)^Sdlc-Ticket:[ \t]*(\S+)", body))
-            have = {v for tid in tids for v in recorded.get(tid, [])}
-            if missed := [v for v in lanes_ if v not in have]:
+            missed = []
+            # A squash keeps each commit's trailer block as one paragraph: a buried lane belongs to
+            # the tickets in its own paragraph, so another ticket's record cannot cover it.
+            for para in re.split(r"\n[ \t]*\n", body):
+                vals = [v for v in re.findall(r"(?m)^Sdlc-Lane:[ \t]*(\S+)", para) if v in lanes_]
+                if not vals:
+                    continue
+                tids = set(re.findall(r"(?m)^Sdlc-Ticket:[ \t]*(\S+)", para)) \
+                    or set(re.findall(r"(?m)^Sdlc-Ticket:[ \t]*(\S+)", body))
+                have = {v for tid in tids for v in recorded.get(tid, [])}
+                missed += [v for v in vals if v not in have and v not in missed]
+            if missed:
                 lost.append((sha, missed))
         if not buried and not lost:
             return None

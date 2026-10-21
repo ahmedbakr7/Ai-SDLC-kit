@@ -1427,6 +1427,22 @@ class PilotGaps(Base):
         code, out = self.p.sdlc("gate", "ci")
         self.assertNotIn("records lane", out)
 
+    def test_another_tickets_lane_record_does_not_cover_a_buried_one(self) -> None:
+        # Re-review of #53: in a squash naming two tickets, T-042-09's delivered record must not
+        # stand in for T-042-02's buried one.
+        git(self.p.root, "commit", "-q", "--allow-empty", "-m", "other ticket shipped strict",
+            "-m", "Sdlc-Ticket: T-042-09\nSdlc-Lane: strict")
+        self.build()
+        msg = git(self.p.root, "log", "-1", "--format=%B").strip()
+        git(self.p.root, "checkout", "-q", "main")
+        git(self.p.root, "merge", "-q", "--squash", "build/T-042-02")
+        git(self.p.root, "commit", "-q", "-m", "two tickets (#9)", "-m", "* " + msg,
+            "-m", "* lane T-042-02: strict\n\nSdlc-Ticket: T-042-02\nSdlc-Lane: strict",
+            "-m", "* other\n\nSdlc-Ticket: T-042-09", "-m", "Sdlc-Ticket: T-042-02\nSdlc-Ticket: T-042-09")
+        code, out = self.p.sdlc("gate", "ci")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("records lane strict in its body, not as a trailer", out)
+
     def test_a_revert_message_without_the_reverse_change_does_not_exempt_the_squash(self) -> None:
         self.squash_merge()
         squash = git(self.p.root, "rev-parse", "HEAD").strip()
