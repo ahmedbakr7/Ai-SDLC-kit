@@ -12,7 +12,7 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 - **Parallel gates.** `app.port = "auto"` or `SDLC_APP_PORT=auto` picks a free port per run.
   `[app] setup` and `teardown` make and remove per-run resources: setup's `KEY=VALUE` lines in
   `$SDLC_RUN_ENV` reach every command, so each run can get its own database. Every command
-  now sees `SDLC_APP_PORT` (and `SDLC_RUN_ID` when setup is configured). A failed setup or
+  now sees `SDLC_APP_PORT` and `SDLC_RUN_ID`. A failed setup or
   teardown fails the gate. `app.port` is now validated (a whole number 1–65535 or "auto").
   Upgrade: optional; read the port from `SDLC_APP_PORT` in test configs that start servers.
 

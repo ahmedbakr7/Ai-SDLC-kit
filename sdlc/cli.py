@@ -699,7 +699,7 @@ def cmd_doctor(args) -> int:
         probs.append(str(e))
     try:
         port, source = cfg.app_port()
-        print(f"      app port {port} (from {source})")
+        print(f"      app port {'auto, a free port per run' if 'auto' in source else port} (from {source})")
     except SystemExit as e:
         probs.append(str(e))
     for p in probs:

@@ -210,6 +210,40 @@ class GateCatches(unittest.TestCase):
         self.assertEqual(checks["teardown"]["status"], "fail")
         self.assertIn("app.teardown exited 4", checks["teardown"]["summary"])
 
+    def test_a_teardown_without_a_setup_still_runs_and_commands_see_the_run_id(self) -> None:
+        # Review of #54: teardown and SDLC_RUN_ID depended on a setup being configured.
+        self.p.write(".sdlc-run/made", "x")
+        self.p.write("tools/teardown.py", "import pathlib; pathlib.Path('.sdlc-run/made').unlink()")
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace(
+            "[app]\n", '[app]\nteardown = "python tools/teardown.py"\n', 1).replace(
+            'lint = "python tools/lint.py"', 'lint = "python -c \\"import os; os.environ[\'SDLC_RUN_ID\']\\""', 1))
+        checks = self.gate("ci", "lint", ticket=None)
+        self.assertEqual(checks["lint"]["status"], "pass", self.out)
+        self.assertEqual(checks["teardown"]["status"], "pass", checks)
+        self.assertFalse((self.p.root / ".sdlc-run" / "made").exists())
+
+    def test_setup_may_set_ci_and_no_color_without_crashing_the_gate(self) -> None:
+        # Review of #54: a duplicate keyword built the command env and crashed the gate.
+        self.hooks("import os, pathlib; pathlib.Path('.sdlc-run/made').write_text('x')\n"
+                   "open(os.environ['SDLC_RUN_ENV'], 'a').write('CI=yes\\nNO_COLOR=0\\nDB_NAME=run_' + os.environ['SDLC_RUN_ID'] + '\\n')\n")
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace(
+            "sys.exit(os.environ.get('DB_NAME') != 'run_' + os.environ['SDLC_RUN_ID'])",
+            "sys.exit(os.environ.get('CI') != 'yes')", 1))
+        checks = self.gate("ci", "lint", ticket=None)
+        self.assertEqual(checks["lint"]["status"], "pass", self.out)
+
+    def test_a_setup_env_that_is_not_utf8_fails_setup_and_still_tears_down(self) -> None:
+        # Review of #54: the decode error escaped before the try, so teardown never ran and the
+        # env file (which may hold credentials) stayed behind.
+        self.hooks("import os, pathlib; pathlib.Path('.sdlc-run/made').write_text('x')\n"
+                   "open(os.environ['SDLC_RUN_ENV'], 'wb').write(b'DB=\\xff\\n')\n")
+        checks = self.gate("ci", "lint", ticket=None)
+        self.assertEqual(checks["setup"]["status"], "fail")
+        self.assertIn("not UTF-8", checks["setup"]["summary"])
+        self.assertEqual(checks["teardown"]["status"], "pass")
+        self.assertFalse((self.p.root / ".sdlc-run" / "made").exists())
+        self.assertEqual(list((self.p.root / ".sdlc-run").glob("run-env-*")), [])
+
     def test_client_calls_a_path_no_contract_serves(self) -> None:
         self.p.write("app/static/app.js", 'export const load = (id) => fetch(`/v1/orders/${id}/returns`);\n')
         with open(self.p.root / "sdlc.toml", "a", encoding="utf-8") as f:
