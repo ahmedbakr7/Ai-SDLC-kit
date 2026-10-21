@@ -45,6 +45,8 @@ profile = ""
 [vcs]
 base = "main"
 # pr_command = ""            # e.g. "gh pr create --fill --base {base} --head {branch}"
+# claim = "local"            # "push": push the ticket's branch before the agent runs (several machines)
+# claim_days = 0             # a branch with no commit for this many days stops holding its ticket
 
 [gate]
 max_attempts = 3
