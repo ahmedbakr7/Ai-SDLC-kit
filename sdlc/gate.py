@@ -246,7 +246,30 @@ class Gate:
 
     def run(self, on_check: Callable[[Check], None] | None = None) -> dict:
         started = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        setup = self._setup()
+        try:
+            self._run_plan(on_check, skip=setup is not None and setup.status == "fail", first=setup)
+        finally:
+            down = self._teardown()
+        if down is not None:
+            self.checks.append(down)
+            if on_check:
+                on_check(down)
+        return self._finish(started, on_check)
+
+    def _run_plan(self, on_check, skip: bool, first: "Check | None") -> None:
+        if first is not None:
+            self.checks.append(first)
+            if on_check:
+                on_check(first)
         for name in self.plan():
+            if skip:
+                c = Check(name)
+                c.status, c.summary = "skip", "app.setup failed"
+                self.checks.append(c)
+                if on_check:
+                    on_check(c)
+                continue
             fn = getattr(self, "check_" + name.replace("-", "_"), None)
             c = Check(name)
             t0 = time.monotonic()
@@ -264,6 +287,8 @@ class Gate:
             self.checks.append(c)
             if on_check:
                 on_check(c)
+
+    def _finish(self, started: str, on_check) -> dict:
         for extra in (self._check_waivers(), self._check_trailers(), self._check_lane_record(),
                       self._check_history()):
             if extra is not None:
@@ -1421,7 +1446,7 @@ class Gate:
             return
         base_url = f"http://{host}:{port}"
         log = self.run_dir / "logs" / "smoke-server.log"
-        env = dict(os.environ, PORT=str(port))
+        env = dict(os.environ, **self._command_env(), PORT=str(port))
         rendered = cmd.replace("{port}", str(port)).replace("{base_url}", base_url)
         with open(log, "w", encoding="utf-8") as lf:
             proc = subprocess.Popen(rendered, shell=True, cwd=self.cfg.root, stdout=lf,
@@ -1650,6 +1675,88 @@ class Gate:
         else:
             c.summary = f"review valid, verdict {data.get('verdict')}"
 
+    # -- per-run resources (parallel gates) ---------------------------------
+    def _hook_env(self) -> dict[str, str]:
+        if not hasattr(self, "_run_id"):
+            self._run_id = f"{os.getpid()}-{int(time.time() * 1000)}"
+            self.run_env: dict[str, str] = {}
+        port = self.cfg.app_port()[0]
+        return dict(os.environ, SDLC_RUN_ID=self._run_id, SDLC_APP_PORT=str(port),
+                    SDLC_RUN_ENV=str(self.run_dir / f"run-env-{self._run_id}"), **self.run_env)
+
+    def _hook(self, key: str) -> tuple[int, Path, str] | None:
+        cmd = str(self.cfg.section("app").get(key, "") or "")
+        if not cmd:
+            return None
+        env = self._hook_env()
+        log = self.run_dir / "logs" / f"app-{key}.log"
+        log.parent.mkdir(parents=True, exist_ok=True)
+        timeout = int(self.cfg.section("gate").get("timeout", 1800))
+        with open(log, "w", encoding="utf-8") as lf:
+            lf.write(f"$ {cmd}\n")
+            lf.flush()
+            try:
+                code = subprocess.run(cmd, shell=True, cwd=self.cfg.root, stdout=lf, stderr=subprocess.STDOUT,
+                                      timeout=timeout, env=env).returncode
+            except subprocess.TimeoutExpired:
+                lf.write(f"\n[sdlc] timed out after {timeout}s\n")
+                code = 124
+        return code, log, env["SDLC_RUN_ENV"]
+
+    def _setup(self) -> Check | None:
+        """app.setup: makes this run's resources (a database, a queue) and hands their settings to
+        every command through $SDLC_RUN_ENV. A failure fails the gate and skips its checks."""
+        got = self._hook("setup")
+        if got is None:
+            return None
+        code, log, env_file = got
+        c = Check("setup")
+        c.log = self.cfg.rel(log)
+        if code != 0:
+            c.status, c.summary, c.details = "fail", f"app.setup exited {code}", _tail(log, 40)
+            return c
+        problems = []
+        f = Path(env_file)
+        for n, line in enumerate(f.read_text(encoding="utf-8").splitlines() if f.is_file() else [], 1):
+            if not line.strip() or line.lstrip().startswith("#"):
+                continue
+            key, sep, val = line.partition("=")
+            key = key.strip()
+            if not sep or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+                problems.append(f"$SDLC_RUN_ENV line {n}: not KEY=VALUE: {line!r}")
+            elif key.startswith("SDLC_") or key == "PORT":
+                problems.append(f"$SDLC_RUN_ENV line {n}: {key} is the kit's to set")
+            else:
+                self.run_env[key] = val
+        if problems:
+            c.status, c.summary, c.details = "fail", "app.setup wrote an invalid $SDLC_RUN_ENV", problems
+        else:
+            c.summary = "app.setup ok" + (f"; set {', '.join(sorted(self.run_env))}" if self.run_env else "")
+        return c
+
+    def _teardown(self) -> Check | None:
+        """app.teardown runs after every check, pass or fail, with the same variables. A failure
+        fails the gate: a resource left behind would collide with or slow later runs."""
+        if not hasattr(self, "_run_id"):
+            return None  # no setup ran
+        got = self._hook("teardown")
+        Path(self._hook_env()["SDLC_RUN_ENV"]).unlink(missing_ok=True)
+        if got is None:
+            return None
+        code, log, _ = got
+        c = Check("teardown")
+        c.log = self.cfg.rel(log)
+        if code != 0:
+            c.status, c.summary, c.details = "fail", f"app.teardown exited {code}", _tail(log, 40)
+        else:
+            c.summary = "app.teardown ok"
+        return c
+
+    def _command_env(self) -> dict[str, str]:
+        """What every command the gate runs sees: the run's port and what app.setup handed over."""
+        run_id = {"SDLC_RUN_ID": self._run_id} if hasattr(self, "_run_id") else {}
+        return {"SDLC_APP_PORT": str(self.cfg.app_port()[0]), **run_id, **getattr(self, "run_env", {})}
+
     # -- helpers ----------------------------------------------------------
     def _shell(self, name: str, cmd: str) -> tuple[int, Path]:
         log = self.run_dir / "logs" / f"{name}.log"
@@ -1658,7 +1765,8 @@ class Gate:
             lf.write(f"$ {cmd}\n")
             lf.flush()
             try:
-                env = dict(os.environ, CI=os.environ.get("CI", "1"), NO_COLOR="1", FORCE_COLOR="0")
+                env = dict(os.environ, CI=os.environ.get("CI", "1"), NO_COLOR="1", FORCE_COLOR="0",
+                           **self._command_env())
                 r = subprocess.run(cmd, shell=True, cwd=self.cfg.root, stdout=lf, stderr=subprocess.STDOUT,
                                    timeout=timeout, env=env)
                 code = r.returncode

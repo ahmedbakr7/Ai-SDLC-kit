@@ -144,6 +144,72 @@ class GateCatches(unittest.TestCase):
             self.assertNotEqual(code, 0)
             self.assertIn(f"ERROR SDLC_APP_PORT={bad!r}: must be a port number from 1 to 65535", out)
 
+    def test_auto_port_gives_each_run_a_free_port_every_command_sees(self) -> None:
+        # Parallel gates: no per-machine setting to pick, so two worktrees never share a port.
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace("[app]\n", '[app]\nport = "auto"\n', 1).replace(
+            'lint = "python tools/lint.py"',
+            'lint = "python -c \\"import os, sys; sys.exit(not ({port} == int(os.environ[\'SDLC_APP_PORT\']) != 3123))\\""', 1))
+        self.assertEqual(self.gate("ci", "lint", ticket=None)["lint"]["status"], "pass", self.out)
+        c = self.gate("ci", "smoke", ticket=None)["smoke"]
+        self.assertNotIn("already in use", c["summary"])
+        self.assertIn("probe(s)", c["summary"], c)
+        self.assertIn("(from app.port = auto)", self.p.sdlc("doctor")[1])
+        from unittest import mock
+
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace('port = "auto"', "port = 3123", 1))
+        with mock.patch.dict("os.environ", {"SDLC_APP_PORT": "auto"}):
+            self.assertIn("(from SDLC_APP_PORT=auto)", self.p.sdlc("doctor")[1])
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace("port = 3123", 'port = "any"', 1))
+        code, out = self.p.sdlc("doctor")
+        self.assertNotEqual(code, 0)
+        self.assertIn("ERROR app.port = 'any': must be a port number from 1 to 65535, or \"auto\"", out)
+
+    def hooks(self, setup: str, teardown: str = "import pathlib; pathlib.Path('.sdlc-run/made').unlink()") -> None:
+        self.p.write("tools/setup.py", setup)
+        self.p.write("tools/teardown.py", teardown)
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace(
+            "[app]\n", '[app]\nsetup = "python tools/setup.py"\nteardown = "python tools/teardown.py"\n', 1).replace(
+            'lint = "python tools/lint.py"',
+            'lint = "python -c \\"import os, sys; sys.exit(os.environ.get(\'DB_NAME\') != \'run_\' + os.environ[\'SDLC_RUN_ID\'])\\""', 1))
+
+    MAKE = ("import os, pathlib; pathlib.Path('.sdlc-run/made').write_text('x')\n"
+            "open(os.environ['SDLC_RUN_ENV'], 'a').write('# a comment\\nDB_NAME=run_' + os.environ['SDLC_RUN_ID'] + '\\n')\n")
+
+    def test_setup_hands_its_resources_to_every_command_and_teardown_removes_them(self) -> None:
+        self.hooks(self.MAKE)
+        checks = self.gate("ci", "lint", ticket=None)
+        self.assertEqual(checks["lint"]["status"], "pass", self.out)
+        self.assertEqual((checks["setup"]["status"], checks["teardown"]["status"]), ("pass", "pass"), checks)
+        self.assertIn("set DB_NAME", checks["setup"]["summary"])
+        self.assertFalse((self.p.root / ".sdlc-run" / "made").exists())    # torn down
+        self.assertEqual(list((self.p.root / ".sdlc-run").glob("run-env-*")), [])
+
+    def test_a_failed_setup_fails_the_gate_skips_checks_and_still_tears_down(self) -> None:
+        self.hooks("import pathlib, sys; pathlib.Path('.sdlc-run/made').write_text('x'); sys.exit(3)")
+        checks = self.gate("ci", "lint", ticket=None)
+        self.assertNotEqual(self.code, 0)
+        self.assertEqual(checks["setup"]["status"], "fail")
+        self.assertIn("app.setup exited 3", checks["setup"]["summary"])
+        self.assertEqual((checks["lint"]["status"], checks["lint"]["summary"]), ("skip", "app.setup failed"))
+        self.assertFalse((self.p.root / ".sdlc-run" / "made").exists())
+
+    def test_setup_may_not_hand_over_the_kits_own_variables(self) -> None:
+        self.hooks("import os, pathlib; pathlib.Path('.sdlc-run/made').write_text('x')\n"
+                   "open(os.environ['SDLC_RUN_ENV'], 'a').write('SDLC_APP_PORT=1\\nPORT=2\\nnot a pair\\n')\n")
+        c = self.gate("ci", "lint", ticket=None)["setup"]
+        self.assertEqual(c["status"], "fail")
+        self.assertIn("$SDLC_RUN_ENV line 1: SDLC_APP_PORT is the kit's to set", c["details"])
+        self.assertIn("$SDLC_RUN_ENV line 2: PORT is the kit's to set", c["details"])
+        self.assertIn("$SDLC_RUN_ENV line 3: not KEY=VALUE: 'not a pair'", c["details"])
+
+    def test_a_failed_teardown_fails_the_gate(self) -> None:
+        self.hooks(self.MAKE, teardown="import sys; sys.exit(4)")
+        checks = self.gate("ci", "lint", ticket=None)
+        self.assertNotEqual(self.code, 0)
+        self.assertEqual(checks["lint"]["status"], "pass")
+        self.assertEqual(checks["teardown"]["status"], "fail")
+        self.assertIn("app.teardown exited 4", checks["teardown"]["summary"])
+
     def test_client_calls_a_path_no_contract_serves(self) -> None:
         self.p.write("app/static/app.js", 'export const load = (id) => fetch(`/v1/orders/${id}/returns`);\n')
         with open(self.p.root / "sdlc.toml", "a", encoding="utf-8") as f:
