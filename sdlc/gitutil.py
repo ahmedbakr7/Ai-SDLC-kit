@@ -326,6 +326,22 @@ def buried_trailers(root: Path, rev: str, key: str) -> list[tuple[str, list[str]
     return [(sha, ids) for sha, ids in entries if not _undone(root, reverts, sha)]
 
 
+def ticket_trailers(root: Path, rev_range: str, key: str, *exclude: str) -> dict[str, list[str]]:
+    """Ticket -> values of trailer `key` on the commits in `rev_range` whose own trailers name
+    that ticket in `Sdlc-Ticket:` (a commit naming two tickets counts for both)."""
+    fmt = f"%(trailers:key=Sdlc-Ticket,valueonly,separator=%x1f)%x1d%(trailers:key={key},valueonly,separator=%x1f)%x1e"
+    out = git(root, "log", f"--format={fmt}", rev_range, *(f"^{x}" for x in exclude), check=False)
+    found: dict[str, list[str]] = {}
+    for rec in out.split("\x1e"):
+        if "\x1d" not in rec:
+            continue
+        tids, vals = rec.split("\x1d", 1)
+        values = [v.strip() for v in vals.split("\x1f") if v.strip()]
+        for tid in {t.strip() for t in tids.split("\x1f") if t.strip()}:
+            found.setdefault(tid, []).extend(values)
+    return found
+
+
 def trailer_values(root: Path, rev_range: str, key: str) -> list[str]:
     """Values of a commit trailer (e.g. Sdlc-Ticket) across `rev_range`, oldest first."""
     out = git(root, "log", "--reverse", f"--format=%(trailers:key={key},valueonly,separator=%x0A)", rev_range,

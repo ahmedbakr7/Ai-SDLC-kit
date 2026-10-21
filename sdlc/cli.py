@@ -435,8 +435,14 @@ def cmd_commit(args) -> int:
     Repo(cfg).ticket(args.ticket)
     # --trailer joins the message's own trailer block (Co-Authored-By, ...). A separate
     # paragraph would end git's trailer block above it, so those lines stop being trailers.
-    gitutil.git(cfg.root, "commit", "-q", "-m", args.message, "--trailer", f"Sdlc-Agent: {args.agent}",
-                "--trailer", f"Sdlc-Play: {args.play}", "--trailer", f"Sdlc-Ticket: {args.ticket}")
+    from .lanes import LANES
+
+    if args.lane and args.lane not in LANES:
+        raise SystemExit(f"--lane must be one of {', '.join(LANES)}, got {args.lane!r}")
+    gitutil.git(cfg.root, "commit", "-q", *(["--allow-empty"] if args.allow_empty else []), "-m", args.message,
+                "--trailer", f"Sdlc-Agent: {args.agent}", "--trailer", f"Sdlc-Play: {args.play}",
+                "--trailer", f"Sdlc-Ticket: {args.ticket}",
+                *(["--trailer", f"Sdlc-Lane: {args.lane}"] if args.lane else []))
     print(gitutil.head(cfg.root))
     return 0
 
@@ -903,6 +909,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-m", "--message", required=True)
     p.add_argument("--agent", required=True, help="the agent that made the change (a reviewer must be another)")
     p.add_argument("--play", required=True, choices=["build", "test"])
+    p.add_argument("--lane", help="record the lane the ticket ships in (Sdlc-Lane), as gate pr asks when the "
+                                  "diff raised a mechanical or refactor ticket")
+    p.add_argument("--allow-empty", action="store_true", help="commit with no change (a lane record)")
     p.set_defaults(fn=cmd_commit)
 
     p = sp.add_parser("baseline", help="record a red base branch's known failures (or --prune fixed ones)")

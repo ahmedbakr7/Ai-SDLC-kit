@@ -20,6 +20,7 @@ from . import approval, gitutil, paths, prompt, tickets
 from .artifacts import Repo
 from .config import Config
 from .gate import Gate, always_allowed, dirty_tree, recover
+from .lanes import NO_TEST_PLAY
 
 INSTRUCTION = ("You are running one play of the ai-sdlc kit. Read the file {prompt_file} completely "
                "and do exactly what it says. It is your entire task. When you are done, stop.")
@@ -164,6 +165,15 @@ def run(cfg: Config, play: str, tid: str, agent: str, attempts: int | None, base
         ev = g.run(on_check=_report)
         if ev["result"] == "pass":
             repo = Repo(cfg)
+            if records and play == "build" and g.lane and t.lane in NO_TEST_PLAY \
+                    and g.lane.name not in NO_TEST_PLAY and not any(
+                        v not in NO_TEST_PLAY for v in gitutil.ticket_trailers(
+                            root, "HEAD", "Sdlc-Lane", *repo.bases()).get(tid, [])):
+                # gate pr asks for it: CI must keep knowing the lane this ticket ships in (issue #51).
+                gitutil.git(root, "commit", "-q", "--allow-empty", "-m", f"lane {tid}: {g.lane.name}",
+                            "--trailer", f"Sdlc-Agent: {agent}", "--trailer", "Sdlc-Play: build",
+                            "--trailer", f"Sdlc-Ticket: {tid}", "--trailer", f"Sdlc-Lane: {g.lane.name}")
+                _say(f"recorded lane {g.lane.name} for {tid} (declared {t.lane})")
             if play == "build" and not records:
                 tickets.set_status(repo, repo.ticket(tid), "in_review", "build")
             _commit(root, f"evidence {tid}: {play} gate pass", agent, play, tid, leave)

@@ -934,6 +934,70 @@ class DerivedStatus(Base):
         self.assertEqual(code, 0, out)
         self.assertNotIn("T-042-02: done, but", out)
 
+    def raised_refactor(self) -> None:
+        """T-042-02 declared refactor on main; its build touches a strict path, so it ships strict."""
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml") + '\n[lanes]\nstrict_paths = ["app/pages.py"]\n')
+        self.lead_sets("risk: low\n", "risk: low\nlane: refactor\n")
+        git(self.p.root, "checkout", "-q", "-b", "build/T-042-02")
+        copy_solution(self.p, "build-T-042-02")
+        copy_solution(self.p, "test-T-042-02")
+        commit(self.p, "build and test")
+
+    def pr_checks(self) -> dict:
+        self.p.sdlc("gate", "pr", "--base", "main")
+        return {x["name"]: x for x in json.loads(self.p.read(".sdlc-run/T-042-02.pr.json"))["checks"]}
+
+    def test_a_pr_that_raises_a_refactor_ticket_must_record_its_lane(self) -> None:
+        # Issue #51: once merged, CI sees only the declared lane, so the PR records the real one.
+        self.raised_refactor()
+        c = self.pr_checks()["lane-record"]
+        self.assertEqual(c["status"], "fail", c)
+        self.assertIn("declares lane refactor but ships as strict", c["summary"])
+        self.assertIn("--lane strict --allow-empty", c["details"][0])
+        code, out = self.p.sdlc("commit", "T-042-02", "--agent", "builder", "--play", "build", "--lane", "bogus",
+                                "--allow-empty", "-m", "lane")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("--lane must be one of", out)
+        git(self.p.root, "commit", "-q", "--allow-empty", "-m", "not a lane",
+            "-m", "Sdlc-Ticket: T-042-02\nSdlc-Lane: bogus")             # an unknown lane records nothing
+        self.assertIn("lane-record", self.pr_checks())
+        git(self.p.root, "commit", "-q", "--allow-empty", "-m", "other ticket",
+            "-m", "Sdlc-Ticket: T-042-99\nSdlc-Lane: strict")             # another ticket's record
+        self.assertIn("lane-record", self.pr_checks())
+        code, out = self.p.sdlc("commit", "T-042-02", "--agent", "builder", "--play", "build", "--lane", "strict",
+                                "--allow-empty", "-m", "lane T-042-02: strict")
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("lane-record", self.pr_checks())
+
+    def test_a_pr_that_keeps_its_declared_lane_records_nothing(self) -> None:
+        self.lead_sets("risk: low\n", "risk: low\nlane: refactor\n")
+        git(self.p.root, "checkout", "-q", "-b", "build/T-042-02")
+        copy_solution(self.p, "build-T-042-02")
+        commit(self.p, "build only")
+        self.assertNotIn("lane-record", self.pr_checks())
+
+    def test_ci_keeps_asking_a_raised_ticket_for_real_stack_proof(self) -> None:
+        # Merged with only unit proof but a recorded strict lane: the exemption no longer applies.
+        self.lead_sets("risk: low\n", "risk: low\nlane: refactor\n")
+        git(self.p.root, "checkout", "-q", "-b", "build/T-042-02")
+        copy_solution(self.p, "build-T-042-02")
+        commit(self.p, "build only")
+        git(self.p.root, "commit", "-q", "--allow-empty", "-m", "lane", "-m",
+            "Sdlc-Agent: builder\nSdlc-Play: build\nSdlc-Ticket: T-042-02\nSdlc-Lane: strict")
+        git(self.p.root, "checkout", "-q", "main")
+        git(self.p.root, "merge", "-q", "--no-ff", "--no-edit", "build/T-042-02")
+        code, out = self.p.sdlc("gate", "ci", "--only", "unit,integration,ac-coverage")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("T-042-02: done, but no passing integration/e2e test carries its tag", out)
+
+    def test_the_runner_records_the_lane_a_build_raised(self) -> None:
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace('mode = "forge"', 'mode = "git"')
+                     + 'trust_unsigned = true\n\n[lanes]\nstrict_paths = ["app/pages.py"]\n')
+        self.lead_sets("risk: low\n", "risk: low\nlane: refactor\n")
+        code, out = self.p.sdlc("run", "build", "T-042-02", "--agent", "fake")
+        self.assertIn("recorded lane strict for T-042-02 (declared refactor)", out)
+        self.assertIn("Sdlc-Lane: strict", git(self.p.root, "log", "--format=%B", "main..HEAD"))
+
     def make_shallow(self, at: str = "main") -> None:
         """What Playwright's captureGitInfo leaves: a shallow boundary at the PR base, every
         commit still present."""

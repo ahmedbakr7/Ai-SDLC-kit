@@ -264,7 +264,8 @@ class Gate:
             self.checks.append(c)
             if on_check:
                 on_check(c)
-        for extra in (self._check_waivers(), self._check_trailers(), self._check_history()):
+        for extra in (self._check_waivers(), self._check_trailers(), self._check_lane_record(),
+                      self._check_history()):
             if extra is not None:
                 self.checks.append(extra)
                 if on_check:
@@ -387,6 +388,27 @@ class Gate:
         c.details = [f"{sha[:12]} names {', '.join(ids)} in its body, not as a trailer" for sha, ids in buried]
         c.details.append("fix: merge the PR's own commits with a merge commit; no revert is needed "
                          "(never squash or rebase a ticket PR)")
+        return c
+
+    def _check_lane_record(self) -> Check | None:
+        """`gate pr` (records mode): a ticket declared mechanical or refactor that this PR's diff
+        raises to a lane with a test play owes real-stack proof (Ticket.owes_real_stack). Once
+        merged, `gate ci` sees only the declared lane, so the PR must record the lane it ships in:
+        an `Sdlc-Lane:` trailer on one of its commits naming the ticket (issue #51)."""
+        if self.play != "pr" or self.only or not self.records or not self.ticket or not self.lane:
+            return None
+        if self.ticket.lane not in lanes.NO_TEST_PLAY or self.lane.name in lanes.NO_TEST_PLAY:
+            return None
+        rec = gitutil.ticket_trailers(self.cfg.root, "HEAD", "Sdlc-Lane", self.mb or self.base).get(self.ticket.id, [])
+        if any(v in lanes.LANES and v not in lanes.NO_TEST_PLAY for v in rec):
+            return None
+        c = Check("lane-record")
+        c.status = "fail"
+        c.summary = (f"{self.ticket.id} declares lane {self.ticket.lane} but ships as {self.lane.name}; record it so "
+                     "CI keeps asking for its real-stack proof after the merge")
+        c.details = [f"add a commit with the trailers `Sdlc-Ticket: {self.ticket.id}` and `Sdlc-Lane: {self.lane.name}`: "
+                     f"sdlc commit {self.ticket.id} --agent <name> --play build --lane {self.lane.name} --allow-empty "
+                     f"-m \"lane {self.ticket.id}: {self.lane.name}\" (sdlc run adds it after a build that raises the lane)"]
         return c
 
     def _check_history(self) -> Check | None:
@@ -1102,10 +1124,21 @@ class Gate:
                              "run their test play")
 
     def _shipped_lane(self, t: Ticket) -> str:
-        """The lane a shipped ticket declares, as the base branch has it too: the stricter of
-        the two, so a branch cannot lower a ticket's lane to drop its real-stack proof."""
+        """The lane a shipped ticket declares, as the base branch has it too, and the lanes its
+        merged commits recorded (`Sdlc-Lane:`, issue #51): the strictest, so a branch cannot
+        lower a ticket's lane to drop its real-stack proof, and a ticket a PR's diff raised keeps
+        owing what it owed then."""
         old = lanes._ticket_at(self.cfg, self._base_ref, t) if self._base_ref else None
-        return lanes.stricter(t.lane, _declared_lane(old)) if old is not None else t.lane
+        lane = lanes.stricter(t.lane, _declared_lane(old)) if old is not None else t.lane
+        for v in self._recorded_lanes().get(t.id, []):
+            if v in lanes.LANES:
+                lane = lanes.stricter(lane, v)
+        return lane
+
+    def _recorded_lanes(self) -> dict[str, list[str]]:
+        if not hasattr(self, "_recorded"):
+            self._recorded = gitutil.ticket_trailers(self.cfg.root, "HEAD", "Sdlc-Lane")
+        return self._recorded
 
     def _real_stack_proof(self, tid: str) -> bool:
         """A passing real-stack test carries one of the AC tags the ticket declares (an AC-99
