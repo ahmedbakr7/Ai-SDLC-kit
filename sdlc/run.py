@@ -166,7 +166,7 @@ def run(cfg: Config, play: str, tid: str, agent: str, attempts: int | None, base
         if ev["result"] == "pass":
             repo = Repo(cfg)
             if records and play == "build" and g.lane and t.lane in NO_TEST_PLAY \
-                    and g.lane.name not in NO_TEST_PLAY and not any(
+                    and t.owes_real_stack(g.lane.name) and not any(
                         v not in NO_TEST_PLAY for v in gitutil.ticket_trailers(
                             root, "HEAD", "Sdlc-Lane", *repo.bases()).get(tid, [])):
                 # gate pr asks for it: CI must keep knowing the lane this ticket ships in (issue #51).

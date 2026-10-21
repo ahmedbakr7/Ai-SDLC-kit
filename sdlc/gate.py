@@ -376,16 +376,29 @@ class Gate:
         commit is the fix, and needs no revert (one would regrow a baseline the PR pruned)."""
         if self.play != "ci" or self.only or not self.records:
             return None
-        delivered = set(gitutil.trailer_values(self.cfg.root, "HEAD", "Sdlc-Ticket"))
-        buried = [(sha, missed) for sha, ids in gitutil.buried_trailers(self.cfg.root, "HEAD", "Sdlc-Ticket")
+        root = self.cfg.root
+        delivered = set(gitutil.trailer_values(root, "HEAD", "Sdlc-Ticket"))
+        buried = [(sha, missed) for sha, ids in gitutil.buried_trailers(root, "HEAD", "Sdlc-Ticket")
                   if (missed := [i for i in ids if i not in delivered])]
-        if not buried:
+        # A buried lane record (issue #51) is lost the same way, even when the squash message's last
+        # paragraph still delivers the ticket: CI would fall back to the declared lane. It counts
+        # once a trailer records that lane for a ticket the commit names.
+        recorded = gitutil.ticket_trailers(root, "HEAD", "Sdlc-Lane")
+        lost = []
+        for sha, lanes_ in gitutil.buried_trailers(root, "HEAD", "Sdlc-Lane"):
+            body = gitutil.git(root, "log", "-1", "--format=%B", sha)
+            tids = set(re.findall(r"(?m)^Sdlc-Ticket:[ \t]*(\S+)", body))
+            have = {v for tid in tids for v in recorded.get(tid, [])}
+            if missed := [v for v in lanes_ if v not in have]:
+                lost.append((sha, missed))
+        if not buried and not lost:
             return None
         c = Check("trailers")
         c.status = "fail"
-        c.summary = (f"{len(buried)} merged commit(s) name Sdlc-Ticket outside their trailers (a squash merge?): "
-                     "status cannot see those tickets")
+        c.summary = (f"{len(buried) + len(lost)} merged commit(s) name Sdlc-Ticket or Sdlc-Lane outside their "
+                     "trailers (a squash merge?): status and shipped lanes cannot see them")
         c.details = [f"{sha[:12]} names {', '.join(ids)} in its body, not as a trailer" for sha, ids in buried]
+        c.details += [f"{sha[:12]} records lane {', '.join(v)} in its body, not as a trailer" for sha, v in lost]
         c.details.append("fix: merge the PR's own commits with a merge commit; no revert is needed "
                          "(never squash or rebase a ticket PR)")
         return c
@@ -397,8 +410,8 @@ class Gate:
         an `Sdlc-Lane:` trailer on one of its commits naming the ticket (issue #51)."""
         if self.play != "pr" or self.only or not self.records or not self.ticket or not self.lane:
             return None
-        if self.ticket.lane not in lanes.NO_TEST_PLAY or self.lane.name in lanes.NO_TEST_PLAY:
-            return None
+        if self.ticket.lane not in lanes.NO_TEST_PLAY or not self.ticket.owes_real_stack(self.lane.name):
+            return None  # nothing changes once merged: the declared lane already owes the same
         rec = gitutil.ticket_trailers(self.cfg.root, "HEAD", "Sdlc-Lane", self.mb or self.base).get(self.ticket.id, [])
         if any(v in lanes.LANES and v not in lanes.NO_TEST_PLAY for v in rec):
             return None
