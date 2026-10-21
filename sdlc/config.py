@@ -147,6 +147,12 @@ DEFAULTS: dict[str, Any] = {
         "base": "main",
         "branch": "{play}/{id}",
         "pr_command": "",                  # e.g. gh pr create --fill --base {base}
+        # How `sdlc run build` claims a ticket (ADR-0005). "local": an unmerged branch naming it,
+        # seen by others after you push. "push": fetch, then push a claim commit to the ticket's
+        # branch before the agent starts; git refuses a second claim of the same branch.
+        "claim": "local",
+        # Days without a commit after which a branch no longer holds its ticket (0: never).
+        "claim_days": 0,
     },
     "review": {
         "require_distinct_agent": True,
@@ -203,6 +209,21 @@ class Config:
                 raise SystemExit(f"{PORT_ENV}={raw!r}: must be a port number from 1 to 65535")
             return int(raw), PORT_ENV
         return int(self.section("app")["port"]), "app.port"
+
+    def claim_mode(self) -> str:
+        v = self.section("vcs").get("claim", "local")
+        if v not in CLAIM_MODES:
+            raise SystemExit(f"vcs.claim = {v!r}: must be one of {', '.join(map(repr, CLAIM_MODES))}")
+        return str(v)
+
+    def claim_days(self) -> int:
+        v = self.section("vcs").get("claim_days", 0)
+        if isinstance(v, bool) or not isinstance(v, int) or v < 0:
+            raise SystemExit(f"vcs.claim_days = {v!r}: must be a whole number of days, 0 for never")
+        return v
+
+
+CLAIM_MODES = ("local", "push")
 
 
 def deep_merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:

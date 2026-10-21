@@ -174,7 +174,16 @@ Set `[approval] mode = "forge"` (GitHub) or `"git"` (signed notes in `refs/notes
   naming the ticket, `done` once one is merged. `sdlc status` lists every ticket that way (run
   `git fetch` first to see other people's branches); `sdlc next` skips tickets in progress, and
   `sdlc run build` refuses one in progress on another branch. Delete an abandoned branch to free
-  its ticket. A ticket waits on every `depends_on` id that is not done, including an id that
+  its ticket, or set `vcs.claim_days`: a branch with no commit for that many days stops holding
+  it (`sdlc status` shows the expired claim). `sdlc status --prs` also shows open PRs from the
+  building branches (display only; it needs the network and `[approval] repo`).
+- Several agents on several machines: set `vcs.claim = "push"`. `sdlc run build` then fetches
+  origin and pushes the ticket's branch with a new empty `claim <id>` commit (every run, resumes
+  included) before the agent
+  starts, so a second run building the same ticket is refused (git rejects its push). A run on
+  another clone is refused while the ticket's branch on origin holds the claim; `--take-over`
+  continues that branch when it is yours or abandoned. Builds then need network access and push
+  rights (ADR-0005). A ticket waits on every `depends_on` id that is not done, including an id that
   names no ticket. `sdlc run build` resumes the ticket's own branch, local or fetched as
   `origin/<branch>`, with its commits. It refuses when `vcs.base` exists neither locally nor on
   origin, because it cannot then check other branches: fetch it first. `reviews/` and

@@ -7,6 +7,22 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 
 ## Unreleased
 
+## v4.1.0 (2026-10-21)
+
+From the Hangout pilot's question on independent agents working one repository. All three sit
+behind settings or a flag; with the defaults nothing changes (ADR-0005).
+
+- **`vcs.claim = "push"`.** `sdlc run build` fetches origin, then pushes the ticket's branch with
+  a new empty `claim <id>` commit (every run, resumes included) before the agent runs. Two runs on one ticket push different
+  commits and git refuses the second, which stops before any agent work. A clone without the
+  local branch is refused while `origin/<branch>` holds the claim; `--take-over` continues it.
+  Upgrade: optional; builds then need network access and push rights.
+- **`vcs.claim_days`.** A branch with no commit for that many days stops holding its ticket;
+  `sdlc status` shows it as an expired claim. Default 0 (never).
+- **`sdlc status --prs`.** Shows `in review: PR #n` for a ticket whose building branch has an
+  open PR in the same repository. Display only; the status stays `in_progress`.
+- `sdlc doctor` prints the claim settings and fails on invalid values.
+
 ## v4.0.0 (2026-10-20)
 
 From the Hangout pilot. MAJOR for one item: a records-mode product whose CI reads a shallow

@@ -43,7 +43,8 @@ judge everything the run produces.
 
 Give unattended agents a disposable environment: a container, a CI runner, or a
 fresh clone without production credentials. The runner commits only on the ticket
-branch and never pushes unless `vcs.pr_command` is set.
+branch. It pushes only the ticket branch, and only when `vcs.claim = "push"` (the claim, before
+the agent runs) or `vcs.pr_command` is set.
 
 ## Pick agents per play
 
