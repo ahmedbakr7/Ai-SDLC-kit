@@ -91,24 +91,46 @@ def cmd_next(args) -> int:
     return 0 if q else 3
 
 
-def _status_row(repo: Repo, t) -> dict:
+def _status_row(repo: Repo, t, prs: dict[str, int] | None = None) -> dict:
     status = repo.tracked_status(t)
-    return {"id": t.id, "status": status, "stored": t.status, "title": str(t.data.get("title", "")),
-            "depends_on": list(t.depends_on), "pending": [] if status == "done" else repo.pending_deps(t),
-            "branches": repo.in_flight().get(t.id, []) if status == "in_progress" else [],
-            "blocked_by": str(t.data.get("blocked_by") or "") if status == "blocked" else ""}
+    branches = repo.in_flight().get(t.id, []) if status == "in_progress" else []
+    row = {"id": t.id, "status": status, "stored": t.status, "title": str(t.data.get("title", "")),
+           "depends_on": list(t.depends_on), "pending": [] if status == "done" else repo.pending_deps(t),
+           "branches": branches,
+           "expired": repo.stale().get(t.id, []) if status not in ("done", "in_progress") else [],
+           "blocked_by": str(t.data.get("blocked_by") or "") if status == "blocked" else ""}
+    if prs is not None:
+        # Display only (ADR-0005): an open PR from a branch building the ticket. Nothing reads it.
+        row["prs"] = sorted({prs[b.removeprefix("origin/")] for b in branches if b.removeprefix("origin/") in prs})
+    return row
+
+
+def _open_prs(cfg: config.Config) -> dict[str, int]:
+    """Open PRs on the forge: head branch -> number. A failure is reported and shows none."""
+    from . import approval
+
+    try:
+        client = approval.forge_client(cfg)
+        return {str(p["head"]["ref"]): int(p["number"]) for p in client.pages("/pulls?state=open")
+                if (p.get("head") or {}).get("repo", {}) and p["head"]["repo"].get("full_name") == client.repo}
+    except (SystemExit, OSError, ValueError, KeyError, TypeError) as e:
+        print(f"WARN --prs: could not list open PRs: {e}", file=sys.stderr)
+        return {}
 
 
 def cmd_status(args) -> int:
     cfg = _cfg(args)
     repo = Repo(cfg)
+    prs = _open_prs(cfg) if args.prs else None
     if not args.ticket:
-        rows = [_status_row(repo, t) for _, t in sorted(repo.tickets.items())]
+        rows = [_status_row(repo, t, prs) for _, t in sorted(repo.tickets.items())]
         if args.json:
             print(json.dumps(rows, indent=2))
             return 0
         for r in rows:
             notes = ([f"on {', '.join(r['branches'])}"] if r["branches"] else []) \
+                + ([f"in review: {', '.join(f'PR #{n}' for n in r['prs'])}"] if r.get("prs") else []) \
+                + ([f"expired claim on {', '.join(r['expired'])}"] if r["expired"] else []) \
                 + ([f"waiting on {', '.join(r['pending'])}"] if r["pending"] else []) \
                 + ([f"blocked: {r['blocked_by']}"] if r["blocked_by"] else [])
             print(f"{r['id']}\t{r['status']}\t{'; '.join(notes) or '-'}\t{r['title']}")
@@ -117,7 +139,7 @@ def cmd_status(args) -> int:
         return 0
     t = repo.ticket(args.ticket)
     if not args.to:
-        print(json.dumps(_status_row(repo, t), indent=2) if args.json else repo.tracked_status(t))
+        print(json.dumps(_status_row(repo, t, prs), indent=2) if args.json else repo.tracked_status(t))
         return 0
     try:
         frm = tickets.set_status(repo, t, args.to, args.as_role, args.reason or "")
@@ -209,7 +231,8 @@ def cmd_run(args) -> int:
 
     cfg = _cfg(args)
     extra = _extra(args.extra)
-    return run.run(cfg, args.play, args.ticket, args.agent, args.attempts, args.base, extra, args.dry_run)
+    return run.run(cfg, args.play, args.ticket, args.agent, args.attempts, args.base, extra, args.dry_run,
+                   take_over=args.take_over)
 
 
 def cmd_skills(args) -> int:
@@ -663,6 +686,11 @@ def cmd_doctor(args) -> int:
     for line in presets.resolved(cfg.data):  # what the preset and overrides add up to
         print(f"      {line}")
     try:
+        mode, days = cfg.claim_mode(), cfg.claim_days()
+        print(f"      claim {mode}" + (f", expires after {days} day(s) without a commit" if days else ""))
+    except SystemExit as e:
+        probs.append(str(e))
+    try:
         port, source = cfg.app_port()
         print(f"      app port {port} (from {source})")
     except SystemExit as e:
@@ -797,6 +825,8 @@ def build_parser() -> argparse.ArgumentParser:
                    choices=["lead", "build", "test", "review", "merge"])
     p.add_argument("--reason", default="")
     p.add_argument("--json", action="store_true", help="print the status as JSON")
+    p.add_argument("--prs", action="store_true",
+                   help="also show open forge PRs from the branches building each ticket (needs the network)")
     p.set_defaults(fn=cmd_status)
 
     p = sp.add_parser("prompt", help="assemble the exact prompt for a play")
@@ -828,6 +858,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--base")
     p.add_argument("--extra", metavar="FILE", help="path to a file whose text is appended to every prompt as lead instructions")
     p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--take-over", action="store_true",
+                   help="vcs.claim = push: continue the ticket's branch on origin that this clone does not have")
     p.set_defaults(fn=cmd_run)
 
     p = sp.add_parser("skills", help="vendor third-party skills pinned by commit + hash")

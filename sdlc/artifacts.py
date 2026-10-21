@@ -263,6 +263,7 @@ class Repo:
         self._contracts: Contracts | None = None
         self._delivered: set[str] | None = None
         self._in_flight: dict[str, list[str]] | None = None
+        self._stale: dict[str, list[str]] = {}
 
     # -- tickets ----------------------------------------------------------
     @property
@@ -363,11 +364,17 @@ class Repo:
 
     def in_flight(self) -> dict[str, list[str]]:
         """Records mode: ticket -> the unmerged branches (local or fetched) with a commit that names it
-        in an `Sdlc-Ticket:` trailer. Fetch first to see other people's branches."""
+        in an `Sdlc-Ticket:` trailer. Fetch first to see other people's branches. With
+        `vcs.claim_days`, a branch whose newest commit is older than that holds nothing: it is
+        listed in `stale()` instead (ADR-0005)."""
         if self._in_flight is None:
+            import time
+
             from . import approval, gitutil
 
-            self._in_flight = {}
+            self._in_flight, self._stale = {}, {}
+            days = self.cfg.claim_days()
+            cutoff = time.time() - days * 86400 if days else None
             bases = self.bases() if approval.records_mode(self.cfg) else []
             if bases:
                 root = self.cfg.root
@@ -386,9 +393,22 @@ class Repo:
                         continue
                     out = gitutil.git(root, "log", "--format=%(trailers:key=Sdlc-Ticket,valueonly,separator=%x0A)",
                                       full, "--not", *bases, check=False)
-                    for tid in sorted({v.strip() for v in out.splitlines() if v.strip()}):
-                        self._in_flight.setdefault(tid, []).append(short)
+                    tids = sorted({v.strip() for v in out.splitlines() if v.strip()})
+                    held = self._in_flight
+                    if tids and cutoff is not None:
+                        # The tip's committer date: any new commit renews the claim.
+                        tip = gitutil.git(root, "log", "-1", "--format=%ct", full).strip()
+                        if int(tip) < cutoff:
+                            held = self._stale
+                    for tid in tids:
+                        held.setdefault(tid, []).append(short)
         return self._in_flight
+
+    def stale(self) -> dict[str, list[str]]:
+        """Records mode with `vcs.claim_days`: ticket -> unmerged branches naming it whose claim
+        expired. They no longer make the ticket in_progress or stop a build."""
+        self.in_flight()
+        return self._stale
 
     def tracked_status(self, t: Ticket) -> str:
         """status_of, and `in_progress` for a ready ticket that an unmerged branch names (records

@@ -54,7 +54,7 @@ def _say(msg: str) -> None:
 
 
 def run(cfg: Config, play: str, tid: str, agent: str, attempts: int | None, base: str | None,
-        extra: str = "", dry_run: bool = False) -> int:
+        extra: str = "", dry_run: bool = False, take_over: bool = False) -> int:
     if play not in ("build", "test", "review"):
         raise SystemExit("sdlc run drives build, test and review; lead plays are interactive (use sdlc prompt)")
     root = cfg.root
@@ -72,9 +72,15 @@ def run(cfg: Config, play: str, tid: str, agent: str, attempts: int | None, base
         # test and review continue the ticket's branch: read its status and history there,
         # not on whatever branch happens to be checked out.
         _checkout(root, branch, base, create=False)
+    records = approval.records_mode(cfg)
+    push_claim = records and play == "build" and cfg.claim_mode() == "push"
+    if take_over and not push_claim:
+        raise SystemExit("--take-over continues another run's claim; it needs records mode, build and "
+                         "vcs.claim = \"push\"")
+    if push_claim and not dry_run:
+        _fetch(root)  # claims are judged on what the remote holds now, not on the last fetch
     repo = Repo(cfg)
     t = repo.ticket(tid)
-    records = approval.records_mode(cfg)
 
     if records:
         # Status is derived (ADR-0001 step 2): nothing to move, no status or evidence commits.
@@ -93,6 +99,8 @@ def run(cfg: Config, play: str, tid: str, agent: str, attempts: int | None, base
             if elsewhere:
                 raise SystemExit(f"refused: {tid} is in progress on {', '.join(elsewhere)}; finish or delete "
                                  "that branch first")
+            if push_claim:
+                _claim_problem(root, repo, tid, branch, take_over)
         elif play == "test" and not t.test_play:
             raise SystemExit(f"{tid} has no test play ({t.no_test_play_reason}); review it after the build")
     elif play == "build":
@@ -121,7 +129,13 @@ def run(cfg: Config, play: str, tid: str, agent: str, attempts: int | None, base
         return 0
 
     if play == "build":
+        prev = gitutil.git(root, "rev-parse", "--abbrev-ref", "HEAD").strip()
+        if prev == "HEAD":
+            prev = gitutil.head(root)
+        created = not _exists(root, branch)
         _checkout(root, branch, base, create=True)
+        if push_claim:
+            _push_claim(cfg, tid, branch, base, agent, prev, created)
     leave = _leave(cfg, play, tid, base)
     # test and review are judged on what changed after this point. Taken before any agent
     # runs, so no file the agent can write (e.g. evidence) can move it.
@@ -222,9 +236,59 @@ def _feedback(ev: dict) -> str:
     return "\n".join(out)
 
 
+def _exists(root: Path, ref: str) -> bool:
+    return bool(gitutil.git(root, "rev-parse", "--verify", "--quiet", ref, check=False).strip())
+
+
+def _fetch(root: Path) -> None:
+    """vcs.claim = "push": every branch on origin, pruned, so a deleted claim frees its ticket."""
+    try:
+        gitutil.git(root, "fetch", "-q", "--prune", "origin", "+refs/heads/*:refs/remotes/origin/*")
+    except gitutil.GitError as e:
+        raise SystemExit(f"refused: vcs.claim = \"push\" fetches origin before claiming, and the fetch "
+                         f"failed: {e}") from None
+
+
+def _claim_problem(root: Path, repo: Repo, tid: str, branch: str, take_over: bool) -> None:
+    """vcs.claim = "push" (ADR-0005): the ticket's branch on origin is another run's claim unless
+    this clone has the branch too, or the claim expired. Same name, so `origin/<branch>` alone
+    cannot tell this run's own claim from someone else's: continuing it takes --take-over."""
+    remote = f"origin/{branch}"
+    held = remote in repo.in_flight().get(tid, [])
+    if held and not _exists(root, branch) and not take_over:
+        who = gitutil.git(root, "log", "-1", "--format=%an, %cr", f"refs/remotes/{remote}").strip()
+        raise SystemExit(f"refused: {tid} is claimed by {remote} (last commit: {who}); if that run is yours "
+                         "or abandoned, continue it with --take-over")
+    if _exists(root, branch) and _exists(root, f"refs/remotes/{remote}") \
+            and not gitutil.is_ancestor(root, f"refs/remotes/{remote}", branch):
+        raise SystemExit(f"refused: {branch} and {remote} have diverged; another run may have claimed "
+                         f"{tid}. Reconcile the two (or delete your {branch}) first")
+
+
+def _push_claim(cfg: Config, tid: str, branch: str, base: str, agent: str, prev: str, created: bool) -> None:
+    """Push the ticket's branch before any agent runs. A branch that names no ticket commit yet
+    gets an empty claim commit first, so two runs push two different commits and git refuses
+    the second (no force). A refused push undoes the branch this run created."""
+    root = cfg.root
+    named = gitutil.git(root, "log", "--format=%(trailers:key=Sdlc-Ticket,valueonly)", "HEAD", "--not",
+                        *Repo(cfg).bases(), check=False)
+    if tid not in {v.strip() for v in named.splitlines()}:
+        gitutil.git(root, "commit", "-q", "--allow-empty", "-m", f"claim {tid}", "--trailer", f"Sdlc-Agent: {agent}",
+                    "--trailer", "Sdlc-Play: build", "--trailer", f"Sdlc-Ticket: {tid}")
+    r = subprocess.run(["git", "push", "-q", "origin", f"{branch}:refs/heads/{branch}"], cwd=root,
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        if created:
+            gitutil.git(root, "checkout", "-q", prev)
+            gitutil.git(root, "branch", "-q", "-D", branch)
+        msg = (r.stderr or r.stdout).strip().splitlines()
+        raise SystemExit(f"refused: could not claim {tid} by pushing {branch} (another run may have claimed it "
+                         f"first; fetch and check `sdlc status`): {msg[-1] if msg else r.returncode}")
+    _say(f"claimed {tid}: pushed {branch} to origin")
+
+
 def _checkout(root: Path, branch: str, base: str, create: bool) -> None:
-    def exists(ref: str) -> bool:
-        return bool(gitutil.git(root, "rev-parse", "--verify", "--quiet", ref, check=False).strip())
+    exists = lambda ref: _exists(root, ref)
 
     if exists(branch):
         gitutil.git(root, "checkout", "-q", branch)
