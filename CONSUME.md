@@ -178,7 +178,8 @@ Set `[approval] mode = "forge"` (GitHub) or `"git"` (signed notes in `refs/notes
   it (`sdlc status` shows the expired claim). `sdlc status --prs` also shows open PRs from the
   building branches (display only; it needs the network and `[approval] repo`).
 - Several agents on several machines: set `vcs.claim = "push"`. `sdlc run build` then fetches
-  origin and pushes the ticket's branch with an empty `claim <id>` commit before the agent
+  origin and pushes the ticket's branch with a new empty `claim <id>` commit (every run, resumes
+  included) before the agent
   starts, so a second run building the same ticket is refused (git rejects its push). A run on
   another clone is refused while the ticket's branch on origin holds the claim; `--take-over`
   continues that branch when it is yours or abandoned. Builds then need network access and push

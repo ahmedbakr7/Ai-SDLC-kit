@@ -13,7 +13,7 @@ From the Hangout pilot's question on independent agents working one repository. 
 behind settings or a flag; with the defaults nothing changes (ADR-0005).
 
 - **`vcs.claim = "push"`.** `sdlc run build` fetches origin, then pushes the ticket's branch with
-  an empty `claim <id>` commit before the agent runs. Two runs on one ticket push different
+  a new empty `claim <id>` commit (every run, resumes included) before the agent runs. Two runs on one ticket push different
   commits and git refuses the second, which stops before any agent work. A clone without the
   local branch is refused while `origin/<branch>` holds the claim; `--take-over` continues it.
   Upgrade: optional; builds then need network access and push rights.

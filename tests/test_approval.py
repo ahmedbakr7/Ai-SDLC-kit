@@ -3,6 +3,7 @@ Each new check has a test that catches the defect it exists for and one showing 
 passes. The forge is faked: CI never touches the network."""
 import json
 import shutil
+import subprocess
 import unittest
 
 from helpers import FIXTURES, ProductRepo, git
@@ -1430,11 +1431,102 @@ class Claims(Base):
         self.assertIn('vcs.claim = "push" fetches origin before claiming, and the fetch failed', out)
         self.assertEqual(git(self.p.root, "branch", "--list", "build/T-042-02").strip(), "")
 
-    def test_a_branch_that_already_names_the_ticket_is_pushed_as_it_is(self) -> None:
+    def test_a_resumed_branch_gets_a_fresh_claim_on_top(self) -> None:
         sha = self.build()
         git(self.p.root, "checkout", "-q", "main")
         self.run_build(self.p.root)
-        self.assertEqual(git(self.origin, "rev-parse", "refs/heads/build/T-042-02").strip(), sha)
+        tip = git(self.origin, "rev-parse", "refs/heads/build/T-042-02").strip()
+        self.assertNotEqual(tip, sha)
+        self.assertEqual(git(self.origin, "rev-parse", f"{tip}^").strip(), sha)
+        self.assertIn("claim T-042-02", self.remote_tip())
+
+    def test_two_claims_from_one_identity_on_one_tick_differ(self) -> None:
+        self.run_build(self.p.root)
+        first = git(self.origin, "log", "-1", "--format=%(trailers:key=Sdlc-Claim,valueonly)",
+                    "refs/heads/build/T-042-02").strip()
+        self.assertRegex(first, r"^[0-9a-f-]{36}$")
+
+    def expired_origin_branch(self) -> None:
+        """origin/build/T-042-02 names the ticket, last commit long ago; claims expire after 3 days."""
+        from helpers import git_env
+        import subprocess
+
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace('claim = "push"', 'claim = "push"\nclaim_days = 3'))
+        self.p.commit("lead: claims expire")
+        git(self.p.root, "push", "-q", "origin", "main")
+        git(self.p.root, "checkout", "-q", "-b", "build/T-042-02")
+        old = "2026-01-01T00:00:00Z"
+        subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "stalled", "-m", "Sdlc-Ticket: T-042-02"],
+                       cwd=self.p.root, check=True, env=git_env(GIT_COMMITTER_DATE=old, GIT_AUTHOR_DATE=old))
+        git(self.p.root, "push", "-q", "origin", "build/T-042-02")
+        git(self.p.root, "checkout", "-q", "main")
+        git(self.p.root, "branch", "-q", "-D", "build/T-042-02")
+        git(self.other, "pull", "-q", "origin", "main")
+
+    def test_an_expired_claim_is_taken_by_one_run_only(self) -> None:
+        # Review of #52: an expired branch already names the ticket; pushed unchanged, every run
+        # "claimed" it at once and the claim stayed expired.
+        from unittest import mock
+
+        from sdlc import run
+
+        self.expired_origin_branch()
+        git(self.other, "fetch", "-q", "origin")
+        code, out = self.run_build(self.p.root)                     # no --take-over: the claim expired
+        self.assertIn("claimed T-042-02", out)
+        with mock.patch.object(run, "_fetch", lambda root: None):   # fetched before that claim
+            code, out = self.run_build(self.other)
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("refused: could not claim T-042-02", out)
+        code, out = self.run_build(self.other)                      # after a fetch: a live claim
+        self.assertIn("T-042-02 is claimed by origin/build/T-042-02", out)
+
+    def test_two_take_overs_cannot_both_win(self) -> None:
+        from unittest import mock
+
+        from sdlc import run
+
+        self.run_build(self.p.root)
+        third = self.p.root.parent / "third"
+        git(self.p.root.parent, "clone", "-q", str(self.origin), str(third))
+        git(third, "config", "user.email", "third@example.com")
+        git(third, "config", "user.name", "third machine")
+        git(self.other, "fetch", "-q", "origin")
+        code, out = self.run_build(self.other, "--take-over")
+        self.assertIn("claimed T-042-02", out)
+        with mock.patch.object(run, "_fetch", lambda root: None):   # fetched before the first take-over
+            code, out = self.run_build(third, "--take-over")
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("refused: could not claim T-042-02", out)
+        # The displaced holder learns on its next push: it is no longer a fast-forward.
+        r = subprocess.run(["git", "push", "-q", "origin", "build/T-042-02"], cwd=self.p.root, capture_output=True)
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_a_refused_push_puts_an_existing_local_branch_back(self) -> None:
+        from unittest import mock
+
+        from sdlc import run
+
+        self.run_build(self.other)                                  # the other clone claims first
+        git(self.p.root, "checkout", "-q", "-b", "build/T-042-02", "main")
+        git(self.p.root, "checkout", "-q", "main")
+        before = git(self.p.root, "rev-parse", "build/T-042-02").strip()
+        with mock.patch.object(run, "_fetch", lambda root: None), \
+                mock.patch.object(run, "_claim_problem", lambda *a: None):
+            code, out = self.run_build(self.p.root)
+        self.assertIn("refused: could not claim T-042-02", out)
+        self.assertEqual(git(self.p.root, "rev-parse", "build/T-042-02").strip(), before)
+        self.assertEqual(git(self.p.root, "branch", "--show-current").strip(), "main")
+
+    def test_a_failed_claim_commit_leaves_nothing_behind(self) -> None:
+        hook = self.p.root / ".git" / "hooks" / "pre-commit"
+        hook.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+        hook.chmod(0o755)
+        code, out = self.run_build(self.p.root)
+        self.assertNotEqual(code, 0, out)
+        self.assertIn("refused: could not commit the claim for T-042-02", out)
+        self.assertEqual(git(self.p.root, "branch", "--show-current").strip(), "main")
+        self.assertEqual(git(self.p.root, "branch", "--list", "build/T-042-02").strip(), "")
 
     def test_diverged_local_and_remote_branches_are_refused(self) -> None:
         self.run_build(self.other)                                   # the other clone claims first
@@ -1508,6 +1600,43 @@ class Claims(Base):
         row = json.loads(self.p.sdlc("status", "T-042-02", "--json", "--prs")[1])
         self.assertEqual(row["prs"], [12])
 
+
+    def test_status_prs_warns_and_shows_none_when_the_lookup_fails(self) -> None:
+        self.build()
+        git(self.p.root, "checkout", "-q", "main")
+
+        class Down:
+            repo = "owner/product"
+
+            def pages(self, path):
+                raise OSError("network unreachable")
+
+        self.fake = Down()
+        code, out = self.p.sdlc("status", "--prs")
+        self.assertEqual(code, 0, out)
+        self.assertIn("WARN --prs: could not list open PRs: network unreachable", out)
+        self.assertIn("T-042-02\tin_progress\ton build/T-042-02\t", out)
+
+    def test_status_prs_shows_an_open_pr_from_an_expired_branch(self) -> None:
+        from helpers import git_env
+
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace('claim = "push"', 'claim = "local"\nclaim_days = 3'))
+        self.p.commit("lead: claims expire")
+        git(self.p.root, "checkout", "-q", "-b", "build/T-042-02")
+        old = "2026-01-01T00:00:00Z"
+        subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "stalled", "-m", "Sdlc-Ticket: T-042-02"],
+                       cwd=self.p.root, check=True, env=git_env(GIT_COMMITTER_DATE=old, GIT_AUTHOR_DATE=old))
+        git(self.p.root, "checkout", "-q", "main")
+
+        class Pulls:
+            repo = "owner/product"
+
+            def pages(self, path):
+                return [{"number": 12, "head": {"ref": "build/T-042-02", "repo": {"full_name": "owner/product"}}}]
+
+        self.fake = Pulls()
+        out = self.p.sdlc("status", "--prs")[1]
+        self.assertIn("T-042-02\tready\tin review: PR #12; expired claim on build/T-042-02\t", out)
 
 if __name__ == "__main__":
     unittest.main()

@@ -101,7 +101,8 @@ def _status_row(repo: Repo, t, prs: dict[str, int] | None = None) -> dict:
            "blocked_by": str(t.data.get("blocked_by") or "") if status == "blocked" else ""}
     if prs is not None:
         # Display only (ADR-0005): an open PR from a branch building the ticket. Nothing reads it.
-        row["prs"] = sorted({prs[b.removeprefix("origin/")] for b in branches if b.removeprefix("origin/") in prs})
+        row["prs"] = sorted({prs[b.removeprefix("origin/")] for b in branches + row["expired"]
+                             if b.removeprefix("origin/") in prs})
     return row
 
 

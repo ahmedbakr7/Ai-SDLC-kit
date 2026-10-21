@@ -266,21 +266,36 @@ def _claim_problem(root: Path, repo: Repo, tid: str, branch: str, take_over: boo
 
 
 def _push_claim(cfg: Config, tid: str, branch: str, base: str, agent: str, prev: str, created: bool) -> None:
-    """Push the ticket's branch before any agent runs. A branch that names no ticket commit yet
-    gets an empty claim commit first, so two runs push two different commits and git refuses
-    the second (no force). A refused push undoes the branch this run created."""
+    """Push the ticket's branch with a fresh empty claim commit before any agent runs, every
+    time: a resumed, expired or taken-over branch already names the ticket, and pushing it
+    unchanged would succeed for every run at once. Each claim is a distinct commit (a nonce
+    trailer, so one identity on one tick cannot make two equal ones), so of two runs git refuses
+    the second push (no force), and the holder a take-over displaced is refused on its next push.
+    A failure puts the branch back as it was."""
+    import uuid
+
     root = cfg.root
-    named = gitutil.git(root, "log", "--format=%(trailers:key=Sdlc-Ticket,valueonly)", "HEAD", "--not",
-                        *Repo(cfg).bases(), check=False)
-    if tid not in {v.strip() for v in named.splitlines()}:
-        gitutil.git(root, "commit", "-q", "--allow-empty", "-m", f"claim {tid}", "--trailer", f"Sdlc-Agent: {agent}",
-                    "--trailer", "Sdlc-Play: build", "--trailer", f"Sdlc-Ticket: {tid}")
-    r = subprocess.run(["git", "push", "-q", "origin", f"{branch}:refs/heads/{branch}"], cwd=root,
-                       capture_output=True, text=True)
-    if r.returncode != 0:
+    before = gitutil.head(root)
+
+    def undo() -> None:
         if created:
             gitutil.git(root, "checkout", "-q", prev)
             gitutil.git(root, "branch", "-q", "-D", branch)
+        else:
+            gitutil.git(root, "reset", "-q", "--hard", before)  # the tree was clean; the claim is empty
+            gitutil.git(root, "checkout", "-q", prev)
+
+    try:
+        gitutil.git(root, "commit", "-q", "--allow-empty", "-m", f"claim {tid}", "--trailer", f"Sdlc-Agent: {agent}",
+                    "--trailer", "Sdlc-Play: build", "--trailer", f"Sdlc-Ticket: {tid}",
+                    "--trailer", f"Sdlc-Claim: {uuid.uuid4()}")
+    except gitutil.GitError as e:
+        undo()
+        raise SystemExit(f"refused: could not commit the claim for {tid}: {e}") from None
+    r = subprocess.run(["git", "push", "-q", "origin", f"{branch}:refs/heads/{branch}"], cwd=root,
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        undo()
         msg = (r.stderr or r.stdout).strip().splitlines()
         raise SystemExit(f"refused: could not claim {tid} by pushing {branch} (another run may have claimed it "
                          f"first; fetch and check `sdlc status`): {msg[-1] if msg else r.returncode}")

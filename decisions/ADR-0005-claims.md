@@ -43,9 +43,12 @@ in ADR-0003 stands, and the defaults keep ADR-0003's behaviour.
      `origin/<branch>` names the ticket and this clone has no local `<branch>`: the same name
      cannot tell this run's own claim from someone else's. `--take-over` continues that branch.
      It refuses when the local and remote branches have diverged.
-  3. checks out the branch, adds an empty commit `claim <id>` with the usual trailers if no
-     unmerged commit names the ticket yet, and pushes the branch without force before the agent
-     runs. A refused push undoes the branch it created and refuses the build.
+  3. checks out the branch, adds an empty commit `claim <id>` with the usual trailers and a
+     nonce (`Sdlc-Claim:`), and pushes the branch without force before the agent runs. It does
+     this on every build, including a resumed, expired or taken-over branch: pushing a branch
+     unchanged would succeed for every run at once. Of two runs, git refuses the second push,
+     and a holder that a take-over displaced is refused on its next push. A failed commit or
+     push puts the branch back as it was and refuses the build.
 - **`vcs.claim_days`** (default 0, never). In records mode, a branch whose newest commit is older
   than that many days no longer makes a ticket `in_progress` or stops a build. `sdlc status`
   lists it as an expired claim. Any new commit renews the claim. In push mode, an expired claim
@@ -58,6 +61,7 @@ in ADR-0003 stands, and the defaults keep ADR-0003's behaviour.
 ## Consequences
 
 - With push claims, two runs cannot build one ticket. The loser stops before any agent work.
+- Every build run adds one empty claim commit to the branch, resumes included.
 - The claim commit is empty and carries the build trailers. It ships in the PR and changes no
   check: scope sees no files, and approval reads the same agent as the build.
 - A build needs network access and push rights from its first second. Offline work stays on
