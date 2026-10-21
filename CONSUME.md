@@ -183,7 +183,8 @@ Set `[approval] mode = "forge"` (GitHub) or `"git"` (signed notes in `refs/notes
   starts, so a second run building the same ticket is refused (git rejects its push). A run on
   another clone is refused while the ticket's branch on origin holds the claim; `--take-over`
   continues that branch when it is yours or abandoned. Builds then need network access and push
-  rights (ADR-0005). A ticket waits on every `depends_on` id that is not done, including an id that
+  rights (ADR-0005). Every build run pushes its claim first, a rebuild after review included: on a branch
+  with an open PR that push starts CI and may dismiss approvals before the fix exists. A ticket waits on every `depends_on` id that is not done, including an id that
   names no ticket. `sdlc run build` resumes the ticket's own branch, local or fetched as
   `origin/<branch>`, with its commits. It refuses when `vcs.base` exists neither locally nor on
   origin, because it cannot then check other branches: fetch it first. `reviews/` and
@@ -193,6 +194,10 @@ Set `[approval] mode = "forge"` (GitHub) or `"git"` (signed notes in `refs/notes
   them, so the ticket never becomes `done`: it shows `in_progress` while its branch exists and
   `ready` (offered again by `sdlc next`) once the branch is deleted. `gate ci` fails on such a
   commit until the PR's own commits are merged with a merge commit (no revert needed).
+- A ticket declared `mechanical` or `refactor` whose diff raises its lane owes real-stack
+  proof; `gate pr` then asks the PR to record the lane with an `Sdlc-Lane:` trailer, so CI keeps
+  asking for that proof after the merge. `sdlc run build` adds it; by hand, `sdlc commit <id>
+  --agent <name> --play build --lane <lane> --allow-empty -m "lane <id>: <lane>"`.
 - Weakening or removing an AC by amendment needs a lead approval; a strict ticket needs one too.
 - Derived status needs the whole history. Check out with `fetch-depth: 0` (the installed
   workflow does; a clone made with `--depth`, as some agent sandboxes make, needs

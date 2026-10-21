@@ -7,6 +7,25 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 
 ## Unreleased
 
+## v5.0.0 (2026-10-21)
+
+MAJOR for one item: a ticket PR whose diff raises a mechanical or refactor ticket that has AC
+now fails `gate pr` until it records the lane. That includes PRs made by hand and PRs already
+open from a v4 runner; add the record with `sdlc commit ... --lane` (below).
+
+- **A PR records the lane a raised ticket ships in (issue #51).** A ticket declared
+  `mechanical` or `refactor` that its diff raises to a lane with a test play owes real-stack
+  proof, and gave it at PR time. CI used to see only the declared lane after the merge, so a
+  later change could delete that real-stack test unnoticed. Now `gate pr` (records mode) adds a
+  failing `lane-record` check for such a ticket until one of the PR's commits naming it carries
+  `Sdlc-Lane: <lane>`; `gate ci` takes the strictest of the declared and recorded lanes.
+  `sdlc run build` adds the record after a build that raises the lane; by hand:
+  `sdlc commit <id> --agent <name> --play build --lane <lane> --allow-empty -m "lane <id>: <lane>"`.
+  A PR that keeps its declared lane, or whose ticket owes no real-stack proof (no AC), records
+  nothing. `gate ci`'s `trailers` check also fails on a lane record a squash merge buried in a
+  commit body. MAJOR: such a PR fails `gate pr` until it records the lane. Already-merged
+  tickets carry no record and keep being judged by their declared lanes.
+
 ## v4.1.0 (2026-10-21)
 
 From the Hangout pilot's question on independent agents working one repository. All three sit

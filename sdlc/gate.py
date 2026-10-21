@@ -264,7 +264,8 @@ class Gate:
             self.checks.append(c)
             if on_check:
                 on_check(c)
-        for extra in (self._check_waivers(), self._check_trailers(), self._check_history()):
+        for extra in (self._check_waivers(), self._check_trailers(), self._check_lane_record(),
+                      self._check_history()):
             if extra is not None:
                 self.checks.append(extra)
                 if on_check:
@@ -375,18 +376,61 @@ class Gate:
         commit is the fix, and needs no revert (one would regrow a baseline the PR pruned)."""
         if self.play != "ci" or self.only or not self.records:
             return None
-        delivered = set(gitutil.trailer_values(self.cfg.root, "HEAD", "Sdlc-Ticket"))
-        buried = [(sha, missed) for sha, ids in gitutil.buried_trailers(self.cfg.root, "HEAD", "Sdlc-Ticket")
+        root = self.cfg.root
+        delivered = set(gitutil.trailer_values(root, "HEAD", "Sdlc-Ticket"))
+        buried = [(sha, missed) for sha, ids in gitutil.buried_trailers(root, "HEAD", "Sdlc-Ticket")
                   if (missed := [i for i in ids if i not in delivered])]
-        if not buried:
+        # A buried lane record (issue #51) is lost the same way, even when the squash message's last
+        # paragraph still delivers the ticket: CI would fall back to the declared lane. It counts
+        # once a trailer records that lane for a ticket the commit names.
+        recorded = gitutil.ticket_trailers(root, "HEAD", "Sdlc-Lane")
+        lost = []
+        for sha, lanes_ in gitutil.buried_trailers(root, "HEAD", "Sdlc-Lane"):
+            body = gitutil.git(root, "log", "-1", "--format=%B", sha)
+            missed = []
+            # A squash keeps each commit's trailer block as one paragraph: a buried lane belongs to
+            # the tickets in its own paragraph, so another ticket's record cannot cover it.
+            for para in re.split(r"\n[ \t]*\n", body):
+                vals = [v for v in re.findall(r"(?m)^Sdlc-Lane:[ \t]*(\S+)", para) if v in lanes_]
+                if not vals:
+                    continue
+                tids = set(re.findall(r"(?m)^Sdlc-Ticket:[ \t]*(\S+)", para)) \
+                    or set(re.findall(r"(?m)^Sdlc-Ticket:[ \t]*(\S+)", body))
+                have = {v for tid in tids for v in recorded.get(tid, [])}
+                missed += [v for v in vals if v not in have and v not in missed]
+            if missed:
+                lost.append((sha, missed))
+        if not buried and not lost:
             return None
         c = Check("trailers")
         c.status = "fail"
-        c.summary = (f"{len(buried)} merged commit(s) name Sdlc-Ticket outside their trailers (a squash merge?): "
-                     "status cannot see those tickets")
+        c.summary = (f"{len(buried) + len(lost)} merged commit(s) name Sdlc-Ticket or Sdlc-Lane outside their "
+                     "trailers (a squash merge?): status and shipped lanes cannot see them")
         c.details = [f"{sha[:12]} names {', '.join(ids)} in its body, not as a trailer" for sha, ids in buried]
+        c.details += [f"{sha[:12]} records lane {', '.join(v)} in its body, not as a trailer" for sha, v in lost]
         c.details.append("fix: merge the PR's own commits with a merge commit; no revert is needed "
                          "(never squash or rebase a ticket PR)")
+        return c
+
+    def _check_lane_record(self) -> Check | None:
+        """`gate pr` (records mode): a ticket declared mechanical or refactor that this PR's diff
+        raises to a lane with a test play owes real-stack proof (Ticket.owes_real_stack). Once
+        merged, `gate ci` sees only the declared lane, so the PR must record the lane it ships in:
+        an `Sdlc-Lane:` trailer on one of its commits naming the ticket (issue #51)."""
+        if self.play != "pr" or self.only or not self.records or not self.ticket or not self.lane:
+            return None
+        if self.ticket.lane not in lanes.NO_TEST_PLAY or not self.ticket.owes_real_stack(self.lane.name):
+            return None  # nothing changes once merged: the declared lane already owes the same
+        rec = gitutil.ticket_trailers(self.cfg.root, "HEAD", "Sdlc-Lane", self.mb or self.base).get(self.ticket.id, [])
+        if any(v in lanes.LANES and v not in lanes.NO_TEST_PLAY for v in rec):
+            return None
+        c = Check("lane-record")
+        c.status = "fail"
+        c.summary = (f"{self.ticket.id} declares lane {self.ticket.lane} but ships as {self.lane.name}; record it so "
+                     "CI keeps asking for its real-stack proof after the merge")
+        c.details = [f"add a commit with the trailers `Sdlc-Ticket: {self.ticket.id}` and `Sdlc-Lane: {self.lane.name}`: "
+                     f"sdlc commit {self.ticket.id} --agent <name> --play build --lane {self.lane.name} --allow-empty "
+                     f"-m \"lane {self.ticket.id}: {self.lane.name}\" (sdlc run adds it after a build that raises the lane)"]
         return c
 
     def _check_history(self) -> Check | None:
@@ -1102,10 +1146,21 @@ class Gate:
                              "run their test play")
 
     def _shipped_lane(self, t: Ticket) -> str:
-        """The lane a shipped ticket declares, as the base branch has it too: the stricter of
-        the two, so a branch cannot lower a ticket's lane to drop its real-stack proof."""
+        """The lane a shipped ticket declares, as the base branch has it too, and the lanes its
+        merged commits recorded (`Sdlc-Lane:`, issue #51): the strictest, so a branch cannot
+        lower a ticket's lane to drop its real-stack proof, and a ticket a PR's diff raised keeps
+        owing what it owed then."""
         old = lanes._ticket_at(self.cfg, self._base_ref, t) if self._base_ref else None
-        return lanes.stricter(t.lane, _declared_lane(old)) if old is not None else t.lane
+        lane = lanes.stricter(t.lane, _declared_lane(old)) if old is not None else t.lane
+        for v in self._recorded_lanes().get(t.id, []):
+            if v in lanes.LANES:
+                lane = lanes.stricter(lane, v)
+        return lane
+
+    def _recorded_lanes(self) -> dict[str, list[str]]:
+        if not hasattr(self, "_recorded"):
+            self._recorded = gitutil.ticket_trailers(self.cfg.root, "HEAD", "Sdlc-Lane")
+        return self._recorded
 
     def _real_stack_proof(self, tid: str) -> bool:
         """A passing real-stack test carries one of the AC tags the ticket declares (an AC-99
