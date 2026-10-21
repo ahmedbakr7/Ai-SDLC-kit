@@ -195,12 +195,13 @@ class GateCatches(unittest.TestCase):
 
     def test_setup_may_not_hand_over_the_kits_own_variables(self) -> None:
         self.hooks("import os, pathlib; pathlib.Path('.sdlc-run/made').write_text('x')\n"
-                   "open(os.environ['SDLC_RUN_ENV'], 'a').write('SDLC_APP_PORT=1\\nPORT=2\\nnot a pair\\n')\n")
+                   "open(os.environ['SDLC_RUN_ENV'], 'a').write('SDLC_APP_PORT=1\\nPORT=2\\nnot a pair\\nNUL=a\\x00b\\n')\n")
         c = self.gate("ci", "lint", ticket=None)["setup"]
         self.assertEqual(c["status"], "fail")
         self.assertIn("$SDLC_RUN_ENV line 1: SDLC_APP_PORT is the kit's to set", c["details"])
         self.assertIn("$SDLC_RUN_ENV line 2: PORT is the kit's to set", c["details"])
         self.assertIn("$SDLC_RUN_ENV line 3: not KEY=VALUE: 'not a pair'", c["details"])
+        self.assertIn("$SDLC_RUN_ENV line 4: not KEY=VALUE: 'NUL=a\\x00b'", c["details"])
 
     def test_a_failed_teardown_fails_the_gate(self) -> None:
         self.hooks(self.MAKE, teardown="import sys; sys.exit(4)")
@@ -242,6 +243,26 @@ class GateCatches(unittest.TestCase):
         self.assertIn("not UTF-8", checks["setup"]["summary"])
         self.assertEqual(checks["teardown"]["status"], "pass")
         self.assertFalse((self.p.root / ".sdlc-run" / "made").exists())
+        self.assertEqual(list((self.p.root / ".sdlc-run").glob("run-env-*")), [])
+
+    def test_a_crashing_teardown_fails_the_gate_without_hiding_the_checks(self) -> None:
+        from unittest import mock
+
+        from sdlc.gate import Gate
+
+        self.hooks(self.MAKE)
+        real = Gate._hook
+
+        def hook(gate, key):
+            if key == "teardown":
+                raise OSError("disk gone")
+            return real(gate, key)
+
+        with mock.patch.object(Gate, "_hook", hook):
+            checks = self.gate("ci", "lint", ticket=None)
+        self.assertEqual(checks["lint"]["status"], "pass", self.out)
+        self.assertEqual(checks["teardown"]["status"], "fail")
+        self.assertIn("app.teardown crashed: OSError: disk gone", checks["teardown"]["summary"])
         self.assertEqual(list((self.p.root / ".sdlc-run").glob("run-env-*")), [])
 
     def test_client_calls_a_path_no_contract_serves(self) -> None:

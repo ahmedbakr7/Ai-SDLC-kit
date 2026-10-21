@@ -93,7 +93,9 @@ checks with `SDLC_RUN_ID`, `SDLC_APP_PORT` and `SDLC_RUN_ENV` set; each `KEY=VAL
 appends to `$SDLC_RUN_ENV` reaches every command (for example
 `DATABASE_URL=postgres://localhost/app_$SDLC_RUN_ID` after it creates that database). A failed
 setup fails the gate and skips its checks. `teardown` runs after the checks whatever happened,
-and a failed teardown fails the gate. Commands also see `SDLC_RUN_ID`.
+and a failed teardown fails the gate. Commands also see `SDLC_RUN_ID`. An auto port is free when
+the gate picks it; another process could take it before the app binds, which smoke reports as a
+busy port (rerun the gate).
 
 Commit, then mark the `gate` job required in branch protection.
 

@@ -1731,7 +1731,7 @@ class Gate:
                 continue
             key, sep, val = line.partition("=")
             key = key.strip()
-            if not sep or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+            if not sep or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key) or "\x00" in val:
                 problems.append(f"$SDLC_RUN_ENV line {n}: not KEY=VALUE: {line!r}")
             elif key.startswith("SDLC_") or key == "PORT":
                 problems.append(f"$SDLC_RUN_ENV line {n}: {key} is the kit's to set")
@@ -1750,6 +1750,10 @@ class Gate:
             return None  # run() never started
         try:
             got = self._hook("teardown")
+        except Exception as e:  # a crashing teardown fails the gate; it must not hide what the checks found
+            c = Check("teardown")
+            c.status, c.summary = "fail", f"app.teardown crashed: {type(e).__name__}: {e}"
+            return c
         finally:
             (self.run_dir / f"run-env-{self._run_id}").unlink(missing_ok=True)
         if got is None:
