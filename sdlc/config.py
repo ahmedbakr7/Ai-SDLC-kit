@@ -77,7 +77,13 @@ DEFAULTS: dict[str, Any] = {
         "max_attempts": 3,
     },
     "app": {
-        "port": 3123,  # SDLC_APP_PORT overrides it on one machine (PORT_ENV)
+        "port": 3123,  # SDLC_APP_PORT overrides it on one machine (PORT_ENV); "auto": a free port per run
+        # Per-run resources (parallel gates): `setup` runs before a gate's checks with SDLC_RUN_ID,
+        # SDLC_APP_PORT and SDLC_RUN_ENV set; KEY=VALUE lines it writes to $SDLC_RUN_ENV reach every
+        # command the gate runs (e.g. DATABASE_URL for a database made for this run). `teardown`
+        # runs after the checks, whatever happened, with the same variables.
+        "setup": "",
+        "teardown": "",
         "host": "127.0.0.1",
         "ready_path": "/",
         "ready_timeout": 120,
@@ -184,6 +190,7 @@ class Config:
     profile_name: str = ""
     warnings: list[str] = field(default_factory=list)
     preset_problems: list[str] = field(default_factory=list)  # settings the preset forbids (doctor fails)
+    _auto_port: int = field(default=0, repr=False, compare=False)  # "auto": picked once per Config
 
     def path(self, key: str) -> Path:
         return self.root / self.data["paths"][key]
@@ -202,13 +209,32 @@ class Config:
         return self.data.get(name, {})
 
     def app_port(self) -> tuple[int, str]:
-        """(port, where it came from): SDLC_APP_PORT when set, else app.port."""
+        """(port, where it came from): SDLC_APP_PORT when set, else app.port. "auto" in either
+        picks a free port, once per Config, so gates in two worktrees never share one."""
         raw = os.environ.get(PORT_ENV, "").strip()
         if raw:
+            if raw == "auto":
+                return self._free_port(), f"{PORT_ENV}=auto"
             if not (raw.isascii() and raw.isdecimal()) or not 1 <= int(raw) <= 65535:
-                raise SystemExit(f"{PORT_ENV}={raw!r}: must be a port number from 1 to 65535")
+                raise SystemExit(f"{PORT_ENV}={raw!r}: must be a port number from 1 to 65535, or auto")
             return int(raw), PORT_ENV
-        return int(self.section("app")["port"]), "app.port"
+        v = self.section("app")["port"]
+        if v == "auto":
+            return self._free_port(), "app.port = auto"
+        if isinstance(v, str) and v.isascii() and v.isdecimal():
+            v = int(v)
+        if isinstance(v, bool) or not isinstance(v, int) or not 1 <= v <= 65535:
+            raise SystemExit(f"app.port = {v!r}: must be a port number from 1 to 65535, or \"auto\"")
+        return v, "app.port"
+
+    def _free_port(self) -> int:
+        if not self._auto_port:
+            import socket
+
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind((str(self.section("app").get("host", "127.0.0.1")), 0))
+                self._auto_port = s.getsockname()[1]
+        return self._auto_port
 
     def claim_mode(self) -> str:
         v = self.section("vcs").get("claim", "local")

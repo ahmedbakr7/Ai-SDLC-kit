@@ -85,6 +85,18 @@ two gates at once on one machine (one worktree each), set `SDLC_APP_PORT` in eac
 `doctor` prints the port in effect. Ports your own test configs hard-code (a Playwright
 `webServer`, a stub server) need the same treatment in the product.
 
+Parallel gates without per-shell settings (kit v5.0.0 or later): `app.port = "auto"` (or
+`SDLC_APP_PORT=auto`) picks a free port for each run. Every command the gate runs sees it as
+`SDLC_APP_PORT` (and `{port}`), so read it there instead of hard-coding a port. For a database
+or other state two runs must not share, set `[app] setup` and `teardown`. `setup` runs before the
+checks with `SDLC_RUN_ID`, `SDLC_APP_PORT` and `SDLC_RUN_ENV` set; each `KEY=VALUE` line it
+appends to `$SDLC_RUN_ENV` reaches every command (for example
+`DATABASE_URL=postgres://localhost/app_$SDLC_RUN_ID` after it creates that database). A failed
+setup fails the gate and skips its checks. `teardown` runs after the checks whatever happened,
+and a failed teardown fails the gate. Commands also see `SDLC_RUN_ID`. An auto port is free when
+the gate picks it; another process could take it before the app binds, which smoke reports as a
+busy port (rerun the gate).
+
 Commit, then mark the `gate` job required in branch protection.
 
 ## 3. Run the pipeline

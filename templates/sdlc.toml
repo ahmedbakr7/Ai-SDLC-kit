@@ -17,6 +17,11 @@ profile = ""
 # start = ""              # long-running server for smoke probes; must listen on {port}
 # duplication = ""        # optional; e.g. jscpd
 
+[app]
+# port = 3123               # "auto": a free port per run (parallel gates); commands read SDLC_APP_PORT
+# setup = ""                # per-run resources; append KEY=VALUE lines to $SDLC_RUN_ENV (e.g. DATABASE_URL)
+# teardown = ""             # runs after the checks, whatever happened
+
 [routes]
 # extractor = "nextjs-app"   # or "command" with command = "<prints METHOD /path lines>"
 
