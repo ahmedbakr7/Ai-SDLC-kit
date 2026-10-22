@@ -85,7 +85,7 @@ two gates at once on one machine (one worktree each), set `SDLC_APP_PORT` in eac
 `doctor` prints the port in effect. Ports your own test configs hard-code (a Playwright
 `webServer`, a stub server) need the same treatment in the product.
 
-Parallel gates without per-shell settings (kit v5.0.0 or later): `app.port = "auto"` (or
+Parallel gates without per-shell settings (kit v5.1.0 or later): `app.port = "auto"` (or
 `SDLC_APP_PORT=auto`) picks a free port for each run. Every command the gate runs sees it as
 `SDLC_APP_PORT` (and `{port}`), so read it there instead of hard-coding a port. For a database
 or other state two runs must not share, set `[app] setup` and `teardown`. `setup` runs before the
