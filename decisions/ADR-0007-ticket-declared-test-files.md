@@ -33,10 +33,14 @@ Options considered:
 ## Proposed decision
 
 - Add `test_files: [...]`, read from the ticket as the base branch has it.
-- `sdlc lint` refuses entries that match `tests.source_globs` or the ticket's areas. Production
-  code stays the build's.
-- `ac-red` and the refactor proof run unchanged. A `test_files` entry counts as test code, so
-  reverting production files to the base does not revert it.
+- `sdlc lint` refuses entries that match the production scope the gate uses: `tests.source_globs`,
+  or the ticket's `areas` and `shared` when `source_globs` is empty. Production code stays the
+  build's.
+- A `test_files` entry counts as test code. This needs a code change: today
+  `Gate._production_changes` leaves out only `tests.globs`, and the refactor lane's base run
+  (`every=True`) reverts every other changed file, so it would revert a `test_files` entry too.
+  `_production_changes` must also leave out the ticket's `test_files`. `ac-red` and the refactor
+  proof otherwise keep their logic.
 
 ## Consequences
 

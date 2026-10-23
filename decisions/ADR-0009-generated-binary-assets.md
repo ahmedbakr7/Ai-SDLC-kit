@@ -32,7 +32,10 @@ Options considered:
 
 - Add declared assets as above.
 - Add an `assets` check for ticket plays and `gate ci`, plus `sdlc assets [--check]`.
-- A binary is any file git reports as binary (`diff --numstat` shows `-`).
+- A binary is any file git reports as binary (`diff --numstat` shows `-`). That follows
+  `.gitattributes` on purpose: a path marked `binary` or `-diff` counts, and a text file such as
+  an SVG does not, even when generated. Whether a declared text asset is hash-checked too is an
+  open question below.
 - Fetching needs the network only where a `source` is used. A generator runs as a gate command
   does, under the base branch's config.
 
@@ -46,3 +49,4 @@ Options considered:
 ## Open questions
 
 - Should vendored binaries (fonts, licensed images) carry a licence field the review must name?
+- Should a declared asset that git sees as text (a generated SVG) be hash-checked as well?

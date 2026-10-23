@@ -29,7 +29,9 @@ Options considered:
 - **`sdlc plan <ticket>`: print the gate's own plan (proposed).** No prediction. It runs the
   code paths the gate runs, without a diff:
   - the declared lane and its floors;
-  - the lanes the ticket could be raised to and by what (`strict_paths`, contracts, transforms);
+  - the lanes the ticket could be raised to and by what: every trigger `lanes.resolve` checks
+    (for example `strict_paths`, contracts, transforms, a waivers-file change, an added or changed
+    AC, a `--lane` override, a missing merge base);
   - each play's write set, as globs and exact paths;
   - the checks each play runs, from `Gate.plan()`;
   - per AC, what proof it owes (red on the base, a passing tag, a real-stack tag);
