@@ -283,7 +283,23 @@ def lint_ticket(repo: Repo, t: Ticket, reqs: dict) -> list[Issue]:
             err(f"skill {s!r} not found (kit skills/, product skills/, or skills/vendor/)")
     if t.risk == "high" and not d.get("accepted_by"):
         out.append(Issue("warn", w, "risk: high ticket has no accepted_by (lead sign-off)"))
+    out += _cannot_pass(repo, t, w)
     return out
+
+
+def _cannot_pass(repo: Repo, t: Ticket, where: str) -> list[Issue]:
+    """ADR-0006: ways the ticket's build is certain to fail (plan.problems). Warnings, not
+    errors: the artifacts check fails on lint errors in every gate, gate ci included, so an
+    error here would fail a product on upgrade for a ticket nobody has started. A shipped
+    ticket is past its build, so it is not judged."""
+    from . import gitutil, plan
+
+    try:
+        if repo.status_of(t) == "done":
+            return []
+    except gitutil.GitError:
+        pass
+    return [Issue("warn", where, f"cannot pass as written: {x} (sdlc plan {t.id})") for x in plan.problems(repo.cfg, t)]
 
 
 def _skill_exists(repo: Repo, name: str) -> bool:
