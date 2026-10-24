@@ -727,15 +727,8 @@ class Gate:
         return tickets.new_amendments(old_body, self.ticket.body)[0]
 
     def _hard(self, f: str) -> bool:
-        """Files no ticket PR may change, areas or not: lead artifacts, config, other tickets,
-        and any evidence or review file the ticket's plays do not own."""
-        p = self.cfg.data["paths"]
-        # The test play's files are the red-proof's other half: the build never writes them,
-        # unless the ticket has no test play because it is a test ticket (its build is that play).
-        test_play_files = (self.play == "build" and not (self.ticket and self.ticket.type == "test")
-                           and any(_glob(f, g) for g in self.cfg.section("tests").get("integration_globs", [])))
-        return (test_play_files or any(_glob(f, g) for g in lead_write_set(self.cfg))
-                or any(f.startswith(p[k].rstrip("/") + "/") for k in ("evidence", "reviews")))
+        """Files no ticket PR may change, areas or not (hard_reason)."""
+        return bool(hard_reason(self.cfg, f, self.play, self.ticket))
 
     def _test_beside_area(self, f: str) -> bool:
         """A test next to an in-area file (same stem, same folder or its tests/__tests__ child)."""
@@ -1841,6 +1834,23 @@ def dirty_tree(cfg: Config) -> bool:
         if not (code == "??" and f.startswith(prefix) and always_allowed(cfg, f[len(prefix):])):
             return True
     return False
+
+
+def hard_reason(cfg: Config, f: str, play: str, ticket: Ticket | None) -> str:
+    """Why `play` may never change `f`, whatever the ticket's areas say ("" when it may): lead
+    artifacts, config, other tickets, and any evidence or review file the ticket's plays do not
+    own. `sdlc lint` and `sdlc plan` ask the same question of the paths a ticket lists."""
+    p = cfg.data["paths"]
+    # The test play's files are the red-proof's other half: the build never writes them,
+    # unless the ticket has no test play because it is a test ticket (its build is that play).
+    if (play == "build" and not (ticket and ticket.type == "test")
+            and any(_glob(f, g) for g in cfg.section("tests").get("integration_globs", []))):
+        return "the test play's file (tests.integration_globs)"
+    if any(_glob(f, g) for g in lead_write_set(cfg)):
+        return "a lead artifact or kit config (only a PR without a ticket changes it)"
+    if any(f.startswith(p[k].rstrip("/") + "/") for k in ("evidence", "reviews")):
+        return "evidence or a review file, which only its own play writes"
+    return ""
 
 
 def lead_write_set(cfg: Config) -> list[str]:
