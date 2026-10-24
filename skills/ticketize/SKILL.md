@@ -46,7 +46,10 @@ lists the wrong files, the build will be wrong no matter how good the agent is.
    only a real-stack test can prove passes there.
 9. `status: draft`. The lead moves tickets to `ready` after reading the graph;
    `risk: high` tickets also need `accepted_by:`.
-10. Run `sdlc lint` and `sdlc trace` until both are clean. Stop.
+10. Run `sdlc lint` and `sdlc trace` until both are clean.
+11. Run `sdlc plan <ticket>` on every ticket you wrote. Fix any ticket it marks `CANNOT PASS`.
+    Then put each plan's output in your handoff, so the lead sees the lane, the checks and
+    the proof each ticket will face before moving it to `ready`. Stop.
 
 ## Sizing
 
