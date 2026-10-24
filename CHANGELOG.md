@@ -7,6 +7,19 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 
 ## Unreleased
 
+## v5.2.0 (2026-10-24)
+
+- **`sdlc plan <ticket>` (ADR-0006).** Before any build: the ticket's lane and every trigger that
+  can raise it, each play's checks and write set in every lane it can land in, the proof each AC
+  owes, and which real-stack suites are configured. It calls the gate's own functions and reads
+  the base branch's config, so it cannot drift from what the gate enforces. `--json` for tools.
+  The ticketize play puts each ticket's plan in its handoff.
+- **`sdlc lint` warns when a build is certain to fail:** a listed path the build may never
+  change, owed real-stack proof with no suite command, or a refactor lane without a `{junit}`
+  unit command. Warnings only (`--strict` fails on them); shipped tickets are not judged.
+- Lane raises now live in one table, `lanes.TRIGGERS`. Results and reasons are unchanged.
+  Upgrade: nothing required.
+
 ## v5.1.0 (2026-10-21)
 
 - **Parallel gates.** `app.port = "auto"` or `SDLC_APP_PORT=auto` picks a free port per run.

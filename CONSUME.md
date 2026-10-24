@@ -104,7 +104,7 @@ Commit, then mark the `gate` job required in branch protection.
 | Step | Who | Command |
 |---|---|---|
 | intent, design, architect | lead + agent, interactive | `sdlc prompt intent` → give the file to your agent; human accepts the artifact |
-| ticketize | agent | `sdlc prompt ticketize`; then `sdlc lint && sdlc trace`; lead sets tickets `ready` |
+| ticketize | agent | `sdlc prompt ticketize`; then `sdlc lint && sdlc trace`; `sdlc plan <id>` per ticket; lead sets tickets `ready` |
 | build | any agent, unattended | `sdlc run build $(sdlc next) --agent <name>` |
 | test | any agent | `sdlc run test T-001-03 --agent <name>` |
 | review | a **different** agent | `sdlc run review T-001-03 --agent <other>` |
