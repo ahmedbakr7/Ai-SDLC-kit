@@ -479,6 +479,8 @@ class GateCatches(unittest.TestCase):
         details = "\n".join(checks["scope"]["details"])
         self.assertIn("out of area (the approving review must name it under ## Out of area): app/stray.py", details)
         self.assertIn("outside build write set: sdlc.toml", details)
+        self.assertIn("why sdlc.toml is out of bounds: a lead artifact or kit config", details)
+        self.assertNotIn("why app/stray.py", details, "an out-of-area flag is not a hard path")
         self.assertIn("differs from main", details)
 
     def sneaky_branch(self) -> None:

@@ -17,6 +17,8 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 - **`sdlc lint` warns when a build is certain to fail:** a listed path the build may never
   change, owed real-stack proof with no suite command, or a refactor lane without a `{junit}`
   unit command. Warnings only (`--strict` fails on them); shipped tickets are not judged.
+- `scope` now says why a file is out of bounds, e.g. "why ops/x.mjs is out of bounds: a lead
+  artifact or kit config", not just the file name.
 - Lane raises now live in one table, `lanes.TRIGGERS`. Results and reasons are unchanged.
   Upgrade: nothing required.
 

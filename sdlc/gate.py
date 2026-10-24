@@ -639,6 +639,8 @@ class Gate:
             bad.append(f)
         named = {f for f in bad if any(p.endswith(": " + f) for p in problems)}
         c.details = problems + [f"outside {self.play} write set: {f}" for f in bad if f != own and f not in named]
+        c.details += [f"why {f} is out of bounds: {why}" for f in bad if f != own and f not in named
+                      for why in [hard_reason(self.cfg, f, self.play, t)] if why]
         c.details += [f"out of area (the approving review must name it under ## Out of area): {f}" for f in flags]
         if self.config_note:
             c.details.append(self.config_note)
