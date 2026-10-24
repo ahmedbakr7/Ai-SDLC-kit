@@ -68,6 +68,36 @@ class Triggers(unittest.TestCase):
         self.assertIn(("contracts", "strict"), ref)
 
 
+class TriggersAgreeWithResolve(unittest.TestCase):
+    """Every raise lanes.raises() lists can fire in lanes.resolve, and every raise resolve makes
+    is listed: run resolve over each declared lane, override and diff that needs no replay."""
+
+    def test_both_directions(self) -> None:
+        from pathlib import Path
+        from sdlc.artifacts import Ticket
+
+        p = ProductRepo()
+        try:
+            cfg = config.load(p.root)
+            pc = cfg.data["paths"]
+            diffs = [[], [pc["contracts"]], [pc.get("waivers", "sdlc-waivers.toml")], ["db/migrations/001.sql"]]
+            replay = {"transforms", "ac-changed", "residue"}  # need a merge base; covered in test_lanes
+            for declared in lanes.LANES:
+                t = Ticket("T-042-09", Path(p.root / PATH), {"lane": declared, "type": "backend"}, "")
+                seen = set()
+                for override in ["", *lanes.LANES]:
+                    for changed in diffs:
+                        ln = lanes.resolve(cfg, t, changed, None, override=override)
+                        for tid, why in zip(ln.triggers, ln.reasons):
+                            seen.add((tid, why.split(":", 1)[0].split(" -> ")[1]))
+                listed = {(tr.id, to) for tr, to in lanes.raises(declared)}
+                self.assertEqual(seen - listed, set(), f"{declared}: resolve raises what plan does not list")
+                self.assertEqual({x for x in listed if x[0] not in replay} - seen, set(),
+                                 f"{declared}: plan lists a raise resolve never makes")
+        finally:
+            p.close()
+
+
 class PlanAgreesWithGate(unittest.TestCase):
     """The plan's check lists and write sets are the ones the gate runs, lane by lane."""
 
@@ -155,6 +185,74 @@ class PlanAgreesWithGate(unittest.TestCase):
         self.assertTrue(p["real_stack_suites"]["integration"], "the branch's config change does not count")
         self.assertIn("differs from main", p["config"])
 
+    def test_spike_and_test_tickets(self) -> None:
+        self.p.write(PATH, ticket().replace("type: backend", "type: spike").replace(
+            '  - "AC-1: the probe answers 200"', "").replace("acceptance_criteria:", "questions:\n  - \"Q-1: does it?\"\nacceptance_criteria: []"))
+        self.p.commit("spike")
+        p = self.plan()
+        self.assertEqual(self.lane(p, "standard")["plays"]["build"]["checks"][1:],
+                         ["artifacts", "scope", "immutable", "spike", "skills"])
+        self.assertIsNone(self.lane(p, "standard")["plays"]["test"])
+        self.assert_matches_gate(p, "standard")
+        self.p.write(PATH, ticket(areas=("tests/test_probe.py",)).replace("type: backend", "type: test"))
+        self.p.commit("test ticket")
+        p = self.plan()
+        std = self.lane(p, "standard")
+        self.assertIsNone(std["plays"]["test"], "a test ticket's build is its test play")
+        self.assertIn("integration", std["plays"]["build"]["checks"])
+        self.assertEqual(p["problems"], [])
+        self.assert_matches_gate(p, "standard")
+
+    def test_records_mode_pr_runs_the_build_and_test_checks(self) -> None:
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml") + '\n[approval]\nmode = "forge"\nreviewers = ["rev"]\n'
+                     'leads = ["lead"]\nrepo = "owner/product"\n')
+        self.p.write(PATH, ticket())
+        self.p.commit("records mode")
+        p = self.plan()
+        pr = self.lane(p, "standard")["plays"]["pr"]["checks"]
+        self.assertIn("integration", pr)
+        self.assertIn("ac-red", pr)
+        self.assertNotIn("review-file", pr)
+        self.assert_matches_gate(p, "standard")
+
+    def test_lane_source(self) -> None:
+        for edit, src in ((lambda x: x.replace("risk: low", "risk: high"), "risk: high makes it strict"),
+                          (lambda x: x.replace("type: backend", "type: contract"), "type: contract makes it strict"),
+                          (lambda x: x, "default: the ticket sets no lane")):
+            self.p.write(PATH, edit(ticket()))
+            self.p.commit("edit")
+            self.assertEqual(self.plan()["lane_source"], src)
+        self.p.write(PATH, ticket("strict"))
+        self.p.commit("edit")
+        p = self.plan()
+        self.assertEqual((p["lane_source"], p["raises"], len(p["lanes"])), ("the ticket's lane field", [], 1))
+
+    def test_read_only_and_base_option(self) -> None:
+        import shutil
+
+        self.p.write(PATH, ticket())
+        self.p.commit("ticket")
+        shutil.rmtree(self.p.root / ".sdlc-run", ignore_errors=True)
+        git(self.p.root, "branch", "trunk")
+        p = plan.build(config.load(self.p.root), "T-042-09", "trunk")
+        self.assertIn("trunk", p["config"])
+        self.assertFalse((self.p.root / ".sdlc-run").exists(), "plan writes nothing")
+        from unittest import mock
+        with mock.patch("sdlc.gate.recover") as rec:
+            plan.build(config.load(self.p.root), "T-042-09")
+        rec.assert_not_called()  # it would restore files under a running ac-red
+
+    def test_areas_widened_on_the_branch_are_noted(self) -> None:
+        self.p.write(PATH, ticket())
+        self.p.commit("ticket")
+        self.assertEqual(self.plan()["areas_note"], "")
+        git(self.p.root, "checkout", "-q", "-b", "work")
+        self.p.write(PATH, ticket(areas=("app/returns.py", "app/extra.py")))
+        self.p.commit("widen")
+        p = self.plan()
+        self.assertIn("this branch changes the ticket's areas", p["areas_note"])
+        self.assertNotIn("app/extra.py", self.lane(p, "standard")["plays"]["build"]["may_write"]["paths"])
+
     def test_cli_text_and_json(self) -> None:
         self.p.write(PATH, ticket())
         self.p.commit("ticket")
@@ -216,6 +314,34 @@ class Problems(unittest.TestCase):
         probs = self.problems()
         self.assertEqual(len(probs), 1, probs)
         self.assertIn("refactor lane, which needs a unit command with {junit}", probs[0])
+
+    def test_what_scope_lets_the_build_change_is_not_a_problem(self) -> None:
+        self.p.write(PATH, ticket(areas=("app/returns.py", "sdlc-baseline.json", "evidence/T-042-09.build.json",
+                                         PATH)))
+        self.assertEqual(self.problems(), [])
+        self.p.write(PATH, ticket(areas=("app/returns.py", "evidence/T-042-09.test.json")))
+        self.assertEqual(len(self.problems()), 1, "the test play's evidence is not the build's")
+
+    def test_a_test_ticket_listing_a_non_test_path(self) -> None:
+        self.p.write(PATH, ticket(areas=("tests/test_probe.py",)).replace("type: backend", "type: test"))
+        self.assertEqual(self.problems(), [])
+        self.p.write(PATH, ticket(areas=("tests/test_probe.py", "app/returns.py", "arch/CONTRACTS.md"))
+                     .replace("type: backend", "type: test"))
+        probs = self.problems()
+        self.assertEqual(len(probs), 2, probs)
+        self.assertIn("lists app/returns.py, but a test ticket changes tests only", probs[0])
+        self.assertIn("lists arch/CONTRACTS.md, but a test ticket changes tests only", probs[1])
+
+    def test_real_stack_rule_needs_ac_coverage_in_the_proving_play(self) -> None:
+        cfg = self.p.read("sdlc.toml").replace(
+            'integration = "python tools/junit.py --start tests --out {junit}"', 'integration = ""')
+        self.p.write("sdlc.toml", cfg)
+        self.p.write(PATH, ticket())
+        self.assertEqual(len(self.problems()), 1)
+        self.p.write("sdlc.toml", cfg + '\n[gate]\ntest = ["artifacts", "scope", "unit"]\n')
+        self.assertEqual(self.problems(), [], "without ac-coverage in the test play nothing demands the tag")
+        self.p.write(PATH, ticket(areas=("tests/test_probe.py",)).replace("type: backend", "type: test"))
+        self.assertEqual(len(self.problems()), 1, "a test ticket's build is the play that proves it")
 
     def test_lint_warns_and_gates_do_not_fail_on_it(self) -> None:
         self.p.write(PATH, ticket(areas=("app/returns.py", "sdlc.toml")))

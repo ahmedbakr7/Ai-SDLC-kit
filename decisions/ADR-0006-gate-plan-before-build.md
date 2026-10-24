@@ -46,8 +46,10 @@ Options considered:
   written.
 - The ticketize play runs it on every ticket it writes and includes the output in its handoff.
 - `sdlc lint` gains only checks that are exact, not heuristic, as warnings: a path the ticket
-  lists that the build may never change (the gate's `hard_reason`), owed real-stack proof with no
-  suite command, and a refactor lane without a `{junit}` unit command. The two examples the
+  lists that the build may never change (the gate's `hard_reason`, after the exemptions `scope`
+  applies first), a test ticket listing a non-test path, owed real-stack proof with no suite
+  command (when the proving play runs `ac-coverage`), and a refactor lane without a `{junit}`
+  unit command. The two examples the
   proposal gave turned out vacuous: every path a ticket lists is in the build's write set, and AC
   tags live in test names, not paths. Warnings, because the `artifacts` check fails on lint errors
   in every gate, `gate ci` included: an error would fail a product on upgrade for a ticket nobody

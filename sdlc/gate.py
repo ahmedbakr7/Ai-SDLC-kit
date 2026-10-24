@@ -70,8 +70,11 @@ class TestCase:
 class Gate:
     def __init__(self, cfg: Config, play: str, ticket_id: str | None, base: str | None,
                  only: list[str] | None = None, verbose: bool = False, since: str | None = None,
-                 ignore_baseline: bool = False, lane: str = ""):
-        recover(cfg.root)  # before anything reads the tree
+                 ignore_baseline: bool = False, lane: str = "", read_only: bool = False):
+        # read_only (sdlc plan): touch nothing. recover() would put back files an ac-red run in
+        # progress has reverted, under that run's feet.
+        if not read_only:
+            recover(cfg.root)  # before anything reads the tree
         self.base = base or cfg.section("vcs").get("base", "main")
         self.base_given = base is not None
         self.play = play
@@ -87,7 +90,8 @@ class Gate:
         self.only = only
         self.verbose = verbose
         self.run_dir = cfg.root / RUN_DIR
-        (self.run_dir / "logs").mkdir(parents=True, exist_ok=True)
+        if not read_only:
+            (self.run_dir / "logs").mkdir(parents=True, exist_ok=True)
         self.testcases: list[TestCase] = []
         self.junit_used: dict[str, bool] = {}
         self.checks: list[Check] = []

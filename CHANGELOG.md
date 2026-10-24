@@ -16,7 +16,9 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
   The ticketize play puts each ticket's plan in its handoff.
 - **`sdlc lint` warns when a build is certain to fail:** a listed path the build may never
   change, owed real-stack proof with no suite command, or a refactor lane without a `{junit}`
-  unit command. Warnings only (`--strict` fails on them); shipped tickets are not judged.
+  unit command; and a test ticket listing a non-test path. Warnings only; shipped tickets are not
+  judged. A product that runs `sdlc lint --strict` itself fails on them: fix the ticket, which
+  could not have passed its build anyway.
 - `scope` now says why a file is out of bounds, e.g. "why ops/x.mjs is out of bounds: a lead
   artifact or kit config", not just the file name.
 - Lane raises now live in one table, `lanes.TRIGGERS`. Results and reasons are unchanged.

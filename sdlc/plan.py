@@ -19,19 +19,31 @@ _GLOB_CHARS = set("*?[")
 def problems(cfg: Config, t: Ticket) -> list[str]:
     """Ways a ticket's build is certain to fail, readable from the ticket and config alone.
     Exact, never heuristic: each one is a rule the gate enforces with no exception."""
-    from .gate import hard_reason, real_stack_suites
+    from . import baseline
+    from .gate import _glob, hard_reason, real_stack_suites
 
     out = []
-    contracts = cfg.data["paths"]["contracts"]
-    listed = dict.fromkeys([*t.files, *t.shared, *t.areas])
-    for f in listed:
-        if set(f) & _GLOB_CHARS or f == contracts:  # globs are judged per file; contracts raise to strict
+    p = cfg.data["paths"]
+    # In _scope's order: its own ticket (amendments) and the bookkeeping also in the build's write
+    # set (the baseline it may prune, its own build evidence) pass first; then a test ticket may
+    # change tests only; then the contracts pass (they raise the lane to strict); then hard_reason.
+    exempt = {cfg.rel(t.path), cfg.rel(baseline.path(cfg.root, p)), f"{p['evidence']}/{t.id}.build.json"}
+    tests = [*cfg.section("tests").get("globs", []), *cfg.section("tests").get("integration_globs", [])]
+    for f in dict.fromkeys([*t.files, *t.shared, *t.areas]):
+        if set(f) & _GLOB_CHARS or f in exempt:  # a glob is judged per file it matches
             continue
-        why = hard_reason(cfg, f, "build", t)
+        if t.type == "test" and not any(_glob(f, g) for g in tests):
+            out.append(f"lists {f}, but a test ticket changes tests only (tests.globs, tests.integration_globs)")
+            continue
+        why = "" if f == p["contracts"] else hard_reason(cfg, f, "build", t)
         if why:
             out.append(f"lists {f}, but the build may never change it: {why}")
     suites = real_stack_suites(cfg)
-    if t.owes_real_stack() and suites and not any(cfg.commands.get(s) for s in suites):
+    # ac-coverage in the play that proves the ticket (the test play; a test ticket's build) is
+    # what demands the real-stack tag; without it in that play's list, nothing does.
+    proving = "build" if t.type == "test" else "test"
+    if (t.owes_real_stack() and suites and "ac-coverage" in cfg.section("gate").get(proving, [])
+            and not any(cfg.commands.get(s) for s in suites)):
         out.append(f"owes real-stack proof, but no tests.real_stack suite ({', '.join(suites)}) has a command; "
                    "configure one, or the lead sets tests.real_stack = [] or the ticket's test: none")
     unit = cfg.commands.get("unit", "")
@@ -45,7 +57,7 @@ def build(cfg: Config, ticket_id: str, base: str | None = None) -> dict:
     """The gate's plan for a ticket as JSON-ready data."""
     from .gate import PR_ROLES, Gate, real_stack_suites
 
-    g = Gate(cfg, "build", ticket_id, base)
+    g = Gate(cfg, "build", ticket_id, base, read_only=True)
     cfg, t = g.cfg, g.ticket  # the gate's config: the base branch's, as every ticket gate uses
     declared = t.lane
     raises = lanes.raises(declared)
@@ -100,6 +112,10 @@ def build(cfg: Config, ticket_id: str, base: str | None = None) -> dict:
             "whether ac-red has production files to revert",
         ],
         "problems": problems(cfg, t),
+        "areas_note": ("" if g.build_areas() == (t.areas + t.shared, t.files) else
+                       f"this branch changes the ticket's areas; the build's write set above is {g.base}'s "
+                       "(widening is free, but files outside the base areas stay flags the review must name), "
+                       "while CANNOT PASS judges the ticket as written here"),
     }
 
 
@@ -117,6 +133,8 @@ def render(p: dict) -> str:
     lines = [f"{p['ticket']}: {p['title']}" if p["title"] else p["ticket"],
              f"lane: {p['declared_lane']} ({p['lane_source']})",
              f"config: {p['config']}"]
+    if p["areas_note"]:
+        lines.append(f"note: {p['areas_note']}")
     if p["problems"]:
         lines.append("")
         lines.append("CANNOT PASS as written:")

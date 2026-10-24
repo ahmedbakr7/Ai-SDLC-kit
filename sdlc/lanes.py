@@ -47,6 +47,7 @@ class Lane:
     declared: str
     reasons: list[str] = field(default_factory=list)  # each raise, with its trigger
     residue: list[str] = field(default_factory=list)   # mechanical: lines the transforms do not produce
+    triggers: list[str] = field(default_factory=list)  # lanes.TRIGGERS ids, one per raise
 
 
 # Lanes whose build runs the whole suite as their proof, with no test play: mechanical (the diff
@@ -71,7 +72,7 @@ class Trigger:
 
 
 TRIGGERS: tuple[Trigger, ...] = (
-    Trigger("override-refactor", "standard", (), "`--lane refactor` on a ticket the lead did not declare refactor"),
+    Trigger("override-refactor", "standard", ("mechanical",), "`--lane refactor` on a ticket the lead did not declare refactor"),
     Trigger("override", "", (), "`--lane <lane>` asks for a stricter lane"),
     Trigger("contracts", "strict", (), "the PR changes {contracts}"),
     Trigger("waivers", "strict", (), "the PR changes {waivers}"),
@@ -246,6 +247,7 @@ def resolve(cfg: Config, t: Ticket, changed: list[str], mb: str | None, override
     def raise_to(trigger: str, why: str, name: str = "") -> None:
         name = name or _TRIGGER[trigger].to
         if rank(name) > rank(lane.name):
+            lane.triggers.append(trigger)
             lane.reasons.append(f"{lane.name} -> {name}: {why}")
             lane.name = name
 
