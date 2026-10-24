@@ -80,6 +80,14 @@ def cmd_trace(args) -> int:
     return EXIT_FAIL if new or stale or unused else 0
 
 
+def cmd_plan(args) -> int:
+    from . import plan
+
+    p = plan.build(_cfg(args), args.ticket, args.base)
+    print(json.dumps(p, indent=2) if args.json else plan.render(p))
+    return 0
+
+
 def cmd_next(args) -> int:
     cfg = _cfg(args)
     q = tickets.ready_queue(Repo(cfg))
@@ -817,6 +825,15 @@ def build_parser() -> argparse.ArgumentParser:
     p = sp.add_parser("trace", help="requirement -> ticket -> AC -> test matrix")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_trace)
+
+    p = sp.add_parser("plan", help="what the gate will demand of a ticket, before any build (ADR-0006)",
+                      description="Prints the ticket's lane and what can raise it, each play's checks and "
+                                  "write set, and the proof each AC owes, from the functions the gate runs. "
+                                  "Read-only; judged by the base branch's sdlc.toml, like every ticket gate.")
+    p.add_argument("ticket")
+    p.add_argument("--base", help="base branch (default vcs.base)")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_plan)
 
     p = sp.add_parser("next", help="print the next ticket a build agent should take")
     p.add_argument("--all", action="store_true")

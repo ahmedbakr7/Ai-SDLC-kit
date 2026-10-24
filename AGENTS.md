@@ -18,7 +18,7 @@ downstream invents a route, table, page, event, dependency or pattern.
 | `intent` | `intent/*.md` | human sets `status: accepted` |
 | `design` | `design/spec-*.md`, `design/pages/*`, `design/DESIGN.md` | `sdlc lint` clean; human accepts |
 | `architect` | `arch/plan-*.md`, `arch/CONTRACTS.md`, new `decisions/ADR-*.md`, pattern skills | `sdlc lint` clean; human accepts |
-| `ticketize` | `tickets/T-*.md` | `sdlc lint` and `sdlc trace` clean |
+| `ticketize` | `tickets/T-*.md` | `sdlc lint` and `sdlc trace` clean; `sdlc plan <id>` output in the handoff |
 | `build <id>` | ticket `areas:` + `shared:` + unit tests beside them; amendments to its own ticket | `sdlc gate build <id>` passes |
 | `test <id>` | integration / e2e test paths only | `sdlc gate test <id>` passes |
 | `review <id>` | `reviews/<id>.md` only (`.sdlc-run/review-<id>.md` when approvals live outside the tree) | `sdlc gate review <id>` passes |

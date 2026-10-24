@@ -47,11 +47,56 @@ class Lane:
     declared: str
     reasons: list[str] = field(default_factory=list)  # each raise, with its trigger
     residue: list[str] = field(default_factory=list)   # mechanical: lines the transforms do not produce
+    triggers: list[str] = field(default_factory=list)  # lanes.TRIGGERS ids, one per raise
 
 
 # Lanes whose build runs the whole suite as their proof, with no test play: mechanical (the diff
 # is the declared transforms) and refactor (ADR-0004: behaviour does not change).
 NO_TEST_PLAY = ("mechanical", "refactor")
+
+
+@dataclass(frozen=True)
+class Trigger:
+    """One way the diff or an override raises a ticket's lane. `resolve` raises only through
+    these, and `sdlc plan` lists them (ADR-0006), so the two cannot drift apart."""
+    id: str
+    to: str              # the lane it raises to; "" = the lane `--lane` names
+    when: tuple[str, ...]  # declared lanes it can fire from; () = any
+    what: str            # the condition, for `sdlc plan`; {contracts} {waivers} {strict_paths} filled in
+
+    def describe(self, cfg: Config) -> str:
+        p = cfg.data["paths"]
+        globs = cfg.section("lanes").get("strict_paths", [])
+        return self.what.format(contracts=p["contracts"], waivers=p.get("waivers", "sdlc-waivers.toml"),
+                                strict_paths=", ".join(globs) or "(none configured)")
+
+
+TRIGGERS: tuple[Trigger, ...] = (
+    Trigger("override-refactor", "standard", ("mechanical",), "`--lane refactor` on a ticket the lead did not declare refactor"),
+    Trigger("override", "", (), "`--lane <lane>` asks for a stricter lane"),
+    Trigger("contracts", "strict", (), "the PR changes {contracts}"),
+    Trigger("waivers", "strict", (), "the PR changes {waivers}"),
+    Trigger("strict-paths", "strict", (), "the PR changes a file matching lanes.strict_paths ({strict_paths})"),
+    Trigger("no-merge-base", "standard", ("mechanical",), "there is no merge base to replay the transforms against"),
+    Trigger("transforms", "standard", ("mechanical",), "the ticket declares no transforms, or an invalid one"),
+    Trigger("ac-changed", "standard", ("mechanical",), "the PR adds or changes an acceptance criterion"),
+    Trigger("residue", "standard", ("mechanical",), "the diff holds a change the declared transforms do not produce"),
+)
+_TRIGGER = {t.id: t for t in TRIGGERS}
+
+
+def raises(declared: str) -> list[tuple[Trigger, str]]:
+    """[(trigger, lane it would raise to)] for every trigger that can fire on a ticket declared
+    in `declared` and lands above it. An override can land on any stricter lane."""
+    out = []
+    for t in TRIGGERS:
+        if t.when and declared not in t.when:
+            continue
+        targets = [t.to] if t.to else [x for x in LANES if x != "refactor"]
+        for to in targets:
+            if rank(to) > rank(declared):
+                out.append((t, to))
+    return out
 
 
 def rank(lane: str) -> int:
@@ -199,44 +244,46 @@ def resolve(cfg: Config, t: Ticket, changed: list[str], mb: str | None, override
     declared = t.lane if t.lane in LANES else "standard"
     lane = Lane(declared, declared)
 
-    def raise_to(name: str, why: str) -> None:
+    def raise_to(trigger: str, why: str, name: str = "") -> None:
+        name = name or _TRIGGER[trigger].to
         if rank(name) > rank(lane.name):
+            lane.triggers.append(trigger)
             lane.reasons.append(f"{lane.name} -> {name}: {why}")
             lane.name = name
 
     if override == "refactor" and declared != "refactor":
         # Refactor is the lead's declaration on the ticket (ADR-0004); asking for it on a
         # mechanical ticket gets the lane above it instead.
-        raise_to("standard", "override --lane refactor on a ticket the lead did not declare refactor (ADR-0004)")
+        raise_to("override-refactor", "override --lane refactor on a ticket the lead did not declare refactor (ADR-0004)")
     elif override:
-        raise_to(override, f"override --lane {override}")
+        raise_to("override", f"override --lane {override}", override)
     contracts = cfg.data["paths"]["contracts"]
     if contracts in changed:
-        raise_to("strict", f"{contracts} changed (a contract change is strict, even as a rename)")
+        raise_to("contracts", f"{contracts} changed (a contract change is strict, even as a rename)")
     waived = cfg.data["paths"].get("waivers", "sdlc-waivers.toml")
     if waived in changed:
-        raise_to("strict", f"{waived} changed (only the lead adds or renews a waiver)")
+        raise_to("waivers", f"{waived} changed (only the lead adds or renews a waiver)")
     for f in changed:
         hit = next((g for g in cfg.section("lanes").get("strict_paths", []) if paths.match(f, g)), None)
         if hit:
-            raise_to("strict", f"{f} matches lanes.strict_paths {hit!r}")
+            raise_to("strict-paths", f"{f} matches lanes.strict_paths {hit!r}")
             break
     if lane.name != "mechanical":
         return lane
     if mb is None:
-        raise_to("standard", "no merge base to replay the transforms against")
+        raise_to("no-merge-base", "no merge base to replay the transforms against")
         return lane
     transforms, errs = parse_transforms(t.transforms)
     if errs or not transforms:
-        raise_to("standard", "; ".join(errs) or "a mechanical ticket declares no transforms:")
+        raise_to("transforms", "; ".join(errs) or "a mechanical ticket declares no transforms:")
         return lane
     old = _ticket_at(cfg, mb, t)
     if (_acs(old) != dict(t.acs)) if old is not None else bool(t.acs):
-        raise_to("standard", "the ticket adds or changes an acceptance criterion")
+        raise_to("ac-changed", "the ticket adds or changes an acceptance criterion")
         return lane
     lane.residue = residue(cfg, mb, changed, transforms, ignore or set())
     if lane.residue:
-        raise_to("standard", f"{len(lane.residue)} change(s) the declared transforms do not produce "
+        raise_to("residue", f"{len(lane.residue)} change(s) the declared transforms do not produce "
                              f"(first: {lane.residue[0]})")
     return lane
 

@@ -1,9 +1,9 @@
 ---
 id: ADR-0006
 title: Show a ticket's gate plan when it is written, instead of predicting failures
-status: proposed
-date: 2026-10-21
-source: Hangout pilot assessment after ~75 tickets ("writing a ticket means predicting the test checks, which meant reading gate.py")
+status: accepted
+date: 2026-10-24
+source: Hangout pilot assessment after ~75 tickets ("writing a ticket means predicting the test checks, which meant reading gate.py"); proposed 2026-10-21, accepted by the lead in the kit session
 ---
 
 # ADR-0006: Show a ticket's gate plan when it is written, instead of predicting failures
@@ -40,13 +40,22 @@ Options considered:
 - **Status quo plus documentation.** The cost of documentation drifting from the code is what
   produced the complaint.
 
-## Proposed decision
+## Decision
 
 - Add `sdlc plan <ticket> [--json]`, which reads the base branch's config and the ticket as
   written.
 - The ticketize play runs it on every ticket it writes and includes the output in its handoff.
-- `sdlc lint` gains only checks that are exact, not heuristic. For example: a file the ticket
-  lists that no play's write set covers, or an AC tag no test glob could hold.
+- `sdlc lint` gains only checks that are exact, not heuristic, as warnings: a path the ticket
+  lists that the build may never change (the gate's `hard_reason`, after the exemptions `scope`
+  applies first), a test ticket listing a non-test path, owed real-stack proof with no suite
+  command (when the proving play runs `ac-coverage`), and a refactor lane without a `{junit}`
+  unit command. The two examples the
+  proposal gave turned out vacuous: every path a ticket lists is in the build's write set, and AC
+  tags live in test names, not paths. Warnings, because the `artifacts` check fails on lint errors
+  in every gate, `gate ci` included: an error would fail a product on upgrade for a ticket nobody
+  has started. `sdlc plan` prints them as `CANNOT PASS`; shipped tickets are not judged.
+- The lane raises live in one table (`lanes.TRIGGERS`). `lanes.resolve` raises only through it and
+  `plan` lists it, and a test fails if the two disagree.
 
 ## Consequences
 

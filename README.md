@@ -70,6 +70,7 @@ it never trusts committed evidence on its own.
 | `sdlc init --profile nextjs` | scaffold `sdlc.toml`, folders, AGENTS.md, CI workflow, tool adapters |
 | `sdlc doctor` | fail if any required check could pass vacuously (missing command, no `{junit}`, no route extractor) |
 | `sdlc lint` / `sdlc trace` | validate artifacts; requirement → ticket → AC → passing test matrix |
+| `sdlc plan T-001-03` | before any build: the ticket's lane and what can raise it, each play's checks and write set, the proof each AC owes; `--json` for tools |
 | `sdlc status` | every ticket: status, dependencies not yet done, and (records mode) the unmerged branches building it; `--json` for tools |
 | `sdlc next` | the next ticket whose dependencies are done and that no unmerged branch is building |
 | `sdlc prompt build T-001-03` | the exact, complete prompt for a play: rules, skill, ticket, cited requirements and contracts, write set, definition of done |
