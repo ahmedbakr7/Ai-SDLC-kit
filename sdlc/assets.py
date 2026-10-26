@@ -7,11 +7,13 @@ each one and verifies its hash; the `assets` check judges every binary file a br
 from __future__ import annotations
 
 import hashlib
+import http.client
 import os
 import re
 import subprocess
 import tempfile
 import tomllib
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -56,8 +58,9 @@ def parse(text: str | None) -> tuple[list[Asset], list[str]]:
         gen, src = str(r.get("generate", "") or "").strip(), str(r.get("source", "") or "").strip()
         where = f"asset {path or i}"
         bad = []
-        if not path or path.startswith("/") or ".." in path.split("/"):
-            bad.append("path must be a relative path inside the repository")
+        segs = path.split("/")
+        if not path or path.startswith("/") or "\\" in path or any(s in ("", ".", "..") for s in segs):
+            bad.append("path must be a plain relative path inside the repository (no ./, //, .. or \\)")
         if not _SHA.match(sha):
             bad.append("sha256 must be 64 hex characters")
         if bool(gen) == bool(src):
@@ -92,9 +95,11 @@ def sha256(path: Path) -> str:
 
 
 def binaries(root: Path, base: str) -> list[str]:
-    """Binary files the branch adds or changes against merge-base(HEAD, base), as git sees them
-    (numstat `-`, so .gitattributes `binary` and `-diff` count), plus untracked files with a
-    NUL byte in their first 8000 bytes. Deleted files are not judged."""
+    """Binary files the branch adds or changes against merge-base(HEAD, base), deleted ones
+    aside: every changed or untracked file with a NUL byte in its first 8000 bytes, plus what
+    git's numstat calls binary (`-`, so a `.gitattributes` `binary` or `-diff` adds one). The
+    branch's own attributes can only add binaries, never hide one: a `*.png diff` line makes git
+    count a PNG's lines, but its bytes still carry the NUL."""
     mb = gitutil.merge_base(root, base)
     out = set()
     raw = gitutil.git(root, "diff", "--numstat", "-z", "--no-renames", "--relative", mb)
@@ -102,14 +107,13 @@ def binaries(root: Path, base: str) -> list[str]:
         parts = rec.split("\t", 2)
         if len(parts) == 3 and parts[0] == "-" and parts[1] == "-" and (root / parts[2]).is_file():
             out.add(parts[2])
-    for f in gitutil.untracked(root):
-        p = root / f
+    for f in gitutil.changed_files(root, base):
         try:
-            with open(p, "rb") as fh:
+            with open(root / f, "rb") as fh:
                 if b"\0" in fh.read(SNIFF):
                     out.add(f)
         except OSError:
-            continue
+            continue  # deleted, or a directory (a submodule)
     return sorted(out)
 
 
@@ -126,31 +130,55 @@ def judge(cfg: Config, files: list[str], decl: list[Asset]) -> list[str]:
     return out
 
 
+class _HttpsOnly(urllib.request.HTTPRedirectHandler):
+    """A pinned source may redirect (release downloads do), but never off https."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not newurl.startswith("https://"):
+            raise urllib.error.URLError(f"redirect to a non-https URL refused: {newurl}")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _opener() -> urllib.request.OpenerDirector:
+    return urllib.request.build_opener(_HttpsOnly)
+
+
 def produce(cfg: Config, a: Asset, timeout: int = 600) -> str:
     """Generate or fetch one asset, then verify it. Returns a problem, or "" when it matches.
     A file that does not match is left in place for inspection, never committed by this."""
+    root = cfg.root.resolve()
     dest = cfg.root / a.path
+    if not dest.resolve().is_relative_to(root):
+        return f"{a.path}: resolves outside the repository (a symlinked folder?)"
     dest.parent.mkdir(parents=True, exist_ok=True)
     if a.generate:
-        r = subprocess.run(a.generate, shell=True, cwd=cfg.root, capture_output=True, text=True, timeout=timeout,
-                           encoding="utf-8", errors="replace")
+        try:
+            r = subprocess.run(a.generate, shell=True, cwd=cfg.root, capture_output=True, text=True,
+                               timeout=timeout, encoding="utf-8", errors="replace")
+        except subprocess.TimeoutExpired:
+            return f"{a.path}: generate ran longer than {timeout}s"
         if r.returncode != 0:
             return f"{a.path}: generate exited {r.returncode}: {(r.stderr or r.stdout).strip()[-300:]}"
         if not dest.is_file():
             return f"{a.path}: generate did not write the file"
     else:
+        fd, tmp = tempfile.mkstemp(dir=dest.parent)
         try:
-            with urllib.request.urlopen(a.source, timeout=60) as resp:  # noqa: S310 (https only, see parse)
-                fd, tmp = tempfile.mkstemp(dir=dest.parent)
-                with os.fdopen(fd, "wb") as f:
+            try:
+                with _opener().open(a.source, timeout=60) as resp, os.fdopen(fd, "wb") as f:
+                    fd = -1
                     for chunk in iter(lambda: resp.read(1 << 16), b""):
                         f.write(chunk)
-        except OSError as e:
-            return f"{a.path}: fetching {a.source} failed: {e}"
-        got = sha256(Path(tmp))
-        if got != a.sha256:
-            os.unlink(tmp)
-            return f"{a.path}: {a.source} has sha256 {got}, not the pinned {a.sha256}"
-        os.replace(tmp, dest)
+            except (OSError, http.client.HTTPException, ValueError) as e:
+                return f"{a.path}: fetching {a.source} failed: {e}"
+            got = sha256(Path(tmp))
+            if got != a.sha256:
+                return f"{a.path}: {a.source} has sha256 {got}, not the pinned {a.sha256}"
+            os.replace(tmp, dest)
+        finally:
+            if fd != -1:
+                os.close(fd)
+            if os.path.exists(tmp):
+                os.unlink(tmp)  # a failed or rejected download leaves nothing behind
     got = sha256(dest)
     return "" if got == a.sha256 else f"{a.path}: produced sha256 {got}, not the declared {a.sha256}"

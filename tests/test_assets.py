@@ -97,6 +97,35 @@ class Check(unittest.TestCase):
         self.assertEqual(c["status"], "fail", c)
         self.assertIn("not declared in assets.toml", c["details"][0])
 
+    def test_a_ticket_play_passes_with_a_base_declaration(self) -> None:
+        self.set_mode("fail")
+        self.p.write("assets.toml", decl())
+        self.p.commit("lead: declare the logo")
+        git(self.p.root, "checkout", "-q", "-b", "build/T-042-02")
+        self.add_binary()
+        self.p.sdlc("gate", "build", "T-042-02", "--only", "assets")
+        c = json.loads(self.p.read(".sdlc-run/T-042-02.build.json"))["checks"][0]
+        self.assertEqual(c["status"], "pass", c)
+
+    def test_the_branchs_gitattributes_cannot_hide_a_binary(self) -> None:
+        # PR #60 review: `*.png diff` makes numstat count a PNG's lines; its bytes still say binary.
+        self.set_mode("fail")
+        self.p.commit("lead: assets fail")
+        self.branch()
+        self.p.write("app/.gitattributes", "*.png diff\n")
+        self.add_binary()
+        c = self.ci()
+        self.assertEqual(c["status"], "fail", c)
+        self.assertIn("app/static/logo.png: binary, not declared", c["details"][0])
+
+    def test_a_git_error_fails_the_check(self) -> None:
+        from sdlc import gitutil
+        self.branch()
+        self.add_binary()
+        with mock.patch("sdlc.assets.binaries", side_effect=gitutil.GitError("no merge base")):
+            c = self.ci()
+        self.assertEqual((c["status"], c["summary"]), ("fail", "cannot list binary files: no merge base"))
+
     def test_gitattributes_decides_what_is_binary(self) -> None:
         self.p.write(".gitattributes", "*.dat binary\n")
         self.p.commit("lead: attributes")
@@ -142,8 +171,11 @@ class Declarations(unittest.TestCase):
             decl(extra='generate = "x"\nsource = "https://e.org/a"'): "set exactly one of generate",
             decl(extra=""): "set exactly one of generate",
             decl(extra='source = "http://e.org/a"'): "source must be an https:// URL",
-            decl("../etc/x"): "path must be a relative path inside the repository",
-            decl("/abs"): "path must be a relative path inside the repository",
+            decl("../etc/x"): "path must be a plain relative path inside the repository",
+            decl("/abs"): "path must be a plain relative path inside the repository",
+            decl("./a.png"): "path must be a plain relative path",
+            decl("a//b.png"): "path must be a plain relative path",
+            decl("a\\\\b.png"): "path must be a plain relative path",
             decl() + decl(): "declared twice",
             "[[asset]\n": "not valid TOML",
             "asset = 1\n": "want [[asset]] tables",
@@ -180,17 +212,61 @@ class Command(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn(f"produced sha256 {SHA}, not the declared {'0' * 64}", out)
 
-    def test_a_source_is_fetched_and_verified(self) -> None:
+    def fetch(self, body) -> str:
         cfg = config.load(self.p.root)
-        a = assets.Asset("vendor/font.bin", SHA, source="https://example.org/font.bin")
-        with mock.patch("urllib.request.urlopen", return_value=io.BytesIO(PNG)):
-            self.assertEqual(assets.produce(cfg, a), "")
+        opener = mock.Mock()
+        opener.open.return_value = body
+        with mock.patch("sdlc.assets._opener", return_value=opener):
+            return assets.produce(cfg, assets.Asset("vendor/font.bin", SHA, source="https://example.org/font.bin"))
+
+    def test_a_source_is_fetched_and_verified(self) -> None:
+        self.assertEqual(self.fetch(io.BytesIO(PNG)), "")
         self.assertEqual((self.p.root / "vendor/font.bin").read_bytes(), PNG)
         (self.p.root / "vendor/font.bin").unlink()
-        with mock.patch("urllib.request.urlopen", return_value=io.BytesIO(b"other bytes")):
-            why = assets.produce(cfg, a)
+        why = self.fetch(io.BytesIO(b"other bytes"))
         self.assertIn("not the pinned", why)
         self.assertEqual(list((self.p.root / "vendor").iterdir()), [], "a mismatched download is not kept")
+
+    def test_a_broken_download_leaves_nothing_behind(self) -> None:
+        import http.client
+
+        class Broken(io.BytesIO):
+            def read(self, n=-1):
+                raise http.client.IncompleteRead(b"partial")
+
+        why = self.fetch(Broken())
+        self.assertIn("fetching https://example.org/font.bin failed", why)
+        self.assertEqual(list((self.p.root / "vendor").iterdir()), [])
+        cfg = config.load(self.p.root)
+        opener = mock.Mock()
+        opener.open.side_effect = OSError("connection reset")
+        with mock.patch("sdlc.assets._opener", return_value=opener):
+            why = assets.produce(cfg, assets.Asset("vendor/font.bin", SHA, source="https://example.org/font.bin"))
+        self.assertIn("connection reset", why)
+        self.assertEqual(list((self.p.root / "vendor").iterdir()), [])
+
+    def test_a_redirect_off_https_is_refused(self) -> None:
+        import urllib.error
+        import urllib.request
+        h = assets._HttpsOnly()
+        req = urllib.request.Request("https://example.org/a")
+        with self.assertRaises(urllib.error.URLError):
+            h.redirect_request(req, None, 302, "Found", {}, "http://example.org/a")
+        self.assertIsNotNone(h.redirect_request(req, None, 302, "Found", {}, "https://cdn.example.org/a"))
+
+    def test_a_path_through_a_symlinked_folder_is_refused(self) -> None:
+        import os
+        import tempfile
+        outside = tempfile.mkdtemp()
+        os.symlink(outside, self.p.root / "linked")
+        cfg = config.load(self.p.root)
+        why = assets.produce(cfg, assets.Asset("linked/x.png", SHA, generate="true"))
+        self.assertIn("resolves outside the repository", why)
+
+    def test_a_generator_that_hangs_is_stopped(self) -> None:
+        cfg = config.load(self.p.root)
+        a = assets.Asset("app/static/logo.png", SHA, generate=f'"{sys.executable}" -c "import time; time.sleep(5)"')
+        self.assertIn("generate ran longer than 1s", assets.produce(cfg, a, timeout=1))
 
 
 if __name__ == "__main__":

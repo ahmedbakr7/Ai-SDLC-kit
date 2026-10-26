@@ -17,7 +17,13 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
   `.gitattributes` counts). A ticket's gate reads the declarations from the base branch. The
   build skill tells agents to use `sdlc assets` and stop on an undeclared binary.
   Upgrade: nothing required. The check warns and passes until `[assets] mode = "fail"`. A product
-  that overrides its `[gate]` lists adds `assets` to them to get the check.
+  that overrides its `[gate]` lists adds `assets` to them to get the check. `assets.toml` becomes a
+  lead artifact: a product that already keeps an unrelated file by that name at its root points
+  `[paths] assets` elsewhere.
+- The check reads bytes as well as git's view: a branch's own `.gitattributes` can add binaries
+  but never hide one. `sdlc assets` refuses paths through a symlinked folder, stops a generator
+  after 600 seconds, refuses redirects off https, and leaves nothing behind when a download
+  fails (PR #60 review).
 
 ## v5.4.0 (2026-10-26)
 

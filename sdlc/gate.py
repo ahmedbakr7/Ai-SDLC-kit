@@ -533,7 +533,8 @@ class Gate:
             c.status, c.summary = "fail", f"assets.mode must be warn or fail, got {mode!r}"
             return
         try:
-            files = [f for f in assets.binaries(self.cfg.root, self.base) if f in set(self.changed())]
+            mine = set(self.changed())
+            files = [f for f in assets.binaries(self.cfg.root, self.base) if f in mine]
         except gitutil.GitError as e:
             c.status, c.summary = "fail", f"cannot list binary files: {e}"
             return
