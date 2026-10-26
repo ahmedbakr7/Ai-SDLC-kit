@@ -257,7 +257,10 @@ def _write_set(cfg: Config, t: Ticket, play: str) -> str:
         lines.append("- Areas are soft: a file outside them is flagged for the reviewer, who must accept it. Lead "
                      "artifacts, other tickets, config and the test play's files are never yours.")
     elif play == "test":
-        lines = [f"- `{g}`" for g in tests.get("integration_globs", [])] or ["- (tests.integration_globs is empty: ask the lead)"]
+        lines = [f"- `{g}`" for g in tests.get("integration_globs", [])]
+        lines += [f"- `{g}` (the ticket's test_files: name each file you change under ## Test files for the reviewer)"
+                  for g in t.test_files]
+        lines = lines or ["- (tests.integration_globs is empty: ask the lead)"]
     elif _records(cfg):
         lines = [f"- `.sdlc-run/review-{t.id}.md` (the review record; nothing in the repository)"]
     else:

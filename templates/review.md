@@ -37,6 +37,14 @@ An approval that misses one is invalid. Delete this section when the gate flagge
 
 - `path/or/glob` <why> (a bare `**` accepts nothing: name the files)
 
+## Test files
+
+<Each file the branch changes that only the ticket's test_files let the test play write (ADR-0007),
+with why it is test support and not production behaviour. An approval that misses one is invalid.
+Delete this section when the ticket has no test_files.>
+
+- `path/to/fixture` <why>
+
 ## Amendments
 
 <Each new `strengthen`, `split` and `widen` line in the ticket's ## Amendments, by its target, with your

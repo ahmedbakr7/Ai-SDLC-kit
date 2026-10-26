@@ -15,6 +15,8 @@ depends_on: []
 areas:                    # globs or paths this ticket expects to change. Tests beside them are implied.
   - src/server/things.ts  # a file outside the areas is flagged for the reviewer, not refused
 shared: []                # globs of shared modules this ticket may also touch (from the plan's Shared modules)
+# test_files: []          # lead only (ADR-0007): paths or globs outside production source the test play may
+                          # also write (a fixture, seed script or helper). The review names each under ## Test files.
 skills:                   # loaded into the prompt, in order
   - build
   - backend-patterns
