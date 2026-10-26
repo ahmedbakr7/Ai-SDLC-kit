@@ -14,8 +14,8 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
   said the same). It now says to prove them with a `type: test` ticket whose real-stack tests
   also carry one of their AC tags, or to have the lead waive them. A test now shows that remedy
   turns the check green. CONSUME.md describes it. Found in the Hangout pilot.
-- `sdlc lint`'s real-stack warning also fires in records mode when only `gate.build` runs
-  `ac-coverage`, since the PR runs the build list there (a missed warning, PR #56 review).
+- `sdlc lint`'s real-stack warning follows what the records-mode PR runs: the build list, the
+  pr list, and the test list only when the ticket has a test play (PR #56 and #57 reviews).
   Upgrade: nothing required.
 
 ## v5.2.0 (2026-10-24)
