@@ -7,6 +7,18 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 
 ## Unreleased
 
+## v5.5.0 (2026-10-26)
+
+- **Declared binary files (ADR-0009, accepted).** `assets.toml`, a lead artifact, lists each binary
+  path with its sha256 and a `generate` command or a pinned `https://` source. `sdlc assets`
+  produces or fetches each one and verifies it (`--check` only verifies). A new `assets` check in
+  the build, test, PR, mechanical, refactor and ci lists reports every binary a branch adds or
+  changes that is undeclared or differs from its sha256 (git decides what is binary, so
+  `.gitattributes` counts). A ticket's gate reads the declarations from the base branch. The
+  build skill tells agents to use `sdlc assets` and stop on an undeclared binary.
+  Upgrade: nothing required. The check warns and passes until `[assets] mode = "fail"`. A product
+  that overrides its `[gate]` lists adds `assets` to them to get the check.
+
 ## v5.4.0 (2026-10-26)
 
 - **One approval for prose-only lead PRs (ADR-0008, accepted).** `[scope] lead_light` lists globs
