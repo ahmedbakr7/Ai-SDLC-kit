@@ -39,10 +39,13 @@ def problems(cfg: Config, t: Ticket) -> list[str]:
         if why:
             out.append(f"lists {f}, but the build may never change it: {why}")
     suites = real_stack_suites(cfg)
-    # ac-coverage in the play that proves the ticket (the test play; a test ticket's build) is
-    # what demands the real-stack tag; without it in that play's list, nothing does.
-    proving = "build" if t.type == "test" else "test"
-    if (t.owes_real_stack() and suites and "ac-coverage" in cfg.section("gate").get(proving, [])
+    # ac-coverage in a play that proves the ticket demands the real-stack tag: the test play (a
+    # test ticket's build), and in records mode the PR too, which runs the build and test lists.
+    from .approval import records_mode
+
+    g = cfg.section("gate")
+    proving = ["build" if t.type == "test" else "test"] + (["build", "test"] if records_mode(cfg) else [])
+    if (t.owes_real_stack() and suites and any("ac-coverage" in g.get(x, []) for x in proving)
             and not any(cfg.commands.get(s) for s in suites)):
         out.append(f"owes real-stack proof, but no tests.real_stack suite ({', '.join(suites)}) has a command; "
                    "configure one, or the lead sets tests.real_stack = [] or the ticket's test: none")

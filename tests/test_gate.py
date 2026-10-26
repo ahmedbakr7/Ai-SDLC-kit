@@ -830,6 +830,14 @@ class GateCatches(unittest.TestCase):
         c = self.gate("ci", "unit", "integration", "ac-coverage", ticket=None)["ac-coverage"]
         self.assertEqual(c["status"], "fail")
         self.assertIn("T-042-01: done, but no passing integration/e2e test carries its tag", c["details"])
+        self.assertIn("prove them with a type: test ticket whose integration/e2e tests also carry one of their "
+                      "AC tags, or the lead waives them", c["summary"])
+        # The remedy it names works: a later test ticket's real-stack test carries the done
+        # ticket's tag next to its own, and no check refuses the other ticket's tag.
+        self.p.write("tests/test_http_returns.py", self.p.read("tests/test_http_returns.py").replace(
+            '"""mounted"""', '"""T-042-90/AC-1 proves T-042-01/AC-1"""'))
+        c = self.gate("ci", "unit", "integration", "ac-coverage", ticket=None)["ac-coverage"]
+        self.assertEqual(c["status"], "pass", c)
 
     def test_build_may_move_its_ticket_to_in_review(self) -> None:
         self.build_and_commit()  # ready -> in_progress -> in_review, both build moves

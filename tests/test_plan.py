@@ -340,6 +340,10 @@ class Problems(unittest.TestCase):
         self.assertEqual(len(self.problems()), 1)
         self.p.write("sdlc.toml", cfg + '\n[gate]\ntest = ["artifacts", "scope", "unit"]\n')
         self.assertEqual(self.problems(), [], "without ac-coverage in the test play nothing demands the tag")
+        self.p.write("sdlc.toml", cfg + '\n[gate]\ntest = ["artifacts", "scope", "unit"]\n'
+                     '\n[approval]\nmode = "forge"\nreviewers = ["rev"]\nleads = ["lead"]\nrepo = "owner/product"\n')
+        self.assertEqual(len(self.problems()), 1, "in records mode the PR runs the build list's ac-coverage too")
+        self.p.write("sdlc.toml", cfg + '\n[gate]\ntest = ["artifacts", "scope", "unit"]\n')
         self.p.write(PATH, ticket(areas=("tests/test_probe.py",)).replace("type: backend", "type: test"))
         self.assertEqual(len(self.problems()), 1, "a test ticket's build is the play that proves it")
 
