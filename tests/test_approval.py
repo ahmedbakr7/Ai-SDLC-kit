@@ -1152,6 +1152,40 @@ class ReviewPlay(Base):
         self.assertEqual(approval.parse(data["body"])["commit"], head)
 
 
+class TestFilesRecords(Base):
+    """ADR-0007 in records mode: an approval names each file only test_files let the test play write."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        rel = "tickets/T-042-02-order-page.md"
+        self.p.write(rel, self.p.read(rel).replace("shared: []\n", "shared: []\ntest_files:\n  - support/**\n", 1))
+        self.p.commit("lead: test_files")
+        self.build()
+        self.p.write("support/seed.py", "SEED = 1\n")
+        self.head = commit(self.p, "T-042-02: seed helper")
+        self.named = REVIEW_BODY.replace("\n## Findings", "\n## Test files\n\n- `support/seed.py` seeds orders\n\n## Findings", 1)
+
+    def test_the_review_record_names_each_test_files_change(self) -> None:
+        rec = self.p.root / ".sdlc-run" / "review-T-042-02.md"
+        rec.parent.mkdir(exist_ok=True)
+        rec.write_text(approval.render("T-042-02", self.head, "approve", "review", "reviewer", REVIEW_BODY), encoding="utf-8")
+        code, out = self.p.sdlc("gate", "review", "T-042-02", "--only", "review-file")
+        self.assertIn("test_files file not named under ## Test files: support/seed.py", out)
+        rec.write_text(approval.render("T-042-02", self.head, "approve", "review", "reviewer", self.named), encoding="utf-8")
+        code, out = self.p.sdlc("gate", "review", "T-042-02", "--only", "review-file")
+        self.assertEqual(code, 0, out)
+
+    def test_an_approval_that_does_not_name_one_does_not_count(self) -> None:
+        self.forge()
+        self.record("rev", self.head)
+        code, _, res = self.approval()
+        self.assertNotEqual(code, 0)
+        self.assertIn("test_files file not named under ## Test files: support/seed.py", json.dumps(res))
+        self.fake.comments.clear()
+        self.record("rev", self.head, body=self.named)
+        self.assertEqual(self.approval()[0], 0)
+
+
 class Tooling(Base):
     def test_doctor_refuses_an_approval_nobody_can_give(self) -> None:
         self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace('reviewers = ["rev"]', "reviewers = []"))

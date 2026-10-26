@@ -184,6 +184,30 @@ class Gate:
             return [str(x) for x in (v if isinstance(v, list) else [v] if v else [])]
         return (lst("areas") or lst("files")) + lst("shared"), lst("files")
 
+    def test_files(self) -> list[str]:
+        """The ticket's test_files as the base branch has it (ADR-0007): the lead widens the test
+        play's write set there, so a branch never widens its own. A ticket created on the branch
+        has none (it is mechanical, with no test play)."""
+        d = self.base_ticket
+        if not self.ticket or d is None:
+            return []
+        v = d.get("test_files")
+        return [str(x) for x in (v if isinstance(v, list) else [v] if v else [])]
+
+    def test_file_changes(self) -> list[str]:
+        """Files the whole branch changes that only test_files lets the test play write: the
+        approving review names each under ## Test files."""
+        extra = self.test_files()
+        if not extra:
+            return []
+        tests = self.cfg.section("tests")
+        usual = [*tests.get("globs", []), *tests.get("integration_globs", [])]
+        return [f for f in gitutil.changed_files(self.cfg.root, self.base)
+                if any(f == g or _glob(f, g) for g in extra) and not any(_glob(f, g) for g in usual)]
+
+    def production_scope(self) -> list[str]:
+        return production_scope(self.cfg, self.ticket)
+
     def plan(self) -> list[str]:
         g = self.cfg.section("gate")
         if self.play not in g:
@@ -547,7 +571,7 @@ class Gate:
                 exact |= set(area_files)
                 globs += area_globs
             elif play == "test":
-                globs += tests.get("integration_globs", [])
+                globs += tests.get("integration_globs", []) + self.test_files()
             elif play == "review":
                 exact.add(f"{paths['reviews']}/{t.id}.md")
         return globs, exact
@@ -630,6 +654,13 @@ class Gate:
                 continue
             if builds and f == self.cfg.data["paths"]["contracts"]:
                 continue  # allowed, and it makes the lane strict (lead sign-off, contract diff)
+            if (not builds and "test" in self.roles() and any(f == g or _glob(f, g) for g in self.test_files())
+                    and any(_glob(f, g) for g in self.production_scope())):
+                # Production code stays the build's, whatever test_files lists (ADR-0007).
+                problems.append(f"test_files may not cover production source (tests.source_globs, else the "
+                                f"ticket's areas and shared): {f}")
+                bad.append(f)
+                continue
             if self._hard(f):
                 bad.append(f)  # no area, widened or not, covers these
                 continue
@@ -716,7 +747,8 @@ class Gate:
         rec = approval.Record(sha=gitutil.head(self.cfg.root), who="", role=str(d.get("role", "review")),
                               verdict=str(d.get("verdict", "")), body=str(d["_body"]))
         problems += approval._content_problems(rec, rec.role, t, self.lane.name if self.lane else "standard",
-                                               self.out_of_area(), self.new_amendments(), _review_entries, _glob)
+                                               self.out_of_area(), self.new_amendments(), _review_entries, _glob,
+                                               test_changes=self.test_file_changes())
         c.details = problems
         if problems:
             c.status, c.summary = "fail", f"review record invalid ({len(problems)} problem(s))"
@@ -1210,11 +1242,12 @@ class Gate:
         in or out of scope: the refactor lane's base run, where a file left at the head could
         lend new behaviour to a test that is meant to prove the old."""
         t = self.ticket
-        tests = self.cfg.section("tests")
-        test_globs = tests.get("globs", [])
-        scope = tests.get("source_globs", []) or (t.areas + t.shared)
+        # A test_files entry is test code (ADR-0007): reverting it would break the proof itself.
+        test_globs = [*self.cfg.section("tests").get("globs", []), *self.test_files()]
+        scope = self.production_scope()
         prod = sorted(f for f in set(self.changed()) | set(t.files)
-                      if (every or any(_glob(f, g) for g in scope)) and not any(_glob(f, g) for g in test_globs))
+                      if (every or any(_glob(f, g) for g in scope))
+                      and not any(f == g or _glob(f, g) for g in test_globs))
         mb = gitutil.merge_base(self.cfg.root, self.base)
         return [f for f in prod if _norm(gitutil.show_bytes(self.cfg.root, mb, "./" + f)) != _read_or_none(self.cfg.root / f)]
 
@@ -1668,6 +1701,9 @@ class Gate:
                 if kind in ("strengthen", "split", "widen") and key not in judged:
                     ev_problems.append(f"amendment `{kind} {target}` is not named under ## Amendments in "
                                        f"{self.cfg.rel(p)}; the reviewer judges each one")
+            named = _review_entries(body, "## Test files")
+            ev_problems += [f"a test_files file not named under ## Test files in {self.cfg.rel(p)}: {f}"
+                            for f in self.test_file_changes() if not any(f == e or _glob(f, e) for e in named)]
             if self.lane and self.lane.name == "refactor" and not approval.argues_equivalence(body):
                 ev_problems.append(f"a refactor's approval argues under ## Equivalence in {self.cfg.rel(p)} why "
                                    "behaviour is unchanged (ADR-0004)")
@@ -1855,11 +1891,20 @@ def hard_reason(cfg: Config, f: str, play: str, ticket: Ticket | None) -> str:
     if (play == "build" and not (ticket and ticket.type == "test")
             and any(_glob(f, g) for g in cfg.section("tests").get("integration_globs", []))):
         return "the test play's file (tests.integration_globs)"
+    if (play == "build" and ticket and ticket.type != "test"
+            and any(f == g or _glob(f, g) for g in ticket.test_files)):
+        return "the test play's file (the ticket's test_files)"
     if any(_glob(f, g) for g in lead_write_set(cfg)):
         return "a lead artifact or kit config (only a PR without a ticket changes it)"
     if any(f.startswith(p[k].rstrip("/") + "/") for k in ("evidence", "reviews")):
         return "evidence or a review file, which only its own play writes"
     return ""
+
+
+def production_scope(cfg: Config, t: Ticket | None) -> list[str]:
+    """The globs the gate counts as production source: [tests] source_globs, else the
+    ticket's areas and shared."""
+    return cfg.section("tests").get("source_globs", []) or (t.areas + t.shared if t else [])
 
 
 def lead_write_set(cfg: Config) -> list[str]:

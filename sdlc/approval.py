@@ -393,13 +393,15 @@ def evaluate(cfg: Config, gate, records: list[Record], pr: PullRequest | None, h
     unnamed = _commits_without_agent(cfg, gate.base, head) if t is not None else []
     committers = commit_identities(cfg, gate.base, head) if mode(cfg) == "git" else set()
     flagged = gate.out_of_area() if t is not None else []
+    test_changes = gate.test_file_changes() if t is not None else []
     details, granted = [], {}
     for rec, role in latest(cfg, records):
         if rec.verdict not in VERDICTS or (rec.ticket and t is not None and rec.ticket != t.id):
             continue
         why = identity_problems(cfg, rec, role, pr, build_agents, committers)
         stale = gitutil.covers(cfg.root, gate.base, rec.sha, head) if rec.sha else ["no reviewed commit"]
-        content = (_content_problems(rec, role, t, lane, flagged, amendments, _review_entries, _glob)
+        content = (_content_problems(rec, role, t, lane, flagged, amendments, _review_entries, _glob,
+                                     test_changes=test_changes)
                    if t is not None else [])
         label = f"{role} {rec.verdict} by {rec.who}" + (f" ({rec.agent})" if rec.agent else "") + f" at {rec.sha[:12]}"
         if why or stale or content:
@@ -471,10 +473,12 @@ def argues_equivalence(body: str) -> bool:
     return bool(text) and not re.fullmatch(r"<[^>]*>", text)
 
 
-def _content_problems(rec: Record, role: str, t, lane: str, flagged: list[str], amendments, review_entries, glob) -> list[str]:
+def _content_problems(rec: Record, role: str, t, lane: str, flagged: list[str], amendments, review_entries, glob,
+                      test_changes: list[str] = ()) -> list[str]:
     """An approving record names what the reviewer judged: one AC row per AC (above the
-    mechanical lane), each out-of-area file, each strengthen/split/widen amendment, and in the
-    refactor lane why behaviour is unchanged."""
+    mechanical lane), each out-of-area file, each file only the ticket's test_files allowed
+    (ADR-0007), each strengthen/split/widen amendment, and in the refactor lane why behaviour
+    is unchanged."""
     if rec.verdict != "approve" or role != "review":
         return []  # a lead's sign-off or a bot's review is not the independent review
     body = rec.body or ""
@@ -484,6 +488,9 @@ def _content_problems(rec: Record, role: str, t, lane: str, flagged: list[str], 
         out += [f"no AC row for {ac}" for ac, _ in t.acs if ac and ac not in rows]
     named = review_entries(body, "## Out of area")
     out += [f"out of area and not named: {f}" for f in flagged if not any(f == e or glob(f, e) for e in named)]
+    named = review_entries(body, "## Test files")
+    out += [f"test_files file not named under ## Test files: {f}" for f in test_changes
+            if not any(f == e or glob(f, e) for e in named)]
     judged = set(review_entries(body, "## Amendments"))
     out += [f"amendment `{k} {target}` not named under ## Amendments" for k, target, _ in amendments
             if k in ("strengthen", "split", "widen", "weaken", "remove") and target.split()[0] not in judged]

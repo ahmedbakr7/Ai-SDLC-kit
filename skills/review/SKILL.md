@@ -48,7 +48,9 @@ every check, AC -> test mapping) in your prompt. Read the diff yourself:
    validated; no secrets or PII in logs; no injection via string-built queries/HTML.
 7. **Scope and amendments.** The build gate's `scope` details list files outside the
    ticket's areas. Accept each one that belongs in this change by naming it under
-   `## Out of area` with why; anything else is a blocking finding. Read every new line
+   `## Out of area` with why; anything else is a blocking finding. Name each file the
+   ticket's `test_files` let the test play write under `## Test files` (ADR-0007): a
+   "fixture" that changes what production does is blocking. Read every new line
    in the ticket's `## Amendments` and name each `strengthen`, `split` and `widen`
    target under `## Amendments` in the review: a `strengthen` that is really weaker,
    or a `split` that drops behaviour, is blocking. In the mechanical lane, judge the transform list:
@@ -110,6 +112,7 @@ commit: <commit from evidence>
 |---|---|---|
 ## Findings
 ## Out of area
+## Test files
 ## Amendments
 ## Checklist
 ```

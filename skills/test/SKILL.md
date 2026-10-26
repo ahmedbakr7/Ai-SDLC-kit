@@ -10,7 +10,8 @@ real stack: real HTTP, real database, real browser. You never edit production co
 
 ## Write set
 
-Only the integration/e2e paths in your prompt (`tests.integration_globs`). If
+Only the integration/e2e paths in your prompt (`tests.integration_globs`), plus any the
+ticket lists under `test_files` (fixtures, seed scripts, helpers; ADR-0007). If
 production code is wrong, that is the finding: stop and report it.
 
 ## Procedure

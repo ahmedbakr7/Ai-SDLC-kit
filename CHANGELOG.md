@@ -7,6 +7,19 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 
 ## Unreleased
 
+## v5.3.0 (2026-10-26)
+
+- **A ticket's `test_files` (ADR-0007, accepted).** The lead lists paths or globs outside
+  production source that the test play may also write (a fixture, seed script or test helper),
+  so a ticket whose proof needs one no longer splits in two. The gate reads it from the ticket
+  as the base branch has it, so a branch never widens its own. The build may never write those
+  files; the test play's `scope` refuses one that is production source; the refactor and
+  `ac-red` base runs treat them as test code. An approving review names each changed file under
+  a new `## Test files` heading (review file and review record). `sdlc lint` refuses entries
+  that cover production source or a file no play may write, and `test_files` on a ticket with
+  no test play. `sdlc plan` and the test prompt show the wider write set.
+  Upgrade: nothing required; a ticket without `test_files` is judged as before.
+
 ## v5.2.1 (2026-10-26)
 
 - **`gate ci` names a remedy that works.** For a done ticket without real-stack proof it said
