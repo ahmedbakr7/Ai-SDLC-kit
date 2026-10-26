@@ -138,6 +138,11 @@ class Ticket:
         return [str(x) for x in self.get_list("shared")]
 
     @property
+    def test_files(self) -> list[str]:
+        """Paths or globs outside production source the test play may also write (ADR-0007)."""
+        return [str(x) for x in self.get_list("test_files")]
+
+    @property
     def skills(self) -> list[str]:
         return [str(x) for x in self.get_list("skills")]
 
