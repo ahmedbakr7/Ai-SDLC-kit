@@ -48,13 +48,18 @@ Options considered:
   the lead approval from two identities. One approval is still required; CI still runs.
 - The protected paths live in one function (`gate.light_protected`): the kit's own lead write set
   (lead artifacts, AGENTS.md and adapter files, skills, the kit pin, config, baseline, waivers,
-  CI workflows), the agent and CI folders (`.claude/`, `.cursor/`, `.github/`), and the test and
-  source globs. A path the lead adds with `scope.lead_allowed` may be light; a kit path repeated
+  CI workflows); agent instruction files and agent or CI folders at any depth, for every tool
+  (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.claude/`, `.cursor/`, `.github/` and the like);
+  CODEOWNERS, `.gitattributes` and `.gitmodules`; evidence, review files and `.sdlc-run/`; and
+  the test and source globs. Code outside `tests.source_globs` is not protected, so doctor notes
+  an empty `source_globs`. A path the lead adds with `scope.lead_allowed` may be light; a kit path repeated
   there stays protected. The approval check refuses the light path for a protected file whatever
   the globs say.
 - `lead_light` is read from the base branch's config, like the rest of the approval check, so a PR
   cannot lighten itself.
-- `doctor` lists the globs and fails on one that covers a protected path.
+- `doctor` lists the globs and fails on one that covers a protected path. A `lead_light` value
+  that is not a list of globs takes no light path.
+- A counted request for changes blocks the light path, as it blocks every other role.
 - The approval result names the light path, so the merge record shows it.
 
 ## Consequences

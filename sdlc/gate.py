@@ -1907,15 +1907,24 @@ def production_scope(cfg: Config, t: Ticket | None) -> list[str]:
     return cfg.section("tests").get("source_globs", []) or (t.areas + t.shared if t else [])
 
 
+AGENT_FILES = ("AGENTS.md", "CLAUDE.md", "CLAUDE.local.md", "GEMINI.md", ".cursorrules", ".windsurfrules",
+               ".clinerules", "copilot-instructions.md")
+
+
 def light_protected(cfg: Config) -> list[str]:
     """Paths `[scope] lead_light` never lightens (ADR-0008): what agents read as instructions
     (AGENTS.md, adapter files and agent settings, skills, the kit pin), what checks read as data
     (tickets, specs, plans, contracts, ADRs, config, baseline, waivers, CI) and code and tests.
     That is the kit's own lead write set (scope.lead_allowed paths may be light), the agent and
     CI folders, and the test and source globs."""
-    tests = cfg.section("tests")
+    tests, p = cfg.section("tests"), cfg.data["paths"]
     out = _kit_lead_paths(cfg)
-    out += [".claude/**", ".cursor/**", ".github/**"]  # agent settings and hooks, CI and code owners
+    # Agent instructions and settings at any depth (an agent reads a nested AGENTS.md too), for
+    # every tool, not only the adapters switched on; CI, code owners and git's own attributes.
+    out += [f"**/{n}" for n in AGENT_FILES]
+    out += ["**/.claude/**", "**/.cursor/**", "**/.github/**", "**/CODEOWNERS", "**/.gitattributes", ".gitmodules"]
+    # What the gate and the approval read as proof: evidence, review files, run records.
+    out += [f"{p['evidence']}/**", f"{p['reviews']}/**", ".sdlc-run/**"]
     return out + [*tests.get("globs", []), *tests.get("integration_globs", []), *tests.get("source_globs", [])]
 
 

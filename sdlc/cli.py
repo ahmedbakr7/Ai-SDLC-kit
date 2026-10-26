@@ -797,6 +797,9 @@ def lead_light_problems(cfg: config.Config, notes: list[str]) -> list[str]:
         return []
     notes.append("[scope] lead_light (one approval from any reviewer or bot for a lead PR changing only these): "
                  + ", ".join(globs))
+    if not cfg.section("tests").get("source_globs"):
+        notes.append("[scope] lead_light is set but tests.source_globs is empty: code is protected from the light "
+                     "path only through source_globs, so a glob that covers code lightens it. Set source_globs")
     existing = paths.repo_files(cfg.root)
     out = []
     for g in globs:

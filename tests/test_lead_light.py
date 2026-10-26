@@ -75,6 +75,29 @@ class LightPath(Base):
         cfg.data["scope"]["lead_light"] = ["README.md"]  # even if it got through
         self.assertFalse(approval.light(cfg, ["README.md"]))
 
+    def test_a_request_for_changes_blocks_the_light_path(self) -> None:
+        head = self.lead_pr({"README.md": "# Returns\n"})
+        self.record("bot", head, role="bot", agent="", body="ok", ticket="")
+        self.record("rev", head, verdict="request_changes", agent="", body="- wrong", ticket="")
+        code, _, res = self.approval()
+        self.assertNotEqual(code, 0)
+        self.assertIn("needs changes requested", res["summary"])
+
+    def test_a_string_is_not_a_list_of_globs(self) -> None:
+        cfg = config.load(self.p.root)
+        cfg.data["scope"]["lead_light"] = "docs/**"  # iterated, it would yield a bare "*"
+        self.assertFalse(approval.light(cfg, ["Makefile"]))
+        self.assertFalse(approval.light(cfg, ["docs/guide.md"]))
+        cfg.data["scope"]["lead_light"] = ["docs/**", ""]
+        self.assertFalse(approval.light(cfg, ["docs/guide.md"]))
+
+    def test_doctor_notes_code_is_unprotected_without_source_globs(self) -> None:
+        out = self.p.sdlc("doctor")[1]
+        self.assertIn("tests.source_globs is empty: code is protected from the light path only", out)
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace(
+            'integration_globs = ["tests/**"]', 'integration_globs = ["tests/**"]\nsource_globs = ["app/**"]', 1))
+        self.assertNotIn("tests.source_globs is empty", self.p.sdlc("doctor")[1])
+
     def test_doctor_lists_the_globs_and_refuses_a_non_list(self) -> None:
         code, out = self.p.sdlc("doctor")
         self.assertIn("note  [scope] lead_light (one approval from any reviewer or bot", out)
@@ -95,6 +118,11 @@ class Protected(Base):
                  "arch/CONTRACTS.md", "decisions/ADR-0001-stack.md", "ops/runbook.md", "sdlc.toml",
                  "sdlc-baseline.json", "sdlc-waivers.toml", "skills.lock.json", ".github/workflows/sdlc.yml",
                  ".claude/settings.json", ".github/CODEOWNERS",
+                 # PR #59 review: proof files, nested and other tools' instructions, owners, attributes.
+                 "evidence/T-042-02.build.json", "reviews/T-042-02.md", ".sdlc-run/review-T-042-02.md",
+                 "docs/AGENTS.md", "app/AGENTS.md", "docs/CLAUDE.md", "docs/GEMINI.md", "docs/.cursorrules",
+                 "docs/.cursor/rules/x.mdc", "docs/.claude/settings.json", "CODEOWNERS", "docs/CODEOWNERS",
+                 ".gitattributes", "docs/.gitattributes", ".gitmodules",
                  "tests/test_api.py", "app/test_returns.py"]
         prot = light_protected(cfg)
         from sdlc.gate import _glob

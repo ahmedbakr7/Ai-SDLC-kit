@@ -350,7 +350,10 @@ def light(cfg: Config, changed: list[str]) -> bool:
     forbids it."""
     from .gate import _glob, light_protected
 
-    globs = [str(g) for g in cfg.section("scope").get("lead_light", []) or []]
+    globs = cfg.section("scope").get("lead_light", []) or []
+    # A string is not a list of globs: iterating "docs/**" would yield a bare "*".
+    if not isinstance(globs, list) or not all(isinstance(g, str) and g.strip() for g in globs):
+        return False
     if not globs or not changed or presets.hardened(cfg.data):
         return False
     prot = light_protected(cfg)
@@ -439,6 +442,9 @@ def evaluate(cfg: Config, gate, records: list[Record], pr: PullRequest | None, h
         if role == "any":
             if not any(approvers.values()):
                 missing.append("an approving review (any reviewer or bot)")
+            elif t is None and any(r.verdict == "request_changes" for rs in granted.values() for r in rs):
+                # The light path (ADR-0008) takes one approval, but not over a counted objection.
+                missing.append("changes requested")
             continue
         rs = granted.get(role, [])
         if any(r.verdict == "request_changes" for r in rs):

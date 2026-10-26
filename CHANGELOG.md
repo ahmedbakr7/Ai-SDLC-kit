@@ -12,12 +12,15 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 - **One approval for prose-only lead PRs (ADR-0008, accepted).** `[scope] lead_light` lists globs
   of prose no agent reads as instructions and no check reads as data (a README, guides). A PR
   that moves no ticket and changes only such files needs one approving review from any reviewer
-  or bot, instead of an independent review and a lead approval from two identities. Paths the
-  kit reads as instructions or data (lead artifacts, AGENTS.md and adapter files, skills, the kit
-  pin, config, baseline, waivers, `.claude/`, `.cursor/`, `.github/`, tests and source) never take
-  the light path, whatever the globs say; `sdlc doctor` lists the globs and fails on one that
-  covers such a path. The setting is read from the base branch, the approval summary names the
-  light path, and the hardened preset forbids it.
+  or bot, instead of an independent review and a lead approval from two identities; a counted
+  request for changes still blocks it. Paths the kit reads as instructions or data never take the
+  light path, whatever the globs say: lead artifacts, skills, the kit pin, config, baseline,
+  waivers, evidence, review files, `.sdlc-run/`, agent instruction files at any depth (AGENTS.md,
+  CLAUDE.md and the like) and agent or CI folders (`.claude/`, `.cursor/`, `.github/`),
+  CODEOWNERS, `.gitattributes`, `.gitmodules`, and `tests.globs`, `tests.integration_globs` and
+  `tests.source_globs`. `sdlc doctor` lists the globs, fails on one that covers such a path, and
+  notes that code is not protected while `tests.source_globs` is empty. The setting is read from
+  the base branch, the approval summary names the light path, and the hardened preset forbids it.
   Upgrade: nothing required; `lead_light` is empty by default.
 
 ## v5.3.0 (2026-10-26)
