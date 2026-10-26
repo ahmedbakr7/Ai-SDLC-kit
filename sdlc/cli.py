@@ -675,6 +675,7 @@ def cmd_doctor(args) -> int:
     probs += lane_floor_problems(cfg)
     probs += cfg.preset_problems  # the preset forbids them; the stricter value applies meanwhile
     probs += approval_problems(cfg)
+    probs += lead_light_problems(cfg, notes)
     if "contracts" in required and not cfg.section("routes").get("extractor"):
         probs.append("routes.extractor is not set; contract drift cannot be checked")
     if not cfg.section("tests").get("globs"):
@@ -782,6 +783,31 @@ def lane_coverage_notes(cfg: config.Config) -> list[str]:
     extra = [n for n in g.get("build", []) if n != "ac-red" and n not in g.get("refactor", [])]
     return [f"gate.build runs {', '.join(extra)} and gate.refactor does not: a refactor ticket skips them "
             "(add them to [gate] refactor)"] if extra else []
+
+
+def lead_light_problems(cfg: config.Config, notes: list[str]) -> list[str]:
+    """ADR-0008: list [scope] lead_light, and fail on a glob that covers a protected path."""
+    from . import paths
+    from .gate import light_overlaps
+
+    globs = cfg.section("scope").get("lead_light", []) or []
+    if not isinstance(globs, list) or not all(isinstance(g, str) and g.strip() for g in globs):
+        return ["[scope] lead_light must be a list of globs"]
+    if not globs:
+        return []
+    notes.append("[scope] lead_light (one approval from any reviewer or bot for a lead PR changing only these): "
+                 + ", ".join(globs))
+    if not cfg.section("tests").get("source_globs"):
+        notes.append("[scope] lead_light is set but tests.source_globs is empty: code is protected from the light "
+                     "path only through source_globs, so a glob that covers code lightens it. Set source_globs")
+    existing = paths.repo_files(cfg.root)
+    out = []
+    for g in globs:
+        hit = light_overlaps(cfg, g, existing)
+        if hit:
+            out.append(f"[scope] lead_light glob {g} covers {hit}, which agents read as instructions or checks read "
+                       "as data; it never takes the light path. Narrow the glob")
+    return out
 
 
 def approval_problems(cfg: config.Config) -> list[str]:

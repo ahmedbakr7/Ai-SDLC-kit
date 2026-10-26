@@ -100,6 +100,10 @@ def enforce(data: dict[str, Any], before: dict[str, Any], user: dict[str, Any],
         probs.append(f"[waivers] max_days = {n!r} is above the hardened preset's {HARDENED_MAX_DAYS}; "
                      f"{HARDENED_MAX_DAYS} applies")
         out["waivers"]["max_days"] = HARDENED_MAX_DAYS
+    if us.get("lead_light"):
+        probs.append("[scope] lead_light is forbidden by the hardened preset: every lead PR needs an independent "
+                     "review and a lead approval")
+        out.setdefault("scope", {})["lead_light"] = []
     if ua.get("trust_unsigned"):
         probs.append("[approval] trust_unsigned is forbidden by the hardened preset: approvals must come from "
                      "verified identities (separate accounts for agents, reviewers and leads)")

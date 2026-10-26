@@ -184,6 +184,12 @@ Set `[approval] mode = "forge"` (GitHub) or `"git"` (signed notes in `refs/notes
 - In `git` mode a lead's own PR needs a second lead (a signer may not approve their own commits).
 - A PR that names no ticket (config, CI, the kit pin, contracts, tickets) needs a lead approval
   and an independent review, from two identities (kit v3.0.0 or later; before, the lead alone).
+  Exception (kit v5.4.0, ADR-0008): when every changed file matches `[scope] lead_light` (prose
+  such as `README.md` or `docs/**`), one approving review from any reviewer or bot is enough.
+  Paths agents or checks read (lead artifacts, agent instruction files at any depth, skills,
+  config, evidence and reviews, `.github/`, CODEOWNERS, tests) never qualify; `sdlc doctor` fails
+  on a glob that covers one. Code is protected only through `tests.source_globs`: set it. `lead_light` changes only
+  the approvals: with `scope.lead_code = "fail"`, list the same globs in `lead_allowed` too.
   Review records count only unedited (comments) and on the commit the forge recorded (reviews).
 - List the reviewer, lead and bot identities in `[approval]`. They must differ from the identity
   that opens PRs. If one account does everything, set `trust_unsigned = true`: approvals then need

@@ -344,6 +344,23 @@ def latest(cfg: Config, records: list[Record]) -> list[tuple[Record, str]]:
     return [(r, role) for (_, role), r in keep.items()]
 
 
+def light(cfg: Config, changed: list[str]) -> bool:
+    """Does a PR that moves no ticket take the light path (ADR-0008)? Every changed file is in
+    [scope] lead_light and none is protected, whatever the globs say. The hardened preset
+    forbids it."""
+    from .gate import _glob, light_protected
+
+    globs = cfg.section("scope").get("lead_light", []) or []
+    # A string is not a list of globs: iterating "docs/**" would yield a bare "*".
+    if not isinstance(globs, list) or not all(isinstance(g, str) and g.strip() for g in globs):
+        return False
+    if not globs or not changed or presets.hardened(cfg.data):
+        return False
+    prot = light_protected(cfg)
+    return all(any(f == g or _glob(f, g) for g in globs) and not any(f == g or _glob(f, g) for g in prot)
+               for f in changed)
+
+
 def lead_amendments(cfg: Config, base: str) -> list[str]:
     """New `weaken` / `remove` lines in any ticket the branch changes: each needs a lead,
     whichever ticket (if any) the PR says it serves."""
@@ -383,6 +400,10 @@ def evaluate(cfg: Config, gate, records: list[Record], pr: PullRequest | None, h
             return Result(True, "nothing changed", trust_based=trust)
         need, lane, amendments = ["review", "lead"], "lead PR", []
         lead_lines = lead_lines or [f"a PR without a ticket ({len(changed)} file(s))"]
+        if light(cfg, changed):
+            # ADR-0008: prose only, every file in [scope] lead_light and none protected. One
+            # approving review from any reviewer or bot, the mechanical lane's floor; never zero.
+            need, lane, lead_lines = ["any"], "lead PR, light: prose only ([scope] lead_light)", []
     else:
         lane = gate.lane.name if gate.lane else "standard"
         amendments = gate.new_amendments()
@@ -421,6 +442,9 @@ def evaluate(cfg: Config, gate, records: list[Record], pr: PullRequest | None, h
         if role == "any":
             if not any(approvers.values()):
                 missing.append("an approving review (any reviewer or bot)")
+            elif t is None and any(r.verdict == "request_changes" for rs in granted.values() for r in rs):
+                # The light path (ADR-0008) takes one approval, but not over a counted objection.
+                missing.append("changes requested")
             continue
         rs = granted.get(role, [])
         if any(r.verdict == "request_changes" for r in rs):

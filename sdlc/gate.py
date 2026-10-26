@@ -1907,9 +1907,48 @@ def production_scope(cfg: Config, t: Ticket | None) -> list[str]:
     return cfg.section("tests").get("source_globs", []) or (t.areas + t.shared if t else [])
 
 
+AGENT_FILES = ("AGENTS.md", "CLAUDE.md", "CLAUDE.local.md", "GEMINI.md", ".cursorrules", ".windsurfrules",
+               ".clinerules", "copilot-instructions.md")
+
+
+def light_protected(cfg: Config) -> list[str]:
+    """Paths `[scope] lead_light` never lightens (ADR-0008): what agents read as instructions
+    (AGENTS.md, adapter files and agent settings, skills, the kit pin), what checks read as data
+    (tickets, specs, plans, contracts, ADRs, config, baseline, waivers, CI) and code and tests.
+    That is the kit's own lead write set (scope.lead_allowed paths may be light), the agent and
+    CI folders, and the test and source globs."""
+    tests, p = cfg.section("tests"), cfg.data["paths"]
+    out = _kit_lead_paths(cfg)
+    # Agent instructions and settings at any depth (an agent reads a nested AGENTS.md too), for
+    # every tool, not only the adapters switched on; CI, code owners and git's own attributes.
+    out += [f"**/{n}" for n in AGENT_FILES]
+    out += ["**/.claude/**", "**/.cursor/**", "**/.github/**", "**/CODEOWNERS", "**/.gitattributes", ".gitmodules"]
+    # What the gate and the approval read as proof: evidence, review files, run records.
+    out += [f"{p['evidence']}/**", f"{p['reviews']}/**", ".sdlc-run/**"]
+    return out + [*tests.get("globs", []), *tests.get("integration_globs", []), *tests.get("source_globs", [])]
+
+
+def light_overlaps(cfg: Config, entry: str, existing: list[str] | None = None) -> str:
+    """A protected path `entry` (a lead_light glob) covers, or "": a protected literal path or
+    an existing protected file it matches, or a sample path under a protected glob."""
+    prot = light_protected(cfg)
+    samples = [g.replace("**", "x").replace("*", "x") for g in prot]
+    samples += [x + ".md" for x in samples if not x.endswith(".md")]
+    files = paths.repo_files(cfg.root) if existing is None else existing
+    for f in [*prot, *samples, *files]:
+        if (f == entry or _glob(f, entry)) and any(f == g or _glob(f, g) for g in prot):
+            return f
+    return ""
+
+
 def lead_write_set(cfg: Config) -> list[str]:
     """Globs a PR that moves no ticket may change: the lead plays' artifacts, the kit's
     config and generated entry files, and whatever scope.lead_allowed adds."""
+    return _kit_lead_paths(cfg) + list(cfg.section("scope").get("lead_allowed", []))
+
+
+def _kit_lead_paths(cfg: Config) -> list[str]:
+    """The lead write set the kit itself defines, without scope.lead_allowed."""
     from . import adapters
 
     p = cfg.data["paths"]
@@ -1918,7 +1957,7 @@ def lead_write_set(cfg: Config) -> list[str]:
             p.get("waivers", waivers.DEFAULT_PATH), config.CONFIG_NAME,
             "AGENTS.md", *adapters.files(cfg),
             ".sdlc", ".sdlc/**", ".github/workflows/**"]  # the kit pin and CI that runs the gate
-    return out + list(cfg.section("scope").get("lead_allowed", []))
+    return out
 
 
 def real_stack_suites(cfg: Config) -> list[str]:
