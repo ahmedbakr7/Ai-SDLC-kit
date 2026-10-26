@@ -1,9 +1,9 @@
 ---
 id: ADR-0008
 title: A light path for lead PRs that change only prose
-status: proposed
-date: 2026-10-21
-source: Hangout pilot assessment ("lead PRs need a lot of ceremony"); ADR-0001 section 4; pilot finding 17, shipped in kit v3.0.0 (lead PRs get an independent review as well as the lead's approval)
+status: accepted
+date: 2026-10-26
+source: Hangout pilot assessment ("lead PRs need a lot of ceremony"); ADR-0001 section 4; pilot finding 17, shipped in kit v3.0.0 (lead PRs get an independent review as well as the lead's approval); proposed 2026-10-21, accepted by the lead in the kit session
 ---
 
 # ADR-0008: A light path for lead PRs that change only prose
@@ -26,7 +26,7 @@ Options considered:
   qualify. A lead PR whose every changed file matches it needs what a mechanical ticket PR needs,
   one approving review from any reviewer or bot. It no longer needs the independent `review` role,
   the `lead` role or two identities. There is no zero-approval case: with `approval.bots` empty, a
-  person still approves. CI still runs. As a second guard, so that a broad glob such as `**/*.md`
+  listed reviewer still approves. CI still runs. As a second guard, so that a broad glob such as `**/*.md`
   cannot reach instructions, the kit refuses globs that cover the paths it knows are instructions
   or data:
   - `AGENTS.md` and adapter files;
@@ -39,10 +39,22 @@ Options considered:
 - **Waive review by PR label.** Anyone with label rights could skip review. Rejected.
 - **Status quo.** Safe, slow.
 
-## Proposed decision
+## Decision
 
-- Add `lead_light`, empty by default. The `hardened` preset forbids it.
-- `doctor` lists the globs and fails on one that overlaps a protected path.
+- Add `[scope] lead_light`, empty by default. The `hardened` preset forbids it.
+- A PR that moves no ticket, and whose every changed file matches `lead_light` and no protected
+  path, needs one approving review from any reviewer or bot (role `any`, the mechanical lane's
+  floor). It no longer needs the independent `review` role, the `lead` role, or the review and
+  the lead approval from two identities. One approval is still required; CI still runs.
+- The protected paths live in one function (`gate.light_protected`): the kit's own lead write set
+  (lead artifacts, AGENTS.md and adapter files, skills, the kit pin, config, baseline, waivers,
+  CI workflows), the agent and CI folders (`.claude/`, `.cursor/`, `.github/`), and the test and
+  source globs. A path the lead adds with `scope.lead_allowed` may be light; a kit path repeated
+  there stays protected. The approval check refuses the light path for a protected file whatever
+  the globs say.
+- `lead_light` is read from the base branch's config, like the rest of the approval check, so a PR
+  cannot lighten itself.
+- `doctor` lists the globs and fails on one that covers a protected path.
 - The approval result names the light path, so the merge record shows it.
 
 ## Consequences
@@ -60,4 +72,4 @@ Options considered:
 ## Open questions
 
 - Should a light PR keep the `lead` role when the lead is not the author (one lead record instead
-  of any approval)?
+  of any approval)? Not decided here: any approval counts.
