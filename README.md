@@ -35,7 +35,7 @@ the model and into one command:
 | `test-quality` | tests are skipped/focused or assert on source text instead of behaviour |
 | `smoke` | the started app does not serve every contract route and page (`app.mutating_probe = "options"` checks writes via the `Allow` header instead of sending them; the `nextjs` profile sets it) |
 | `skills` | a vendored third-party skill drifted from its pinned commit and hash |
-| `review-file` | a review misses an AC row, approves a commit other than the latest proven one, or code changed after the reviewed commit; an approval does not name each out-of-area file under `## Out of area` and each new `strengthen`/`split`/`widen` amendment under `## Amendments`; on a PR, the ticket is not yet reviewed and `done` |
+| `review-file` | a review misses an AC row, approves a commit other than the latest proven one, or code changed after the reviewed commit; an approval does not name each out-of-area file under `## Out of area`, each file only the ticket's `test_files` allowed under `## Test files`, and each new `strengthen`/`split`/`widen` amendment under `## Amendments`; on a PR, the ticket is not yet reviewed and `done` |
 
 Every ticket runs in a **risk lane** ([ADR-0001](decisions/ADR-0001-lanes-areas-forge-approval.md)), chosen by
 the engine from the ticket and the diff; it may raise a lane, never lower it:

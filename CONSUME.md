@@ -150,7 +150,10 @@ The gate picks each ticket's lane ([ADR-0001](decisions/ADR-0001-lanes-areas-for
 
 `areas:` (globs) replaces `files:`. A build may touch other files; the gate flags them and the
 approving review names each under `## Out of area`. Lead artifacts, other tickets, config and
-the test play's files stay off limits. The build amends its own ticket in `## Amendments`
+the test play's files stay off limits. When the proof needs a fixture or helper outside
+`tests.integration_globs`, the lead lists it in the ticket's `test_files:` on the base branch
+(ADR-0007): the test play may then write it, the build may not, and the approving review names
+each changed one under `## Test files`. The build amends its own ticket in `## Amendments`
 (`add`, `strengthen`, `split`, `widen`); weakening or removing an AC still needs the spec.
 
 ### Approvals outside the tree

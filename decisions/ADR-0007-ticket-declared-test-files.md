@@ -1,9 +1,9 @@
 ---
 id: ADR-0007
 title: Let a ticket name the extra files its test play may write, instead of splitting tickets
-status: proposed
-date: 2026-10-21
-source: Hangout pilot assessment ("the limit on which files the test step may write forces ticket splits")
+status: accepted
+date: 2026-10-26
+source: Hangout pilot assessment ("the limit on which files the test step may write forces ticket splits"); proposed 2026-10-21, accepted by the lead in the kit session
 ---
 
 # ADR-0007: Let a ticket name the extra files its test play may write, instead of splitting tickets
@@ -30,12 +30,18 @@ Options considered:
   names each file under a new `## Test files` heading.
 - **Widen `integration_globs` for everyone.** It loosens every ticket to fix some of them.
 
-## Proposed decision
+## Decision
 
 - Add `test_files: [...]`, read from the ticket as the base branch has it.
 - `sdlc lint` refuses entries that match the production scope the gate uses: `tests.source_globs`,
   or the ticket's `areas` and `shared` when `source_globs` is empty. Production code stays the
   build's.
+- `sdlc lint` also refuses an entry that covers a file no play may write (lead artifacts, kit
+  config, evidence, reviews), and `test_files` on a ticket with no test play.
+- The gate enforces what lint checks: the test play's `scope` refuses a `test_files` file that is
+  production source, and the build may never write the ticket's `test_files`.
+- An approving review names each changed file that only `test_files` allowed under
+  `## Test files`, in the review file and in a review record alike.
 - A `test_files` entry counts as test code. This needs a code change: today
   `Gate._production_changes` leaves out only `tests.globs`, and the refactor lane's base run
   (`every=True`) reverts every other changed file, so it would revert a `test_files` entry too.
@@ -52,4 +58,5 @@ Options considered:
 ## Open questions
 
 - Should a `test_files` entry the test play created become part of the build's write set for
-  later tickets?
+  later tickets? Not decided here: today it does not, and a later ticket that needs it lists it
+  again, or the lead moves it into `integration_globs`.
