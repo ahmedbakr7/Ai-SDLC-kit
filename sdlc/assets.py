@@ -10,6 +10,7 @@ import hashlib
 import http.client
 import os
 import re
+import stat
 import subprocess
 import tempfile
 import tomllib
@@ -105,16 +106,26 @@ def binaries(root: Path, base: str) -> list[str]:
     raw = gitutil.git(root, "diff", "--numstat", "-z", "--no-renames", "--relative", mb)
     for rec in raw.split("\0"):
         parts = rec.split("\t", 2)
-        if len(parts) == 3 and parts[0] == "-" and parts[1] == "-" and (root / parts[2]).is_file():
+        if len(parts) == 3 and parts[0] == "-" and parts[1] == "-" and _regular(root / parts[2]):
             out.add(parts[2])
     for f in gitutil.changed_files(root, base):
+        if not _regular(root / f):
+            continue  # deleted, a symlink (git stores its target as text) or a directory
         try:
             with open(root / f, "rb") as fh:
                 if b"\0" in fh.read(SNIFF):
                     out.add(f)
         except OSError:
-            continue  # deleted, or a directory (a submodule)
+            continue
     return sorted(out)
+
+
+def _regular(p: Path) -> bool:
+    """A regular file, not followed through a symlink: reading `x -> /dev/zero` never ends."""
+    try:
+        return stat.S_ISREG(os.lstat(p).st_mode)
+    except OSError:
+        return False
 
 
 def judge(cfg: Config, files: list[str], decl: list[Asset]) -> list[str]:

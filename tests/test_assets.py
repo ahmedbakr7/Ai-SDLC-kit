@@ -97,6 +97,16 @@ class Check(unittest.TestCase):
         self.assertEqual(c["status"], "fail", c)
         self.assertIn("not declared in assets.toml", c["details"][0])
 
+    def test_symlinks_are_not_binaries(self) -> None:
+        # PR #60 re-review: git stores a symlink's target as text; reading /dev/zero never ends.
+        import os
+        self.add_binary("app/static/real.png")
+        self.branch()
+        os.symlink("real.png", self.p.root / "app/static/alias.png")
+        os.symlink("/dev/zero", self.p.root / "app/static/zero")
+        self.p.commit("links")
+        self.assertEqual(assets.binaries(self.p.root, "main"), [])
+
     def test_a_ticket_play_passes_with_a_base_declaration(self) -> None:
         self.set_mode("fail")
         self.p.write("assets.toml", decl())
@@ -257,7 +267,9 @@ class Command(unittest.TestCase):
     def test_a_path_through_a_symlinked_folder_is_refused(self) -> None:
         import os
         import tempfile
+        import shutil
         outside = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, outside, True)
         os.symlink(outside, self.p.root / "linked")
         cfg = config.load(self.p.root)
         why = assets.produce(cfg, assets.Asset("linked/x.png", SHA, generate="true"))
