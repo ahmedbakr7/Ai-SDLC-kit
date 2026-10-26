@@ -140,6 +140,12 @@ DEFAULTS: dict[str, Any] = {
         # Globs a PR that moves no ticket may change, besides the lead artifacts, sdlc.toml,
         # AGENTS.md and generated adapter files (`gate pr` without a ticket).
         "lead_allowed": [],
+        # ADR-0008: globs of prose no agent reads as instructions and no check reads as data
+        # (README, guides). A PR that moves no ticket and changes only such files needs one
+        # approving review from any reviewer or bot instead of a review and a lead approval.
+        # Globs covering a protected path (gate.light_protected) never lighten it. It changes only
+        # the approvals: with lead_code = "fail", list the same globs in lead_allowed too.
+        "lead_light": [],
         # What a PR that moves no ticket may do with other files (code): "warn" reports them
         # and passes (human hotfixes), "fail" requires a ticket for every code change.
         "lead_code": "warn",
