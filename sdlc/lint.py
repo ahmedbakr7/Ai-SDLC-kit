@@ -293,7 +293,7 @@ def _test_files_problems(repo: Repo, t: Ticket) -> list[str]:
     """ADR-0007: test_files widens the test play's write set, never into production source or
     into what no play may change. A glob entry is judged by the entry itself and by every
     existing file it matches."""
-    from .gate import hard_reason
+    from .gate import hard_reason, production_scope
     from .lanes import NO_TEST_PLAY
 
     v = t.data.get("test_files")
@@ -306,7 +306,9 @@ def _test_files_problems(repo: Repo, t: Ticket) -> list[str]:
     if t.lane in NO_TEST_PLAY:
         return [f"test_files has no effect: the {t.lane} lane has no test play"]
     cfg = repo.cfg
-    scope = cfg.section("tests").get("source_globs", []) or (t.areas + t.shared)
+    # The ticket's own areas too: the build may never write a test_files file, so one in its
+    # areas leaves a file its build cannot change even where source_globs is set.
+    scope = list(dict.fromkeys([*production_scope(cfg, t), *t.areas, *t.shared]))
     existing = None
     out = []
     for e in v:
@@ -316,7 +318,7 @@ def _test_files_problems(repo: Repo, t: Ticket) -> list[str]:
             hits += [f for f in existing if paths.match(f, e)]
         prod = next((f for f in hits if f in scope or paths.match_any(f, scope)), None)
         if prod:
-            out.append(f"test_files entry {e} covers production source {prod} (tests.source_globs, else the "
+            out.append(f"test_files entry {e} covers production source {prod} (tests.source_globs, or the "
                        "ticket's areas and shared); production code stays the build's")
             continue
         why = next((r for f in hits for r in [hard_reason(cfg, f, "test", t)] if r), "")

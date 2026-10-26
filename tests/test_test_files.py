@@ -172,6 +172,25 @@ class TestFiles(unittest.TestCase):
         self.assertTrue(any("test_files entry app/*.py covers production source" in m for m in self.lint()),
                         self.lint())
 
+    def test_lint_refuses_the_tickets_own_areas_even_with_source_globs(self) -> None:
+        # The build may never write a test_files file, so one in its areas could never pass.
+        self.p.write("sdlc.toml", self.p.read("sdlc.toml").replace(
+            'integration_globs = ["tests/**"]', 'integration_globs = ["tests/**"]\nsource_globs = ["lib/**"]', 1))
+        self.set_test_files("app/server.py")
+        self.assertTrue(any("test_files entry app/server.py covers production source app/server.py" in m
+                            for m in self.lint()), self.lint())
+        self.set_test_files("support/seed.py")
+        self.assertEqual(self.lint(), [])
+
+    def test_plan_shows_the_wider_test_write_set(self) -> None:
+        from sdlc import plan
+        self.set_test_files("support/seed.py")
+        self.p.commit("lead: test_files")
+        p = plan.build(config.load(self.p.root), TID)
+        play = p["lanes"][0]["plays"]["test"]
+        self.assertIn("support/seed.py", play["may_write"]["globs"])
+        self.assertNotIn("support/seed.py", p["lanes"][0]["plays"]["build"]["may_write"]["globs"])
+
     def test_lint_refuses_what_no_play_may_write(self) -> None:
         self.set_test_files("sdlc.toml")
         self.assertTrue(any("test_files entry sdlc.toml covers a file no play may write: a lead artifact" in m

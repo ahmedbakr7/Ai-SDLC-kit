@@ -206,10 +206,7 @@ class Gate:
                 if any(f == g or _glob(f, g) for g in extra) and not any(_glob(f, g) for g in usual)]
 
     def production_scope(self) -> list[str]:
-        """The globs the gate counts as production source: [tests] source_globs, else the
-        ticket's areas and shared."""
-        t = self.ticket
-        return self.cfg.section("tests").get("source_globs", []) or (t.areas + t.shared if t else [])
+        return production_scope(self.cfg, self.ticket)
 
     def plan(self) -> list[str]:
         g = self.cfg.section("gate")
@@ -1902,6 +1899,12 @@ def hard_reason(cfg: Config, f: str, play: str, ticket: Ticket | None) -> str:
     if any(f.startswith(p[k].rstrip("/") + "/") for k in ("evidence", "reviews")):
         return "evidence or a review file, which only its own play writes"
     return ""
+
+
+def production_scope(cfg: Config, t: Ticket | None) -> list[str]:
+    """The globs the gate counts as production source: [tests] source_globs, else the
+    ticket's areas and shared."""
+    return cfg.section("tests").get("source_globs", []) or (t.areas + t.shared if t else [])
 
 
 def lead_write_set(cfg: Config) -> list[str]:

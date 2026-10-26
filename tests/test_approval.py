@@ -1152,7 +1152,6 @@ class ReviewPlay(Base):
         self.assertEqual(approval.parse(data["body"])["commit"], head)
 
 
-
 class TestFilesRecords(Base):
     """ADR-0007 in records mode: an approval names each file only test_files let the test play write."""
 
@@ -1185,6 +1184,7 @@ class TestFilesRecords(Base):
         self.fake.comments.clear()
         self.record("rev", self.head, body=self.named)
         self.assertEqual(self.approval()[0], 0)
+
 
 class Tooling(Base):
     def test_doctor_refuses_an_approval_nobody_can_give(self) -> None:
