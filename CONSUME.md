@@ -63,6 +63,11 @@ it, and `gate ci` fails until fixed entries are removed with `sdlc baseline --pr
 a ticket shipped after the baseline must still be proven. Scope, immutable, review-file,
 skills and ac-red are never baselined.
 
+A done ticket `gate ci` names as lacking real-stack proof cannot run its own test play again
+(`sdlc run` refuses a done ticket). Prove it with a `type: test` ticket: its real-stack tests carry
+their own AC tag and one of the done ticket's, e.g. `T-001-90/AC-1 proves T-001-05/AC-2`. One
+test ticket can prove several done tickets. The fallback is a waiver from the lead.
+
 A failure main already has that cannot be fixed yet (a flaky vendor test, a lint rule a hotfix
 cannot meet) gets a waiver in `sdlc-waivers.toml` (kit v1.4.0-rc1 or later), in a lead PR: an exact `key` and `count` as
 the gate prints it, an `owner`, a `reason` and an `expires` date at most `[waivers] max_days`

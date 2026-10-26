@@ -1168,8 +1168,11 @@ class Gate:
             if unproven:
                 c.status = "fail"
                 c.details += [f"{tid}: done, but no passing {names} test carries its tag" for tid in unproven]
+                # A done ticket's own test play cannot run again (sdlc run refuses a done ticket);
+                # a test ticket's real-stack tests may carry its AC tags (_real_stack_proof).
                 c.summary = (f"{len(unproven)} done ticket(s) without real-stack proof: {', '.join(unproven)}; "
-                             "run their test play")
+                             f"prove them with a type: test ticket whose {names} tests also carry one of their "
+                             "AC tags, or the lead waives them")
 
     def _shipped_lane(self, t: Ticket) -> str:
         """The lane a shipped ticket declares, as the base branch has it too, and the lanes its

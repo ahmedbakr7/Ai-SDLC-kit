@@ -7,6 +7,17 @@ behaviour that existing products keep passing (or that sit behind a setting), PA
 
 ## Unreleased
 
+## v5.2.1 (2026-10-26)
+
+- **`gate ci` names a remedy that works.** For a done ticket without real-stack proof it said
+  "run their test play", which `sdlc run` refuses for a done ticket (and the v3.0.0 upgrade note
+  said the same). It now says to prove them with a `type: test` ticket whose real-stack tests
+  also carry one of their AC tags, or to have the lead waive them. A test now shows that remedy
+  turns the check green. CONSUME.md describes it. Found in the Hangout pilot.
+- `sdlc lint`'s real-stack warning follows what the records-mode PR runs: the build list, the
+  pr list, and the test list only when the ticket has a test play (PR #56 and #57 reviews).
+  Upgrade: nothing required.
+
 ## v5.2.0 (2026-10-24)
 
 - **`sdlc plan <ticket>` (ADR-0006).** Before any build: the ticket's lane and every trigger that
