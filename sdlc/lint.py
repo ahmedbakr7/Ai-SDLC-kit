@@ -283,7 +283,45 @@ def lint_ticket(repo: Repo, t: Ticket, reqs: dict) -> list[Issue]:
             err(f"skill {s!r} not found (kit skills/, product skills/, or skills/vendor/)")
     if t.risk == "high" and not d.get("accepted_by"):
         out.append(Issue("warn", w, "risk: high ticket has no accepted_by (lead sign-off)"))
+    for msg in _test_files_problems(repo, t):
+        err(msg)
     out += _cannot_pass(repo, t, w)
+    return out
+
+
+def _test_files_problems(repo: Repo, t: Ticket) -> list[str]:
+    """ADR-0007: test_files widens the test play's write set, never into production source or
+    into what no play may change. A glob entry is judged by the entry itself and by every
+    existing file it matches."""
+    from .gate import hard_reason
+    from .lanes import NO_TEST_PLAY
+
+    v = t.data.get("test_files")
+    if v is None or v == "" or v == []:
+        return []
+    if not isinstance(v, list) or not all(isinstance(x, str) and x.strip() for x in v):
+        return ["test_files must be a list of paths or globs"]
+    if not t.test_play:
+        return [f"test_files has no effect: the ticket has no test play ({t.no_test_play_reason})"]
+    if t.lane in NO_TEST_PLAY:
+        return [f"test_files has no effect: the {t.lane} lane has no test play"]
+    cfg = repo.cfg
+    scope = cfg.section("tests").get("source_globs", []) or (t.areas + t.shared)
+    existing = None
+    out = []
+    for e in v:
+        hits = [e]
+        if set(e) & set("*?["):
+            existing = paths.repo_files(cfg.root) if existing is None else existing
+            hits += [f for f in existing if paths.match(f, e)]
+        prod = next((f for f in hits if f in scope or paths.match_any(f, scope)), None)
+        if prod:
+            out.append(f"test_files entry {e} covers production source {prod} (tests.source_globs, else the "
+                       "ticket's areas and shared); production code stays the build's")
+            continue
+        why = next((r for f in hits for r in [hard_reason(cfg, f, "test", t)] if r), "")
+        if why:
+            out.append(f"test_files entry {e} covers a file no play may write: {why}")
     return out
 
 
