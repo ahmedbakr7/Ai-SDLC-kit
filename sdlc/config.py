@@ -37,7 +37,12 @@ DEFAULTS: dict[str, Any] = {
         "skills_lock": "skills.lock.json",
         "baseline": "sdlc-baseline.json",   # known failures a red base branch started with
         "waivers": "sdlc-waivers.toml",     # dated, owned exceptions the lead adds (ADR-0002)
+        "assets": "assets.toml",            # declared binary files (ADR-0009)
     },
+    # ADR-0009: each binary file a branch changes must be declared in paths.assets with its
+    # sha256 and a generate command or a pinned source. "warn" reports undeclared or
+    # mismatched binaries and passes; "fail" fails the assets check.
+    "assets": {"mode": "warn"},
     # A waiver lasts at most max_days from the commit that added it; renewals at most twice that.
     "waivers": {"max_days": 90},
     # Shell commands. Placeholders: {junit} (JUnit XML output path), {port}, {base_url}.
@@ -45,27 +50,27 @@ DEFAULTS: dict[str, Any] = {
     "gate": {
         # Checks every play's gate runs, in order. A missing command for a
         # required check is a FAILURE, never a silent pass.
-        "build": ["artifacts", "scope", "immutable", "contracts", "lint", "typecheck", "unit", "ac-coverage", "ac-red",
+        "build": ["artifacts", "scope", "immutable", "assets", "contracts", "lint", "typecheck", "unit", "ac-coverage", "ac-red",
                   "test-quality", "duplication", "build", "smoke", "skills"],
-        "test": ["artifacts", "scope", "immutable", "contracts", "lint", "typecheck", "unit", "integration",
+        "test": ["artifacts", "scope", "immutable", "assets", "contracts", "lint", "typecheck", "unit", "integration",
                  "e2e", "ac-coverage", "test-quality", "build", "smoke", "skills"],
         "review": ["artifacts", "scope", "immutable", "review-file"],
-        "ci": ["artifacts", "immutable", "contracts", "lint", "typecheck", "unit", "integration", "e2e",
+        "ci": ["artifacts", "immutable", "assets", "contracts", "lint", "typecheck", "unit", "integration", "e2e",
                "ac-coverage", "test-quality", "duplication", "build", "smoke", "skills"],
         # One ticket's whole branch, as CI sees it: every file is in some play's write set,
         # status moved only legally, and a `done` ticket carries an approval of what ships.
-        "pr": ["artifacts", "scope", "immutable", "review-file"],
+        "pr": ["artifacts", "scope", "immutable", "assets", "review-file"],
         # Risk lanes (ADR-0001). A standard ticket runs the play lists above. A mechanical
         # ticket's build runs this list instead: every check `ci` runs, plus `mechanical` (the
         # diff is exactly the declared transforms). No ac-red, no test play.
-        "mechanical": ["artifacts", "scope", "immutable", "mechanical", "contracts", "lint", "typecheck",
+        "mechanical": ["artifacts", "scope", "immutable", "assets", "mechanical", "contracts", "lint", "typecheck",
                        "unit", "integration", "e2e", "ac-coverage", "test-quality", "duplication", "build",
                        "smoke", "skills"],
         # A refactor ticket (ADR-0004: the lead declares that behaviour does not change) runs the
         # build list with `refactor` in place of ac-red: its AC tests pass on the base and on the
         # head, existing tests only gain tags, and the production diff is not empty.
         # Like the mechanical lane it has no test play: the whole suite runs in its build.
-        "refactor": ["artifacts", "scope", "immutable", "contracts", "lint", "typecheck", "unit", "integration",
+        "refactor": ["artifacts", "scope", "immutable", "assets", "contracts", "lint", "typecheck", "unit", "integration",
                      "e2e", "ac-coverage", "refactor", "test-quality", "duplication", "build", "smoke", "skills"],
         # A strict ticket runs the standard lists plus these (build, test and pr plays). Its
         # real-stack suites may not be skipped.

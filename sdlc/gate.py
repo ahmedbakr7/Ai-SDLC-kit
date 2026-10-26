@@ -521,6 +521,36 @@ class Gate:
         return dest
 
     # -- checks -----------------------------------------------------------
+    def check_assets(self, c: Check) -> None:
+        """ADR-0009: each binary file the branch adds or changes is declared in paths.assets with a
+        matching sha256. A ticket play reads the declarations as the base branch has them (a ticket
+        PR may not change them: they are a lead artifact); a PR without a ticket reads its own,
+        which the lead's approval covers."""
+        from . import assets
+
+        mode = str(self.cfg.section("assets").get("mode", "warn"))
+        if mode not in ("warn", "fail"):
+            c.status, c.summary = "fail", f"assets.mode must be warn or fail, got {mode!r}"
+            return
+        try:
+            files = [f for f in assets.binaries(self.cfg.root, self.base) if f in set(self.changed())]
+        except gitutil.GitError as e:
+            c.status, c.summary = "fail", f"cannot list binary files: {e}"
+            return
+        if not files:
+            c.summary = "no binary files changed"
+            return
+        decl, bad = assets.declared(self.cfg, self.mb if self.ticket and self.mb else None)
+        problems = [f"{assets.rel_path(self.cfg)}: {b}" for b in bad] + assets.judge(self.cfg, files, decl)
+        c.details = problems
+        if not problems:
+            c.summary = f"{len(files)} binary file(s), each declared with a matching sha256"
+        elif mode == "fail":
+            c.status, c.summary = "fail", f"{len(problems)} binary file problem(s): declare each in {assets.rel_path(self.cfg)}"
+        else:
+            c.summary = (f"WARNING {len(problems)} binary file problem(s): declare each in {assets.rel_path(self.cfg)} "
+                         "(assets.mode = \"warn\")")
+
     def check_artifacts(self, c: Check) -> None:
         issues = lint.lint_repo(self.repo)
         errs = [i for i in issues if i.level == "error"]
@@ -1953,7 +1983,7 @@ def _kit_lead_paths(cfg: Config) -> list[str]:
 
     p = cfg.data["paths"]
     out = [f"{p[k]}/**" for k in ("intent", "design", "arch", "decisions", "tickets", "ops", "skills")]
-    out += [p["contracts"], p["skills_lock"], p.get("baseline", "sdlc-baseline.json"),
+    out += [p["contracts"], p["skills_lock"], p.get("baseline", "sdlc-baseline.json"), p.get("assets", "assets.toml"),
             p.get("waivers", waivers.DEFAULT_PATH), config.CONFIG_NAME,
             "AGENTS.md", *adapters.files(cfg),
             ".sdlc", ".sdlc/**", ".github/workflows/**"]  # the kit pin and CI that runs the gate
