@@ -1,9 +1,9 @@
 ---
 id: ADR-0009
 title: Binary files come from a declared generator or a pinned source, not from the agent
-status: proposed
-date: 2026-10-21
-source: Hangout pilot assessment ("agents can't commit binary files")
+status: accepted
+date: 2026-10-26
+source: Hangout pilot assessment ("agents can't commit binary files"); proposed 2026-10-21, accepted by the lead in the kit session
 ---
 
 # ADR-0009: Binary files come from a declared generator or a pinned source, not from the agent
@@ -28,10 +28,18 @@ Options considered:
 - **Leave binaries to humans in lead PRs.** That works today but couples asset work to the lead
   and leaves no record of where the bytes came from.
 
-## Proposed decision
+## Decision
 
-- Add declared assets as above.
-- Add an `assets` check for ticket plays and `gate ci`, plus `sdlc assets [--check]`.
+- Add declared assets in a repository-wide `assets.toml` (`paths.assets`), a lead artifact. Every
+  entry has a `path`, a `sha256` and exactly one of `generate` (a command) or `source` (an
+  `https://` URL). Declaring assets in a ticket is left for later: a ticket is written on the base
+  branch too, so it would add a second place to look without changing who declares.
+- Add an `assets` check for the build, test, PR, mechanical and refactor lists and `gate ci`, plus
+  `sdlc assets [--check]`. A ticket's gate reads `assets.toml` as the base branch has it; a PR
+  without a ticket reads its own, which the lead's approval covers.
+- The check is opt-in, so no product that passes today fails on upgrade: by default
+  (`[assets] mode = "warn"`) it reports undeclared or mismatched binaries and passes;
+  `mode = "fail"` fails it.
 - A binary is any file git reports as binary (`diff --numstat` shows `-`). That follows
   `.gitattributes` on purpose: a path marked `binary` or `-diff` counts, and a text file such as
   an SVG does not, even when generated. Whether a declared text asset is hash-checked too is an
@@ -49,4 +57,5 @@ Options considered:
 ## Open questions
 
 - Should vendored binaries (fonts, licensed images) carry a licence field the review must name?
-- Should a declared asset that git sees as text (a generated SVG) be hash-checked as well?
+- Should a declared asset that git sees as text (a generated SVG) be hash-checked as well? Not
+  today: only binaries are checked, and a text asset is reviewed as text.

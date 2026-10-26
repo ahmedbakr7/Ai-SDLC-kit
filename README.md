@@ -23,6 +23,7 @@ the model and into one command:
 | `artifacts` | a spec/plan/ticket/review is malformed, a reference does not resolve, deps form a cycle |
 | `lane` | the ticket's lane does not hold: a refactor, standard or strict ticket has no AC, a strict ticket has no lead sign-off on the base branch, a non-mechanical ticket was created in its own PR, or (on a PR) evidence ran in a looser lane than the branch needs |
 | `scope` | a lead artifact, another ticket or another play's file changed, the ticket was edited beyond amendments, or its status moved in a way the play's role may not; a file outside the ticket's areas is a flag the review must accept, not a failure |
+| `assets` | a binary file the branch adds or changes is not declared in `assets.toml` (a `generate` command or a pinned `source`, each with its sha256), or differs from its sha256; reported, and failing only with `[assets] mode = "fail"` (ADR-0009) |
 | `immutable` | an accepted ADR was edited, or an acceptance criterion was weakened, removed or added without its spec or an amendment line |
 | `mechanical` | the diff is not exactly the ticket's declared transforms, byte for byte (modes, line endings and binaries included; a move must move, never copy or overwrite); such a PR runs in the standard lane instead |
 | `contract-diff` | strict lane: a CONTRACTS key (its attributes, its prose section, a table's fields) changed that the ticket does not cite; removed and narrowed keys are reported as breaking, prose outside every key is reported |
@@ -70,6 +71,7 @@ it never trusts committed evidence on its own.
 | `sdlc init --profile nextjs` | scaffold `sdlc.toml`, folders, AGENTS.md, CI workflow, tool adapters |
 | `sdlc doctor` | fail if any required check could pass vacuously (missing command, no `{junit}`, no route extractor) |
 | `sdlc lint` / `sdlc trace` | validate artifacts; requirement → ticket → AC → passing test matrix |
+| `sdlc assets [--check]` | produce or fetch each binary declared in `assets.toml` and verify its sha256; `--check` only verifies (ADR-0009) |
 | `sdlc plan T-001-03` | before any build: the ticket's lane and what can raise it, each play's checks and write set, the proof each AC owes; `--json` for tools |
 | `sdlc status` | every ticket: status, dependencies not yet done, and (records mode) the unmerged branches building it; `--json` for tools |
 | `sdlc next` | the next ticket whose dependencies are done and that no unmerged branch is building |

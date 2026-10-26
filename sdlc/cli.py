@@ -88,6 +88,31 @@ def cmd_plan(args) -> int:
     return 0
 
 
+def cmd_assets(args) -> int:
+    """ADR-0009: produce or fetch each declared binary and verify its sha256; --check only verifies."""
+    from . import assets
+
+    cfg = _cfg(args)
+    decl, probs = assets.declared(cfg)
+    for p in probs:
+        print(f"ERROR {assets.rel_path(cfg)}: {p}")
+    bad = len(probs)
+    for a in decl:
+        f = cfg.root / a.path
+        if f.is_file() and assets.sha256(f) == a.sha256:
+            print(f"ok    {a.path}")
+            continue
+        if args.check:
+            print(f"ERROR {a.path}: " + ("missing" if not f.is_file() else "sha256 differs from the declaration"))
+            bad += 1
+            continue
+        why = assets.produce(cfg, a)
+        print(f"ERROR {why}" if why else f"made  {a.path}")
+        bad += bool(why)
+    print(f"assets: {len(decl)} declared, " + ("all match" if not bad else f"{bad} problem(s)"))
+    return EXIT_FAIL if bad else 0
+
+
 def cmd_next(args) -> int:
     cfg = _cfg(args)
     q = tickets.ready_queue(Repo(cfg))
@@ -860,6 +885,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--base", help="base branch (default vcs.base)")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_plan)
+
+    p = sp.add_parser("assets", help="produce or fetch the declared binary files and verify them (ADR-0009)",
+                      description="Runs each generate command or fetches each pinned source in paths.assets "
+                                  "(assets.toml) and verifies its sha256. --check verifies only: no commands, "
+                                  "no network.")
+    p.add_argument("--check", action="store_true")
+    p.set_defaults(fn=cmd_assets)
 
     p = sp.add_parser("next", help="print the next ticket a build agent should take")
     p.add_argument("--all", action="store_true")

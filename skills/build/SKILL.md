@@ -25,7 +25,9 @@ definition of done. Read the files named in `areas:` and `shared:` before editin
    you need one of those, stop). Also search the pattern skills for helpers you must
    reuse (db client, auth/role checks, error envelope, API client, formatting).
    Never re-implement one in your file, even when your write set seems to force it:
-   that is a stop, not a workaround.
+   that is a stop, not a workaround. A binary file (icon, font, fixture image) comes
+   from `sdlc assets`, which builds or fetches what `assets.toml` declares; one that is
+   not declared is a stop for the lead (ADR-0009), never bytes you write yourself.
 3. **Red.** For each AC, write the test first, named with its tag:
    - JS/TS: `it("T-001-03/AC-2 unknown id answers 404 not_found", ...)`
    - Python: docstring or name containing `T-001-03/AC-2`

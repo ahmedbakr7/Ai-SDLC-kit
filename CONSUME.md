@@ -102,6 +102,20 @@ and a failed teardown fails the gate. Commands also see `SDLC_RUN_ID`. An auto p
 the gate picks it; another process could take it before the app binds, which smoke reports as a
 busy port (rerun the gate).
 
+Binary files (icons, fonts, fixture images) are declared, not hand-made (kit v5.5.0, ADR-0009).
+The lead lists each in `assets.toml` with its sha256 and either a `generate` command run from
+committed text sources or a pinned `source` URL:
+
+    [[asset]]
+    path = "public/logo.png"
+    sha256 = "<64 hex>"
+    generate = "node tools/render-logo.js"
+
+`sdlc assets` produces or fetches each one and verifies it; `sdlc assets --check` only verifies.
+The `assets` check reports every binary a branch adds or changes that is undeclared or differs
+from its sha256. It passes with a warning until the lead sets `[assets] mode = "fail"`. A ticket's
+gate reads `assets.toml` as the base branch has it: declare an asset in a lead PR first.
+
 Commit, then mark the `gate` job required in branch protection.
 
 ## 3. Run the pipeline
